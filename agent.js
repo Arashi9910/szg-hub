@@ -35,17 +35,36 @@ function agentMain(ctx) {
       });
     }
 
+    // 送指令給遊戲伺服器：
+    //  - 「忙碌／稍後重試」：等 2、4、6 秒重送，最多 4 次
+    //  - 「遊戲已更新，請重新整理」：這個頁面已經過期，自動重新整理（交易進度存在遊戲伺服器上，重整後會接著做）
+    let reloadingForGameUpdate = false;
     async function game(action) {
       const characterId = sessionStorage.getItem('mapleCharacter');
-      const r = await fetch('/api/game', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...action, characterId }),
-      });
-      let j = null;
-      try { j = await r.json(); } catch (_) {}
-      if (!r.ok || (j && j.error)) throw new Error((j && (j.error || j.message)) || ('HTTP ' + r.status));
-      return j;
+      for (let attempt = 0; ; attempt++) {
+        const r = await fetch('/api/game', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...action, characterId }),
+        });
+        let j = null;
+        try { j = await r.json(); } catch (_) {}
+        if (r.ok && !(j && j.error)) return j;
+        const msg = (j && (j.error || j.message)) || ('HTTP ' + r.status);
+        if (/遊戲已更新|重新整理後/.test(msg)) {
+          if (!reloadingForGameUpdate) {
+            reloadingForGameUpdate = true;
+            setBadge(null, '遊戲有新版本，3 秒後自動重新整理頁面');
+            setTimeout(() => location.reload(), 3000);
+          }
+          const e = new Error(msg); e.gameUpdated = true; throw e;
+        }
+        if (/忙碌|稍後重試|稍後再試|too many|busy/i.test(msg) && attempt < 3) {
+          await new Promise(res => setTimeout(res, 2000 * (attempt + 1)));
+          continue;
+        }
+        throw new Error(msg);
+      }
     }
 
     function readState() {
@@ -478,10 +497,10 @@ function agentMain(ctx) {
               await report(job, { event: 'log', msg: `${label}：沒有可交易的東西，略過。${skipped.length ? '略過：' + skipped.join('、') : ''}` });
               return report(job, { event: 'batchDone', tradeId: null, skippedEmpty: true });
             }
-            L.invites++;
             step('invited');
             setBadge(null, `${label}：送出邀請給 ${job.toName}`);
             await game({ type: 'tradeInvite', code: job.toCode });
+            L.invites++; // 只有成功送出的邀請才算次數
             return report(job, { event: 'log', msg: `${label}：已送出邀請` });
           }
           L.tradeId = t.id;
@@ -547,10 +566,10 @@ function agentMain(ctx) {
         }
       } catch (e) {
         console.warn('[szg-hub agent]', e);
-        setBadge(null, '交易錯誤：' + e.message);
+        setBadge(null, e && e.gameUpdated ? '遊戲有新版本，正在重新整理頁面…' : '交易錯誤：' + e.message);
         try {
           const res = await hub('GET', `/api/agent?code=${encodeURIComponent(account && account.playerCode || '')}&charId=`);
-          if (res && res.job) await report(res.job, { event: 'log', msg: '遊戲回應錯誤：' + e.message });
+          if (res && res.job) await report(res.job, { event: 'log', msg: e && e.gameUpdated ? '遊戲有新版本，頁面自動重新整理中' : '遊戲回應錯誤：' + e.message });
         } catch (_) {}
       } finally {
         agentRunning = false;
