@@ -75,6 +75,7 @@
     <button data-tab="res">資源</button>
     <button data-tab="trade">交易</button>
     <button data-tab="bag">背包</button>
+    <button data-tab="quiz">知識王</button>
   </nav>
   <div id="updBox"></div>
   <div id="status">連線中…</div>
@@ -225,6 +226,23 @@
       </div>
       <div class="dim" style="margin-bottom:6px">賣出會自動跳過：已鎖定的、補給設定使用中的藥水；穿在身上的裝備不會出現在這裡。「一鍵全賣」只選有售價的道具與未鎖定的背包裝備。</div>
       <div id="bagOut" style="max-height:620px;overflow:auto"></div>
+    </div>
+  </section>
+  <!-- 知識王 -->
+  <section id="quiz">
+    <div class="card">
+      <h3>知識王自動作答</h3>
+      <div class="bar">
+        <label><input type="checkbox" id="quizAuto"> 開啟自動作答</label>
+        <span class="dim" id="quizCount"></span>
+      </div>
+      <div class="dim">開啟後，每個帳號的遊戲分頁會每 45 秒檢查一次：今天還有次數就開始答題，題庫有的直接答。遇到題庫沒有的題目會停在那題（遊戲作答不限時），題目會出現在下面，你選好答案後會自動接著答。不論自動或手動作答，答完看到的正確答案都會自動收進題庫。</div>
+    </div>
+    <div class="card"><h3>等你作答的題目</h3><div id="quizUnknown"></div></div>
+    <div class="card"><h3>各帳號今日狀態</h3><div id="quizStatus"></div></div>
+    <div class="card">
+      <details><summary>最近學到的題目</summary><div id="quizLearned"></div></details>
+      <details><summary>紀錄</summary><div id="quizLog"></div></details>
     </div>
   </section>
 </main>
@@ -1065,6 +1083,43 @@ document.addEventListener('input', e => {
   }
 });
 
+
+// ================= 知識王 =================
+let QUIZ = null;
+async function loadQuiz() { try { QUIZ = await (await fetch('/api/quiz')).json(); } catch (_) {} }
+function renderQuiz() {
+  if (!QUIZ) { loadQuiz().then(() => QUIZ && renderQuiz()); return; }
+  $('#quizAuto').checked = !!QUIZ.auto;
+  $('#quizCount').textContent = `題庫共 ${QUIZ.count} 題`;
+  const unk = QUIZ.unknown || [];
+  $('#quizUnknown').innerHTML = unk.length ? unk.map(u => `<div style="margin:8px 0"><div><b>${esc(u.q)}</b> <span class="dim">${esc(u.by || '')}</span></div><div class="bar">${
+    u.options.map(o => `<button class="btn" data-quizans="${esc(JSON.stringify({ q: u.q, options: u.options, answer: o }))}">${esc(o)}</button>`).join('')}</div></div>`).join('')
+    : '<span class="dim">目前沒有</span>';
+  const latest = latestByAccount();
+  const rows = Object.entries(latest).map(([acc, s]) => {
+    const k = s.knowledge;
+    const st = !k ? '<span class="dim">腳本尚未回報</span>'
+      : k.round && !k.round.done ? `<span class="warn">作答中：第 ${(k.round.index || 0) + 1} 題，已答對 ${k.round.correct || 0}</span>`
+      : `今日剩 <b>${k.remaining ?? '?'}</b> 次${k.round && k.round.done ? `　上一輪 ${k.round.correct}/5` : ''}`;
+    return `<tr><td>${esc(accountLabel(acc, s))}</td><td>${st}</td><td class="dim">${clock(s.at)}</td></tr>`;
+  });
+  $('#quizStatus').innerHTML = `<table><tr><th>帳號</th><th>狀態</th><th>更新</th></tr>${rows.join('')}</table>`;
+  $('#quizLearned').innerHTML = (QUIZ.learned || []).slice().reverse().map(x => `<div>${esc(x.q)} → <b>${esc(x.answer)}</b> <span class="dim">${esc(x.by || '')}</span></div>`).join('') || '<span class="dim">還沒有</span>';
+  $('#quizLog').innerHTML = (QUIZ.log || []).slice().reverse().map(l => `<div><span class="dim">${clock(l.at)}</span> ${esc(l.msg)}</div>`).join('') || '<span class="dim">還沒有</span>';
+}
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-quizans]'); if (!b) return;
+  const body = JSON.parse(b.dataset.quizans);
+  if (!confirm(`確定答案是「${body.answer}」？\n\n${body.q}`)) return;
+  await api('/api/quiz/learn', { ...body, by: '面板' });
+  await loadQuiz(); renderQuiz();
+});
+document.addEventListener('change', async e => {
+  if (e.target.id !== 'quizAuto') return;
+  await saveSettings({ quizAuto: e.target.checked });
+  await loadQuiz(); renderQuiz();
+});
+
 // ================= 主流程 =================
 function renderAll() {
   const active = document.querySelector('nav button.on').dataset.tab;
@@ -1073,6 +1128,7 @@ function renderAll() {
   if (active === 'res') renderRes();
   if (active === 'trade') renderTrade();
   if (active === 'bag') renderBag();
+  if (active === 'quiz') loadQuiz().then(renderQuiz);
 }
 
 async function poll(force) {

@@ -280,6 +280,8 @@ function agentMain(ctx) {
           gearBagCount: (c.equipmentBag || []).length,
           itemStackCount: (c.inventoryStacks || []).length,
         },
+        knowledge: (() => { const k = lastKnowledge || state.knowledge; return k ? { ready: !!k.ready, remaining: k.remaining,
+          round: k.round ? { index: k.round.index, done: !!k.round.done, correct: k.round.correct } : null } : undefined; })(),
         gear, items,
       };
     }
@@ -307,7 +309,7 @@ function agentMain(ctx) {
         await loadCatalog();
         try { await loadAccount(); } catch (_) {}
         const snap = buildSnapshot(state);
-        const hash = JSON.stringify([snap.char, snap.playerCode, snap.eligibleKnown, snap.gear.map(g => g.uid + g.plus + g.loc + g.locked).join('|'), snap.items.map(i => i.key + i.qty + i.loc + i.tradableQty + i.lockedQty).join('|')]);
+        const hash = JSON.stringify([snap.char, snap.playerCode, snap.eligibleKnown, snap.knowledge, snap.gear.map(g => g.uid + g.plus + g.loc + g.locked).join('|'), snap.items.map(i => i.key + i.qty + i.loc + i.tradableQty + i.lockedQty).join('|')]);
         const now = Date.now();
         if (hash !== lastHash || now - lastSent > HEARTBEAT_MS) {
           lastHash = hash; lastSent = now;
@@ -474,6 +476,87 @@ function agentMain(ctx) {
           if (prev === true && !sib.auto && !panelStopped(sib.id)) await act(sib.id, sib.name, 'start', '掛機已停止（可能到期）');
         }
       } catch (e) { console.warn('[szg-hub idle]', e); }
+    }
+
+    // ---------- 知識王 ----------
+    //  - 不管是你手動作答還是自動作答，答完都會看到正確答案（綠框），一律回報到中控題庫
+    //  - 面板開啟「自動作答」時：題庫有答案就直接答；遇到題庫沒有的題目就停下來（作答不限時），
+    //    把題目送到面板讓你選答案，選完之後會自動接著答
+    const qnorm = s => String(s || '').replace(/[\s　]+/g, '').replace(/[「」『』《》〈〉？?！!。，,、：:；;（）()【】"'“”‘’…·．.]/g, '').toLowerCase();
+    const learnedSent = new Set();
+    function learnFrom(j) {
+      const f = j && j.knowledge && j.knowledge.round && j.knowledge.round.feedback;
+      if (!f || !f.text || !Array.isArray(f.options) || typeof f.correctIndex !== 'number' || !f.options[f.correctIndex]) return;
+      const key = qnorm(f.text) + '|' + f.correctIndex;
+      if (learnedSent.has(key)) return;
+      learnedSent.add(key);
+      const c = readState() && readState().character;
+      hub('POST', '/api/quiz/learn', { q: f.text, options: f.options, answer: f.options[f.correctIndex], charId: c && c.id,
+        by: c && c.name, correct: f.selected === f.correctIndex }).catch(() => {});
+    }
+    // 監看頁面自己的作答請求（你手動作答時也能學）
+    (function hookKnowledge() {
+      try {
+        if (!W || W.__szgKnowHook) return;
+        W.__szgKnowHook = true;
+        const orig = W.fetch;
+        W.fetch = function (input, init) {
+          const p = orig.apply(this, arguments);
+          try {
+            const body = init && typeof init.body === 'string' ? init.body : '';
+            if (body.indexOf('"knowledgeAnswer"') >= 0) p.then(r => r.clone().json()).then(learnFrom).catch(() => {});
+          } catch (_) {}
+          return p;
+        };
+      } catch (e) { console.warn('[szg-hub] knowledge hook failed', e); }
+    })();
+
+    let quizRunning = false;
+    let lastKnowledge = null;
+    async function quizTick() {
+      if (quizRunning || agentBusy || agentRunning) return;
+      quizRunning = true;
+      try {
+        const state = readState();
+        if (!state || !state.character) return;
+        const cfg = await hub('GET', '/api/quiz');
+        const charId = state.character.id;
+        let j = await game({ type: 'sync' });
+        let k = j && j.knowledge;
+        if (k) lastKnowledge = k;
+        if (!cfg.auto || !k || !k.ready) return;
+        const log = msg => hub('POST', '/api/quiz/log', { charId, msg }).catch(() => {});
+        for (let guard = 0; guard < 40; guard++) {
+          const r = k.round;
+          if (!r || r.done) {
+            if (!(k.remaining > 0)) return;
+            setBadge(null, `知識王：開始新一輪（今日剩 ${k.remaining} 次）`);
+            j = await game({ type: 'knowledgeStart' });
+            k = j.knowledge; await log(`開始新一輪（今日剩 ${k && k.remaining}）`);
+            continue;
+          }
+          const q = r.question;
+          if (!q) { await new Promise(res => setTimeout(res, 1500)); j = await game({ type: 'sync' }); k = j.knowledge; continue; }
+          const ans = cfg.answers[qnorm(q.text)];
+          const idx = ans == null ? -1 : q.options.findIndex(o => qnorm(o) === qnorm(ans));
+          if (idx < 0) {
+            await hub('POST', '/api/quiz/unknown', { q: q.text, options: q.options, charId });
+            setBadge(null, `知識王：第 ${r.index + 1} 題題庫沒有，等你在面板選答案`);
+            return;
+          }
+          setBadge(null, `知識王：第 ${r.index + 1} 題 → ${q.options[idx]}`);
+          await new Promise(res => setTimeout(res, 800 + Math.random() * 700));
+          j = await game({ type: 'knowledgeAnswer', round: r.id, index: r.index, answer: idx });
+          learnFrom(j);
+          const f = j.knowledge && j.knowledge.round && j.knowledge.round.feedback;
+          if (f && typeof f.correctIndex === 'number' && f.selected !== f.correctIndex) await log(`答錯：${q.text}（選 ${q.options[idx]}，正解 ${f.options[f.correctIndex]}），已更正題庫`);
+          k = j.knowledge; if (k) lastKnowledge = k;
+          if (k && k.round && k.round.done) await log(`本輪結束：答對 ${k.round.correct}/5`);
+        }
+      } catch (e) {
+        console.warn('[szg-hub quiz]', e);
+        hub('POST', '/api/quiz/log', { msg: '自動作答出錯：' + e.message }).catch(() => {});
+      } finally { quizRunning = false; }
     }
 
     async function runBagJob(job, state, charId) {
@@ -686,6 +769,8 @@ function agentMain(ctx) {
       setInterval(agentTick, AGENT_MS);
       setTimeout(idleTick, 15000);
       setInterval(idleTick, 30000);
+      setTimeout(quizTick, 25000);
+      setInterval(quizTick, 45000);
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
     else start();

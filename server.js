@@ -97,6 +97,20 @@ try {
   db = { ...db, ...loaded, jobs: loaded.jobs || [], settings: { ...db.settings, ...(loaded.settings || {}) } };
 } catch (_) { /* 第一次啟動 */ }
 
+// ---- 知識王題庫：隨程式更新的 quiz-bank.json ＋ 各帳號作答時自動學到的（存在 data/state.json） ----
+const QUIZ_FILE = path.join(__dirname, 'quiz-bank.json');
+const qnorm = s => String(s || '').replace(/[\s　]+/g, '').replace(/[「」『』《》〈〉？?！!。，,、：:；;（）()【】"'“”‘’…·．.]/g, '').toLowerCase();
+function quizStore() { return db.quiz || (db.quiz = { learned: {}, unknown: {}, log: [] }); }
+function quizBank() {
+  const bank = {};
+  try {
+    for (const x of JSON.parse(fs.readFileSync(QUIZ_FILE, 'utf8')).questions || []) if (x.q && x.answer) bank[qnorm(x.q)] = { q: x.q, options: x.options || [], answer: x.answer, src: 'bank' };
+  } catch (_) {}
+  for (const [k, x] of Object.entries(quizStore().learned)) bank[k] = { ...x, src: 'learned' };
+  return bank;
+}
+function quizLog(msg) { const q = quizStore(); q.log.push({ at: Date.now(), msg: String(msg).slice(0, 200) }); if (q.log.length > 200) q.log.splice(0, q.log.length - 200); }
+
 let saveTimer = null;
 let saveFailed = false;
 function save() {
@@ -376,6 +390,44 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/jobs/approve-all') {
       for (const j of db.jobs) if (j.status === 'pending') { j.status = 'approved'; j.approvedAt = Date.now(); jobLog(j, '已確認，排隊等待執行'); }
       save();
+      return send(res, 200, { ok: true });
+    }
+
+    // ---- 知識王 ----
+    if (req.method === 'GET' && url.pathname === '/api/quiz') {
+      const bank = quizBank();
+      const answers = {};
+      for (const [k, x] of Object.entries(bank)) answers[k] = x.answer;
+      const st = quizStore();
+      return send(res, 200, { auto: !!db.settings.quizAuto, answers, count: Object.keys(bank).length,
+        unknown: Object.values(st.unknown), learned: Object.values(st.learned).slice(-100), log: st.log.slice(-50) });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/quiz/learn') {
+      const e = JSON.parse(await readBody(req));
+      if (!e || !e.q || !e.answer) return send(res, 400, { error: '缺少題目或答案' });
+      const k = qnorm(e.q), st = quizStore();
+      const known = quizBank()[k];
+      if (!known || qnorm(known.answer) !== qnorm(e.answer)) {
+        st.learned[k] = { q: String(e.q), options: (e.options || []).map(String), answer: String(e.answer), by: e.by || (e.charId ? charName(e.charId) : ''), at: Date.now() };
+        quizLog(`${known ? '更正' : '新增'}：${e.q} → ${e.answer}${e.by ? '（' + e.by + '）' : ''}`);
+      }
+      delete st.unknown[k];
+      save();
+      return send(res, 200, { ok: true });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/quiz/unknown') {
+      const e = JSON.parse(await readBody(req));
+      if (e && e.q) {
+        const k = qnorm(e.q), st = quizStore();
+        if (!st.unknown[k]) quizLog(`題庫沒有，等你作答：${e.q}`);
+        st.unknown[k] = { q: String(e.q), options: (e.options || []).map(String), by: e.charId ? charName(e.charId) : '', at: Date.now() };
+        save();
+      }
+      return send(res, 200, { ok: true });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/quiz/log') {
+      const e = JSON.parse(await readBody(req));
+      if (e && e.msg) { quizLog((e.charId ? charName(e.charId) + '：' : '') + e.msg); save(); }
       return send(res, 200, { ok: true });
     }
 

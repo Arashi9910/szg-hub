@@ -1,6 +1,6 @@
 {
-  "version": "0.8.2",
-  "notes": "交易每格最多 9999 個：超過的道具自動拆成多份、分到不同批次交易",
+  "version": "0.9.0",
+  "notes": "新增知識王：題庫（含已驗證 15 題）、自動學習正確答案、可開啟自動作答，題庫沒有的題目在面板上選答案",
   "files": [
     "server.js",
     "update.js",
@@ -8,6 +8,7 @@
     "dashboard.html",
     "szg-hub.user.js",
     "README.md",
-    "version.json"
+    "version.json",
+    "quiz-bank.json"
   ]
 }
