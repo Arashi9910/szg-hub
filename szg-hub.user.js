@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         上漲谷中控 - 資料回報
 // @namespace    szg-hub
-// @version      0.4.0
+// @version      0.5.0
 // @description  回報角色資料到中控面板；執行你在面板上確認過的交易工作（收集／分發）
 // @match        https://play.szg08.com/game/*
 // @grant        GM_xmlhttpRequest
@@ -121,8 +121,18 @@
   }
   function itemInfo(key) {
     const it = catalog.items[key] || catalog.scrolls[key];
-    if (!it) return { name: key, kind: '其他' };
-    return { name: it.name || key, kind: it.type || (catalog.scrolls[key] ? '卷軸' : '其他') };
+    if (!it) return { name: key, kind: '其他', cat: 'etc', sellPrice: 0, itemId: 0 };
+    const kind = it.type || (catalog.scrolls[key] ? '卷軸' : '其他');
+    return { name: it.name || key, kind, cat: bagCat(it.id, kind), sellPrice: it.sellPrice || 0, itemId: it.id || 0 };
+  }
+  // 遊戲背包分類：依物品編號開頭（2 消耗、3 裝飾、4 其他、5 點數）
+  function bagCat(id, kind) {
+    const head = Math.floor((Number(id) || 0) / 1000000);
+    if (head === 2) return 'consume';
+    if (head === 3) return 'setup';
+    if (head === 4) return 'etc';
+    if (head === 5) return 'cash';
+    return kind === '消耗' || kind === '卷軸' ? 'consume' : 'etc';
   }
 
   // 補給中使用的道具（不收集）
@@ -198,16 +208,19 @@
     for (const g of c.equipmentBag || []) gear.push(gearRow(g, '背包'));
     for (const g of c.warehouseGear || []) gear.push(gearRow(g, '倉庫'));
 
+    const stacksByKey = {};
+    for (const st of c.inventoryStacks || []) (stacksByKey[st.key] || (stacksByKey[st.key] = [])).push({ uid: st.uid, qty: st.qty, locked: !!st.locked });
     const items = [];
     for (const [key, qty] of Object.entries(inv)) {
       if (!qty) continue;
       const info = itemInfo(key);
-      items.push({ key, name: info.name, kind: info.kind, qty, loc: '背包', supply: supKeys.has(key), tradableQty: itemTradableQty(c, key, locked) });
+      items.push({ key, name: info.name, kind: info.kind, cat: info.cat, itemId: info.itemId, sellPrice: info.sellPrice, qty, loc: '背包',
+        supply: supKeys.has(key), tradableQty: itemTradableQty(c, key, locked), lockedQty: locked[key] || 0, stacks: stacksByKey[key] || [] });
     }
     for (const [key, qty] of Object.entries(c.warehouse || {})) {
       if (!qty) continue;
       const info = itemInfo(key);
-      items.push({ key, name: info.name, kind: info.kind, qty, loc: '倉庫', supply: false, tradableQty: 0 });
+      items.push({ key, name: info.name, kind: info.kind, cat: info.cat, qty, loc: '倉庫', supply: false, tradableQty: 0, lockedQty: 0, stacks: [] });
     }
 
     const chars = (state.characters || []).map(x => ({ id: x.id, name: x.name, lv: x.lv, job: x.job, auto: x.auto }));
@@ -265,7 +278,7 @@
       await loadCatalog();
       try { await loadAccount(); } catch (_) {}
       const snap = buildSnapshot(state);
-      const hash = JSON.stringify([snap.char, snap.playerCode, snap.eligibleKnown, snap.gear.map(g => g.uid + g.plus + g.loc + g.locked).join('|'), snap.items.map(i => i.key + i.qty + i.loc + i.tradableQty).join('|')]);
+      const hash = JSON.stringify([snap.char, snap.playerCode, snap.eligibleKnown, snap.gear.map(g => g.uid + g.plus + g.loc + g.locked).join('|'), snap.items.map(i => i.key + i.qty + i.loc + i.tradableQty + i.lockedQty).join('|')]);
       const now = Date.now();
       if (hash !== lastHash || now - lastSent > HEARTBEAT_MS) {
         lastHash = hash; lastSent = now;
@@ -333,6 +346,67 @@
     try { await hub('POST', '/api/agent/report', { jobId: job.id, batchIndex: job.batchIndex, ...ev }); } catch (_) {}
   }
 
+
+  // ---------- 背包操作：賣出／鎖定／解鎖 ----------
+  // 在回應裡找報價單（有 id 與 rows 的物件）
+  function findQuote(o, depth = 0) {
+    if (!o || typeof o !== 'object' || depth > 4) return null;
+    if (o.id && Array.isArray(o.rows)) return o;
+    for (const v of Object.values(o)) { const q = findQuote(v, depth + 1); if (q) return q; }
+    return null;
+  }
+  async function runBagJob(job, state, charId) {
+    if (charId !== job.fromCharId) {
+      setBadge(null, `背包工作等待中：請切到「${job.fromName}」`);
+      return report(job, { event: 'waiting', msg: `等待切換到 ${job.fromName}` });
+    }
+    const c = state.character;
+    const stackOk = new Map((c.inventoryStacks || []).map(s => [s.uid, s]));
+    const gearOk = new Map((c.equipmentBag || []).map(g => [g.uid, g]));
+    const b = job.batches[0];
+    const rid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+    if (job.kind === 'lock' || job.kind === 'unlock') {
+      const want = job.kind === 'lock';
+      const ids = [...(b.items || []).flatMap(i => i.uids || []).filter(u => stackOk.has(u)), ...(b.gear || []).map(g => g.uid).filter(u => gearOk.has(u))];
+      if (!ids.length) { await report(job, { event: 'log', msg: '找不到要處理的物品（可能已經不在背包）' }); return report(job, { event: 'batchDone', skippedEmpty: true }); }
+      setBadge(null, `${want ? '鎖定' : '解鎖'} ${ids.length} 項…`);
+      await game({ type: 'inventoryLock', ids, locked: want, batch: true, requestId: rid() });
+      await report(job, { event: 'log', msg: `已${want ? '鎖定' : '解鎖'} ${ids.length} 項` });
+      return report(job, { event: 'batchDone' });
+    }
+    if (job.kind === 'sell') {
+      // 第二次檢查：已鎖定、已不在背包、補給中的道具一律不賣
+      const sup = supplyKeys(c);
+      const groups = {};
+      const skipped = [];
+      for (const it of b.items || []) {
+        if (sup.has(it.key)) { skipped.push(it.name + '（補給中）'); continue; }
+        const uids = (it.uids || []).filter(u => stackOk.has(u) && !stackOk.get(u).locked);
+        if (!uids.length) { skipped.push(it.name); continue; }
+        (groups[it.cat || 'consume'] || (groups[it.cat || 'consume'] = [])).push(...uids);
+      }
+      for (const g of b.gear || []) {
+        const cur = gearOk.get(g.uid);
+        if (!cur || cur.locked) { skipped.push(g.name); continue; }
+        (groups.equip || (groups.equip = [])).push(g.uid);
+      }
+      if (skipped.length) await report(job, { event: 'log', msg: '略過（已鎖定／不在背包／補給中）：' + skipped.join('、') });
+      let total = 0, count = 0;
+      for (const [category, ids] of Object.entries(groups)) {
+        setBadge(null, `賣出 ${ids.length} 項（${category}）…`);
+        const qr = await game({ type: 'inventoryQuote', category, ids });
+        const q = findQuote(qr);
+        if (!q) return report(job, { event: 'error', msg: `取得報價失敗（${category}），回應欄位：${Object.keys(qr || {}).join(',')}` });
+        if (q.rows.length > ids.length) return report(job, { event: 'error', msg: `報價單有 ${q.rows.length} 項，比選擇的 ${ids.length} 項多，已停止` });
+        await game({ type: 'inventorySell', quoteId: q.id, requestId: rid() });
+        total += Number(q.total) || 0; count += q.rows.length;
+      }
+      await report(job, { event: 'log', msg: `已賣出 ${count} 項，共 ${total.toLocaleString()} 楓幣` });
+      return report(job, { event: 'batchDone' });
+    }
+    return report(job, { event: 'error', msg: '未知的工作類型：' + job.kind });
+  }
+
   async function agentTick() {
     if (agentRunning) return;
     agentRunning = true;
@@ -345,6 +419,7 @@
       const job = res && res.job;
       if (!job) { if (agentBusy) { agentBusy = false; setBadge('ok'); } return; }
       agentBusy = true;
+      if (res.role === 'owner') return await runBagJob(job, state, charId);
       const role = res.role; // 'giver' | 'receiver'
       const batch = job.batches[job.batchIndex];
       const L = local[job.id] || (local[job.id] = { batchIndex: -1 });

@@ -109,7 +109,27 @@ function jobLog(job, msg) {
 }
 function publicJob(j) { return j; }
 
+const BAG_KINDS = new Set(['sell', 'lock', 'unlock']);
+function createBagJob(body) {
+  const owner = db.chars[body.fromCharId];
+  if (!owner) throw new Error('找不到角色資料');
+  if (!owner.playerCode) throw new Error('角色還沒回報 12 碼 ID，請先更新腳本並打開遊戲頁面');
+  const b = (body.batches || [])[0] || {};
+  if (!(b.items || []).length && !(b.gear || []).length) throw new Error('沒有選擇任何物品');
+  const job = {
+    id: crypto.randomBytes(6).toString('hex'), kind: body.kind, status: 'pending', createdAt: Date.now(),
+    fromCharId: owner.char.id, fromName: owner.char.name, fromCode: owner.playerCode,
+    toCharId: owner.char.id, toName: owner.char.name, toCode: owner.playerCode,
+    batches: [{ items: b.items || [], gear: b.gear || [], money: 0 }], batchIndex: 0, log: [], lastMsg: '',
+    estimate: Number(body.estimate) || 0,
+  };
+  db.jobs.push(job);
+  save();
+  return job;
+}
+
 function createJob(body) {
+  if (BAG_KINDS.has(body.kind)) return createBagJob(body);
   const from = db.chars[body.fromCharId], to = db.chars[body.toCharId];
   if (!from || !to) throw new Error('找不到角色資料');
   if (!from.playerCode || !to.playerCode) throw new Error('角色還沒回報 12 碼 ID，請先更新腳本並打開遊戲頁面');
@@ -256,6 +276,7 @@ const server = http.createServer(async (req, res) => {
       const code = url.searchParams.get('code') || '';
       const job = currentJobFor(code);
       if (!job) return send(res, 200, { job: null });
+      if (BAG_KINDS.has(job.kind)) return send(res, 200, { job, role: 'owner', peerReady: true });
       const role = job.fromCode === code ? 'giver' : 'receiver';
       const peer = role === 'giver' ? job.toCode : job.fromCode;
       // 對方帳號也必須以這個工作為優先，才開始（避免同時跟兩個人交易）
@@ -272,7 +293,7 @@ const server = http.createServer(async (req, res) => {
       if (ev.event === 'log' || ev.event === 'waiting') { jobLog(job, ev.msg); job.lastMsg = ev.msg; }
       if (ev.event === 'error') { job.status = 'failed'; jobLog(job, '失敗：' + ev.msg); job.lastMsg = ev.msg; }
       if (ev.event === 'batchDone') {
-        jobLog(job, ev.skippedEmpty ? `第 ${job.batchIndex + 1} 批沒有東西，略過` : `第 ${job.batchIndex + 1} 批交易完成`);
+        jobLog(job, BAG_KINDS.has(job.kind) ? '完成' : ev.skippedEmpty ? `第 ${job.batchIndex + 1} 批沒有東西，略過` : `第 ${job.batchIndex + 1} 批交易完成`);
         job.batchIndex++;
         if (job.batchIndex >= job.batches.length) { job.status = 'done'; job.lastMsg = '全部完成'; jobLog(job, '全部完成'); }
       }

@@ -63,6 +63,7 @@
     <button data-tab="gear">裝備</button>
     <button data-tab="res">資源</button>
     <button data-tab="trade">交易</button>
+    <button data-tab="bag">背包</button>
   </nav>
   <div id="updBox"></div>
   <div id="status">連線中…</div>
@@ -143,12 +144,8 @@
     <div class="card">
       <h3>收集：分身 → 本尊</h3>
       <div id="collectHead" class="bar"></div>
-      <div class="bar">
-        <label><input type="checkbox" id="cMoney" checked> 楓幣（全部，預留 5% 手續費）</label>
-        <label><input type="checkbox" id="cItems" checked> 道具</label>
-        <label><input type="checkbox" id="cGear" checked> 背包裝備</label>
-        <span>另外排除道具（名稱含，逗號分隔）</span><input id="cExclude" style="width:260px" placeholder="例如：特殊藥水, 回城">
-      </div>
+      <div class="bar"><label><input type="checkbox" id="cMoney" checked> 楓幣（全部，預留 5% 手續費）</label></div>
+      <div id="ffCollect"></div>
       <div class="dim" style="margin-bottom:8px">固定排除：穿在身上的裝備、補給設定中使用的藥水（補血、補魔、BUFF）、已鎖定的物品、倉庫內的東西。</div>
       <div id="collectPick"></div>
       <div class="bar" style="margin-top:8px"><button class="btn primary" id="mkCollect">建立收集工作</button><span class="dim" id="collectMsg"></span></div>
@@ -162,9 +159,36 @@
         <span>楓幣</span><input type="number" id="gMoney" style="width:140px" placeholder="0">
         <span class="dim" id="gMoneyHint"></span>
       </div>
-      <div class="bar"><input id="gSearch" placeholder="篩選名稱" style="width:160px"><span class="dim">在數量欄輸入要給的數量；裝備勾選即可</span></div>
+      <div id="ffGive"></div>
+      <div class="bar"><button class="btn" id="gSelItems">道具全選（最大數量）</button><button class="btn" id="gSelGear">裝備全選</button><button class="btn" id="gClear">清除選擇</button><span class="dim">也可以在數量欄自己輸入；裝備勾選即可</span></div>
       <div id="givePick" style="max-height:520px;overflow:auto"></div>
       <div class="bar" style="margin-top:8px"><button class="btn primary" id="mkGive">建立分發工作</button><span class="dim" id="giveMsg"></span></div>
+    </div>
+  </section>
+
+  <!-- 背包 -->
+  <section id="bag">
+    <div class="card">
+      <h3>工作佇列</h3>
+      <div class="bar dim">背包操作也要按「確認執行」才會開始；執行時那隻角色的遊戲分頁要開著。</div>
+      <div id="jobOut2"></div>
+    </div>
+    <div class="card">
+      <h3>背包操作</h3>
+      <div class="bar"><span>角色</span><select id="bChar"></select><span class="dim" id="bInfo"></span></div>
+      <div id="ffBag"></div>
+      <div class="bar">
+        <button class="btn" id="bSelAll">全選篩選結果</button>
+        <button class="btn" id="bSelSell">全選可賣的（一鍵全賣）</button>
+        <button class="btn" id="bClear">清除選擇</button>
+        <span style="margin-left:12px"></span>
+        <button class="btn primary" id="bSell">賣出選取</button>
+        <button class="btn" id="bLock">鎖定選取</button>
+        <button class="btn" id="bUnlock">解鎖選取</button>
+        <span class="dim" id="bMsg"></span>
+      </div>
+      <div class="dim" style="margin-bottom:6px">賣出會自動跳過：已鎖定的、補給設定使用中的藥水；穿在身上的裝備不會出現在這裡。「一鍵全賣」只選有售價的道具與未鎖定的背包裝備。</div>
+      <div id="bagOut" style="max-height:620px;overflow:auto"></div>
     </div>
   </section>
 </main>
@@ -394,19 +418,19 @@ function condRow(c) {
     <input type="number" class="cv" value="${esc(c.val)}"><button class="btn" data-delcond>✕</button></div>`;
 }
 
-function filteredGear() {
-  const f = ui.filter, mode = statMode();
-  return allGear().filter(g => {
-    if (f.slots.length && !f.slots.includes(g.slot)) return false;
-    if (!f.locs.includes(g.loc)) return false;
-    if (f.jobs.length && !f.jobs.some(b => b === 0 ? g.reqJob === 0 : (g.reqJob & b))) return false;
-    if (f.char && g.charId !== f.char) return false;
+// 單件裝備是否符合篩選條件；onlyItself=true 時忽略「位置、角色」（給交易／背包用）
+function gearMatch(g, f, mode, onlyItself) {
+  {
+    if (f.slots && f.slots.length && !f.slots.includes(g.slot)) return false;
+    if (!onlyItself && !f.locs.includes(g.loc)) return false;
+    if (f.jobs && f.jobs.length && !f.jobs.some(b => b === 0 ? g.reqJob === 0 : (g.reqJob & b))) return false;
+    if (!onlyItself && f.char && g.charId !== f.char) return false;
     if (f.name && !g.name.includes(f.name)) return false;
     if (f.lvMin !== '' && g.reqLevel < Number(f.lvMin)) return false;
     if (f.lvMax !== '' && g.reqLevel > Number(f.lvMax)) return false;
     if (f.plus !== '' && g.plus < Number(f.plus)) return false;
     if (f.slotsLeft !== '' && g.slotsLeft < Number(f.slotsLeft)) return false;
-    for (const c of f.conds) {
+    for (const c of f.conds || []) {
       if (c.val === '') continue;
       const v = (g[mode] || {})[c.stat] || 0, t = Number(c.val);
       if (c.op === '>=' && !(v >= t)) return false;
@@ -415,7 +439,11 @@ function filteredGear() {
     }
     if (f.wearable && !wearers(g).length) return false;
     return true;
-  });
+  }
+}
+function filteredGear() {
+  const f = ui.filter, mode = statMode();
+  return allGear().filter(g => gearMatch(g, f, mode, false));
 }
 
 function renderList() {
@@ -516,70 +544,117 @@ function renderRes() {
 }
 
 
-// ================= 交易 =================
+// ================= 交易／背包 共用：物品篩選器 =================
 const ONLINE_MS = 90 * 1000;
 const isOnline = s => s && Date.now() - (s.receivedAt || 0) < ONLINE_MS;
 const JOB_STATUS = { pending: ['待確認', 'warn'], approved: ['排隊中', ''], running: ['執行中', 'good'], done: ['完成', 'good'], failed: ['失敗', 'bad'], cancelled: ['已取消', 'dim'] };
+const JOB_KIND = { collect: '收集', give: '分發', sell: '賣出', lock: '鎖定', unlock: '解鎖' };
+const BAG_KINDS = ['sell', 'lock', 'unlock'];
 const giveDraft = { items: {}, gear: new Set() };
+const emptyFF = () => ({ kinds: [], inc: '', exc: '', gear: 'all', lock: 'all' });
+ui.ff = { collect: null, give: emptyFF(), bag: emptyFF() };
+ui.bagSel = new Set();
+
+const words = s => String(s || '').split(/[,，、\s]+/).map(x => x.trim()).filter(Boolean);
+function allKinds() { const k = new Set(); for (const s of snaps()) for (const i of s.items || []) k.add(i.kind); return [...k].sort(); }
+function itemPass(i, f) {
+  if (f.kinds.length && !f.kinds.includes(i.kind)) return false;
+  const inc = words(f.inc), exc = words(f.exc);
+  if (inc.length && !inc.some(w => i.name.includes(w))) return false;
+  if (exc.some(w => i.name.includes(w))) return false;
+  if (f.lock === 'unlocked' && !((i.qty - (i.lockedQty || 0)) > 0)) return false;
+  if (f.lock === 'locked' && !(i.lockedQty > 0)) return false;
+  return true;
+}
+function gearPass(g, f) {
+  if (f.gear === 'none') return false;
+  if (f.lock === 'unlocked' && g.locked) return false;
+  if (f.lock === 'locked' && !g.locked) return false;
+  const inc = words(f.inc), exc = words(f.exc);
+  if (inc.length && !inc.some(w => g.name.includes(w))) return false;
+  if (exc.some(w => g.name.includes(w))) return false;
+  if (f.gear && f.gear.startsWith('p:')) {
+    const p = (S.presets || [])[Number(f.gear.slice(2))];
+    if (p && !gearMatch(g, p.filter, 'stats', true)) return false;
+  }
+  return true;
+}
+function ffHTML(id, f, withLock) {
+  const kinds = allKinds();
+  return `<div class="bar"><span style="width:70px">道具類別</span><div class="chips">${kinds.map(k => `<label><input type="checkbox" data-ff="${id}" data-k="kinds" value="${esc(k)}" ${f.kinds.includes(k) ? 'checked' : ''}>${esc(k)}</label>`).join('')}<span class="dim">（都不勾＝全部）</span></div></div>
+    <div class="bar"><span style="width:70px">名稱</span><input data-ff="${id}" data-k="inc" value="${esc(f.inc)}" placeholder="包含（逗號分隔）" style="width:200px"><input data-ff="${id}" data-k="exc" value="${esc(f.exc)}" placeholder="排除（逗號分隔）" style="width:200px">
+      <span>裝備</span><select data-ff="${id}" data-k="gear"><option value="all" ${f.gear === 'all' ? 'selected' : ''}>全部背包裝備</option><option value="none" ${f.gear === 'none' ? 'selected' : ''}>不含裝備</option>${(S.presets || []).map((p, i) => `<option value="p:${i}" ${f.gear === 'p:' + i ? 'selected' : ''}>套用組合：${esc(p.name)}</option>`).join('')}</select>
+      ${withLock ? `<span>鎖定</span><select data-ff="${id}" data-k="lock">${[['all', '全部'], ['unlocked', '未鎖定'], ['locked', '已鎖定']].map(([v, n]) => `<option value="${v}" ${f.lock === v ? 'selected' : ''}>${n}</option>`).join('')}</select>` : ''}
+    </div><div class="dim" style="margin:-4px 0 8px">裝備的「套用組合」來自「裝備」頁存好的篩選組合（部位、職業、素質條件…）。</div>`;
+}
+function readFF(id) {
+  const f = ui.ff[id];
+  f.kinds = [...document.querySelectorAll(`input[data-ff="${id}"][data-k="kinds"]:checked`)].map(i => i.value);
+  for (const k of ['inc', 'exc', 'gear', 'lock']) { const el = document.querySelector(`[data-ff="${id}"][data-k="${k}"]`); if (el) f[k] = el.value; }
+}
 
 function charOpt(sel, includeEmpty) {
   const ss = snaps().slice().sort((a, b) => cmp(a.char.name, b.char.name));
   return (includeEmpty ? '<option value="">（選擇角色）</option>' : '') + ss.map(s => `<option value="${s.char.id}" ${sel === s.char.id ? 'selected' : ''}>${esc(s.char.name)}${isOnline(s) ? '' : '（離線）'}</option>`).join('');
 }
-function excludeWords() { return ($('#cExclude').value || '').split(/[,，、]/).map(x => x.trim()).filter(Boolean); }
+function toBatches(items, gear, money) {
+  const slots = [...items.map(v => ({ t: 'i', v })), ...gear.map(v => ({ t: 'g', v }))];
+  const batches = [];
+  for (let k = 0; k < slots.length; k += 20) { const p = slots.slice(k, k + 20); batches.push({ items: p.filter(x => x.t === 'i').map(x => x.v), gear: p.filter(x => x.t === 'g').map(x => x.v), money: 0 }); }
+  if (money) { if (!batches.length) batches.push({ items: [], gear: [], money }); else batches[batches.length - 1].money = money; }
+  return batches;
+}
+const gearLabel = g => g.name + (g.plus ? ' +' + g.plus : '');
 
 function collectPlan(s) {
-  const ex = excludeWords();
-  const items = $('#cItems').checked ? (s.items || []).filter(i => i.loc === '背包' && !i.supply && (i.tradableQty ?? i.qty) > 0 && !ex.some(w => i.name.includes(w))) : [];
-  const gear = $('#cGear').checked ? (s.gear || []).filter(g => g.loc === '背包' && g.tradable !== false && !g.locked && g.uid) : [];
-  const slots = [...items.map(i => ({ t: 'i', v: { key: i.key, name: i.name, qty: 'ALL' } })), ...gear.map(g => ({ t: 'g', v: { uid: g.uid, name: g.name + (g.plus ? ' +' + g.plus : '') } }))];
-  const batches = [];
-  for (let k = 0; k < slots.length; k += 20) {
-    const part = slots.slice(k, k + 20);
-    batches.push({ items: part.filter(x => x.t === 'i').map(x => x.v), gear: part.filter(x => x.t === 'g').map(x => x.v), money: 0 });
-  }
-  if ($('#cMoney').checked && s.char.money >= 10000) {
-    if (!batches.length) batches.push({ items: [], gear: [], money: 'ALL' });
-    else batches[batches.length - 1].money = 'ALL';
-  }
-  return { items, gear, batches };
+  const f = ui.ff.collect;
+  const items = (s.items || []).filter(i => i.loc === '背包' && !i.supply && (i.tradableQty ?? i.qty) > 0 && itemPass(i, f));
+  const gear = (s.gear || []).filter(g => g.loc === '背包' && g.tradable !== false && !g.locked && g.uid && gearPass(g, f));
+  const money = $('#cMoney').checked && s.char.money >= 10000 ? 'ALL' : 0;
+  return { items, gear, batches: toBatches(items.map(i => ({ key: i.key, name: i.name, qty: 'ALL' })), gear.map(g => ({ uid: g.uid, name: gearLabel(g) })), money) };
 }
 
-function renderTrade() {
-  const main = S.mainCharId && DATA.chars[S.mainCharId];
-  // ---- 工作佇列 ----
-  const jobs = (DATA.jobs || []).slice().reverse();
+// ---------- 工作佇列 ----------
+function renderJobs(sel, filterFn) {
+  const jobs = (DATA.jobs || []).filter(filterFn).slice().reverse();
   let h = '';
-  if (jobs.some(j => j.status === 'pending')) h += `<div class="bar"><button class="btn primary" id="approveAll">全部確認執行</button></div>`;
-  h += `<table><thead><tr><th class="nosort">建立</th><th class="nosort">類型</th><th class="nosort">從 → 到</th><th class="nosort">內容</th><th class="nosort">進度</th><th class="nosort">狀態</th><th class="nosort">最新訊息</th><th class="nosort"></th></tr></thead><tbody>`;
-  if (!jobs.length) h += '<tr><td colspan="8" class="empty">還沒有交易工作</td></tr>';
+  if (jobs.some(j => j.status === 'pending')) h += `<div class="bar"><button class="btn primary" data-approve-all>全部確認執行</button></div>`;
+  h += `<table><thead><tr><th class="nosort">建立</th><th class="nosort">類型</th><th class="nosort">角色</th><th class="nosort">內容</th><th class="nosort">進度</th><th class="nosort">狀態</th><th class="nosort">最新訊息</th><th class="nosort"></th></tr></thead><tbody>`;
+  if (!jobs.length) h += '<tr><td colspan="8" class="empty">沒有工作</td></tr>';
   for (const j of jobs) {
+    const bag = BAG_KINDS.includes(j.kind);
     const [st, cls] = JOB_STATUS[j.status] || [j.status, ''];
     const nItems = j.batches.reduce((a, b) => a + (b.items || []).length, 0), nGear = j.batches.reduce((a, b) => a + (b.gear || []).length, 0);
     const money = j.batches.some(b => b.money === 'ALL') ? '全部楓幣' : (() => { const m = j.batches.reduce((a, b) => a + (Number(b.money) || 0), 0); return m ? '楓幣 ' + short(m) : ''; })();
     const fromS = DATA.chars[j.fromCharId], toS = DATA.chars[j.toCharId];
     const warn = ['approved', 'running'].includes(j.status) ? [
-      !isOnline(fromS) && `${j.fromName} 離線`, !isOnline(toS) && `${j.toName} 離線`,
+      !isOnline(fromS) && `${j.fromName} 離線`, !bag && !isOnline(toS) && `${j.toName} 離線`,
       fromS && fromS.activeCharId && fromS.activeCharId !== j.fromCharId && `${j.fromName} 不是目前角色`,
-      toS && toS.activeCharId && toS.activeCharId !== j.toCharId && `${j.toName} 不是目前角色`].filter(Boolean) : [];
-    const detail = j.batches.map((b, i) => `<div><b>第 ${i + 1} 批</b>：${[...(b.items || []).map(x => esc(x.name) + (x.qty === 'ALL' ? '（全部）' : ' ×' + x.qty)), ...(b.gear || []).map(g => esc(g.name))].join('、') || '—'}${b.money ? '　＋' + (b.money === 'ALL' ? '全部楓幣' : '楓幣 ' + fmt(b.money)) : ''}</div>`).join('');
+      !bag && toS && toS.activeCharId && toS.activeCharId !== j.toCharId && `${j.toName} 不是目前角色`].filter(Boolean) : [];
+    const detail = j.batches.map((b, i) => `<div>${bag ? '' : `<b>第 ${i + 1} 批</b>：`}${[...(b.items || []).map(x => esc(x.name) + (x.qty === 'ALL' ? '（全部）' : ' ×' + fmt(x.qty))), ...(b.gear || []).map(g => esc(g.name))].join('、') || '—'}${b.money ? '　＋' + (b.money === 'ALL' ? '全部楓幣' : '楓幣 ' + fmt(b.money)) : ''}</div>`).join('');
     const logs = (j.log || []).slice(-30).reverse().map(l => `<div><span class="dim">${new Date(l.at).toLocaleTimeString('zh-TW')}</span> ${esc(l.msg)}${l.n > 1 ? ` <span class="dim">×${l.n}</span>` : ''}</div>`).join('');
-    h += `<tr><td class="dim">${clock(j.createdAt)}</td><td>${j.kind === 'give' ? '分發' : '收集'}</td><td>${esc(j.fromName)} → ${esc(j.toName)}</td>
-      <td class="wrap">${[nItems && nItems + ' 種道具', nGear && nGear + ' 件裝備', money].filter(Boolean).join('、')}<details><summary class="dim">明細</summary>${detail}</details></td>
+    h += `<tr><td class="dim">${clock(j.createdAt)}</td><td class="${j.kind === 'sell' ? 'warn' : ''}">${JOB_KIND[j.kind] || j.kind}</td><td>${bag ? esc(j.fromName) : `${esc(j.fromName)} → ${esc(j.toName)}`}</td>
+      <td class="wrap">${[nItems && nItems + ' 種道具', nGear && nGear + ' 件裝備', money].filter(Boolean).join('、')}${j.estimate ? `<div class="dim">估計 ${short(j.estimate)} 楓幣</div>` : ''}<details><summary class="dim">明細</summary>${detail}</details></td>
       <td class="num">${Math.min(j.batchIndex, j.batches.length)}/${j.batches.length}</td>
       <td class="${cls}">${st}</td>
       <td class="wrap">${esc(j.lastMsg || '')}${warn.length ? `<div class="warn">⚠ ${warn.join('、')}</div>` : ''}<details><summary class="dim">紀錄</summary>${logs || '—'}</details></td>
       <td>${j.status === 'pending' ? `<button class="btn primary" data-job="${j.id}" data-act="approve">確認執行</button> ` : ''}${['pending', 'approved', 'running'].includes(j.status) ? `<button class="btn" data-job="${j.id}" data-act="cancel">取消</button> ` : ''}${j.status === 'failed' ? `<button class="btn" data-job="${j.id}" data-act="retry">重試</button> ` : ''}${['done', 'failed', 'cancelled'].includes(j.status) ? `<button class="btn" data-job="${j.id}" data-act="delete">刪除</button>` : ''}</td></tr>`;
   }
-  $('#jobOut').innerHTML = h + '</tbody></table>';
+  $(sel).innerHTML = h + '</tbody></table>';
+}
 
-  // ---- 收集 ----
+// ---------- 交易頁 ----------
+function renderTrade() {
+  const main = S.mainCharId && DATA.chars[S.mainCharId];
+  renderJobs('#jobOut', j => !BAG_KINDS.includes(j.kind));
+  if (!ui.ff.collect) ui.ff.collect = { ...emptyFF(), ...(S.collectFilter || {}), lock: 'all' };
+  if (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#ffCollect')) $('#ffCollect').innerHTML = ffHTML('collect', ui.ff.collect, false);
+
   if (!main) {
     $('#collectHead').innerHTML = '<span class="warn">先到「總覽」點 ★ 設定本尊。</span>';
     $('#collectPick').innerHTML = '';
   } else {
     $('#collectHead').innerHTML = `本尊：<b>${esc(main.char.name)}</b>　12 碼 ID：<span class="dim">${esc(main.playerCode || '尚未回報')}</span>　${isOnline(main) ? '<span class="good">● 在線</span>' : '<span class="bad">● 離線</span>'}`;
-    if (!$('#cExclude').dataset.init) { $('#cExclude').value = (S.collectExclude || []).join(', '); $('#cExclude').dataset.init = '1'; }
     const checked = new Set([...document.querySelectorAll('#collectPick input[data-cpick]:checked')].map(i => i.dataset.cpick));
     const first = !document.querySelector('#collectPick input[data-cpick]');
     let c = `<table><thead><tr><th class="nosort"><input type="checkbox" id="cAll"></th><th class="nosort">角色</th><th class="nosort">狀態</th><th class="nosort num">楓幣</th><th class="nosort num">道具（種）</th><th class="nosort num">裝備（件）</th><th class="nosort num">交易次數</th><th class="nosort">說明</th></tr></thead><tbody>`;
@@ -591,35 +666,105 @@ function renderTrade() {
       const dis = sameAcc || !s.playerCode;
       c += `<tr><td><input type="checkbox" data-cpick="${s.char.id}" ${dis ? 'disabled' : ''} ${!dis && (first || checked.has(s.char.id)) ? 'checked' : ''}></td>
         <td>${esc(s.char.name)}</td><td>${isOnline(s) ? '<span class="good">在線</span>' : '<span class="dim">離線</span>'}</td>
-        <td class="num">${short(s.char.money)}</td><td class="num">${p.items.length}</td><td class="num">${p.gear.length}</td><td class="num">${p.batches.length}</td>
+        <td class="num">${short(s.char.money)}</td><td class="num" title="${esc(p.items.map(i => i.name).join('、'))}">${p.items.length}</td><td class="num" title="${esc(p.gear.map(gearLabel).join('、'))}">${p.gear.length}</td><td class="num">${p.batches.length}</td>
         <td class="dim wrap">${notes.join('、')}</td></tr>`;
     }
-    $('#collectPick').innerHTML = c + '</tbody></table>';
+    $('#collectPick').innerHTML = c + '</tbody></table><div class="dim" style="margin-top:4px">滑鼠移到數字上可以看到會收哪些東西。</div>';
   }
 
-  // ---- 分發 ----
   const gFrom = $('#gFrom').value || S.mainCharId || '';
   $('#gFrom').innerHTML = charOpt(gFrom, true);
   $('#gTo').innerHTML = charOpt($('#gTo').value, true);
+  if (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#ffGive')) $('#ffGive').innerHTML = ffHTML('give', ui.ff.give, false);
   renderGivePick();
 }
 
+function giveLists(s) {
+  const f = ui.ff.give;
+  const items = (s.items || []).filter(i => i.loc === '背包' && (i.tradableQty ?? i.qty) > 0 && itemPass(i, f)).sort((a, b) => cmp(a.kind, b.kind) || cmp(a.name, b.name));
+  const gear = (s.gear || []).filter(g => g.loc === '背包' && g.tradable !== false && !g.locked && g.uid && gearPass(g, f));
+  return { items, gear };
+}
 function renderGivePick() {
   const s = DATA.chars[$('#gFrom').value];
   if (!s) { $('#givePick').innerHTML = '<div class="dim">先選擇「從」哪隻角色。</div>'; $('#gMoneyHint').textContent = ''; return; }
   $('#gMoneyHint').textContent = `持有 ${short(s.char.money)}，最多可給約 ${short(Math.floor(s.char.money / 1.05))}（5% 手續費）`;
-  const q = $('#gSearch').value.trim();
-  const items = (s.items || []).filter(i => i.loc === '背包' && (i.tradableQty ?? i.qty) > 0 && (!q || i.name.includes(q))).sort((a, b) => cmp(a.kind, b.kind) || cmp(a.name, b.name));
-  const gear = (s.gear || []).filter(g => g.loc === '背包' && g.tradable !== false && !g.locked && g.uid && (!q || g.name.includes(q)));
-  const mode = 'stats';
-  let h = `<table><thead><tr><th class="nosort">道具</th><th class="nosort">類別</th><th class="nosort num">可交易</th><th class="nosort">數量</th></tr></thead><tbody>`;
-  for (const i of items) h += `<tr><td>${esc(i.name)}${i.supply ? ' <span class="tag">補給中</span>' : ''}</td><td class="dim">${esc(i.kind)}</td><td class="num">${fmt(i.tradableQty ?? i.qty)}</td><td><input type="number" min="0" max="${i.tradableQty ?? i.qty}" data-gitem="${esc(i.key)}" data-gname="${esc(i.name)}" value="${giveDraft.items[i.key] || ''}" style="width:90px"></td></tr>`;
-  if (!items.length) h += '<tr><td colspan="4" class="dim">沒有可交易的道具</td></tr>';
+  const { items, gear } = giveLists(s);
+  const nSel = Object.values(giveDraft.items).filter(q => q > 0).length + giveDraft.gear.size;
+  let h = `<div class="dim" style="margin-bottom:4px">已選 ${nSel} 格（${Math.max(1, Math.ceil(nSel / 20))} 次交易）</div><table><thead><tr><th class="nosort">道具</th><th class="nosort">類別</th><th class="nosort num">可交易</th><th class="nosort">數量</th></tr></thead><tbody>`;
+  for (const i of items) h += `<tr><td>${esc(i.name)}${i.supply ? ' <span class="tag">補給中</span>' : ''}</td><td class="dim">${esc(i.kind)}</td><td class="num">${fmt(i.tradableQty ?? i.qty)}</td><td><input type="number" min="0" max="${i.tradableQty ?? i.qty}" data-gitem="${esc(i.key)}" value="${giveDraft.items[i.key] || ''}" style="width:90px"></td></tr>`;
+  if (!items.length) h += '<tr><td colspan="4" class="dim">沒有符合條件的道具</td></tr>';
   h += `</tbody></table><table style="margin-top:8px"><thead><tr><th class="nosort"></th><th class="nosort">裝備</th><th class="nosort">部位</th><th class="nosort num">強化</th><th class="nosort num">可衝</th><th class="nosort">素質</th><th class="nosort num">需求Lv</th></tr></thead><tbody>`;
-  for (const g of gear) h += `<tr><td><input type="checkbox" data-ggear="${esc(g.uid)}" data-gname="${esc(g.name + (g.plus ? ' +' + g.plus : ''))}" ${giveDraft.gear.has(g.uid) ? 'checked' : ''}></td><td>${esc(g.name)}</td><td>${slotLabel(g.slot)}</td><td class="num">${g.plus ? `<span class="plus">+${g.plus}</span>` : 0}</td><td class="num">${g.slotsLeft}/${g.maxSlots}</td><td class="dim">${esc(statLine(g[mode] || {}, STAT_ORDER))}</td><td class="num">${g.reqLevel}</td></tr>`;
-  if (!gear.length) h += '<tr><td colspan="7" class="dim">沒有可交易的背包裝備</td></tr>';
+  for (const g of gear) h += `<tr><td><input type="checkbox" data-ggear="${esc(g.uid)}" ${giveDraft.gear.has(g.uid) ? 'checked' : ''}></td><td>${esc(g.name)}</td><td>${slotLabel(g.slot)}</td><td class="num">${g.plus ? `<span class="plus">+${g.plus}</span>` : 0}</td><td class="num">${g.slotsLeft}/${g.maxSlots}</td><td class="dim">${esc(statLine(g.stats || {}, STAT_ORDER))}</td><td class="num">${g.reqLevel}</td></tr>`;
+  if (!gear.length) h += '<tr><td colspan="7" class="dim">沒有符合條件的背包裝備</td></tr>';
   $('#givePick').innerHTML = h + '</tbody></table>';
 }
+
+// ---------- 背包頁 ----------
+function bagRows(s) {
+  const f = ui.ff.bag;
+  const items = (s.items || []).filter(i => i.loc === '背包' && itemPass(i, f)).sort((a, b) => cmp(a.kind, b.kind) || cmp(a.name, b.name))
+    .map(i => ({ id: 'i:' + i.key, t: 'i', i, sellable: (i.sellPrice || 0) > 0 && !i.supply && i.qty - (i.lockedQty || 0) > 0 }));
+  const gear = (s.gear || []).filter(g => g.loc === '背包' && g.uid && gearPass(g, f))
+    .map(g => ({ id: 'g:' + g.uid, t: 'g', g, sellable: !g.locked }));
+  return [...items, ...gear];
+}
+function renderBag() {
+  renderJobs('#jobOut2', j => BAG_KINDS.includes(j.kind));
+  const cur = $('#bChar').value || S.mainCharId || '';
+  $('#bChar').innerHTML = charOpt(cur, true);
+  if (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#ffBag')) $('#ffBag').innerHTML = ffHTML('bag', ui.ff.bag, true);
+  renderBagList();
+}
+function renderBagList() {
+  const s = DATA.chars[$('#bChar').value];
+  if (!s) { $('#bagOut').innerHTML = '<div class="dim">先選擇角色。</div>'; $('#bInfo').textContent = ''; return; }
+  const rows = bagRows(s);
+  const valid = new Set(rows.map(r => r.id));
+  for (const id of [...ui.bagSel]) if (!valid.has(id)) ui.bagSel.delete(id);
+  const sel = rows.filter(r => ui.bagSel.has(r.id));
+  const est = sel.reduce((a, r) => a + (r.t === 'i' && r.sellable ? (r.i.qty - (r.i.lockedQty || 0)) * r.i.sellPrice : 0), 0);
+  $('#bInfo').innerHTML = `${isOnline(s) ? '<span class="good">在線</span>' : '<span class="bad">離線</span>'}　已選 ${sel.length} 項${est ? `，道具估計售價 ${short(est)}` : ''}${s.activeCharId && s.activeCharId !== s.char.id ? '　<span class="warn">執行時需切到這隻角色</span>' : ''}`;
+  let h = `<table><thead><tr><th class="nosort"></th><th class="nosort">名稱</th><th class="nosort">類別</th><th class="nosort num">數量</th><th class="nosort">鎖定</th><th class="nosort num">單價</th><th class="nosort">素質／備註</th></tr></thead><tbody>`;
+  for (const r of rows) {
+    if (r.t === 'i') {
+      const i = r.i;
+      h += `<tr><td><input type="checkbox" data-bsel="${esc(r.id)}" ${ui.bagSel.has(r.id) ? 'checked' : ''}></td><td>${esc(i.name)}</td><td class="dim">${esc(i.kind)}</td><td class="num">${fmt(i.qty)}</td>
+        <td>${i.lockedQty ? (i.lockedQty >= i.qty ? '🔒' : `🔒 ${fmt(i.lockedQty)}`) : ''}</td><td class="num">${i.sellPrice ? fmt(i.sellPrice) : '<span class="dim">不可賣</span>'}</td><td class="dim">${i.supply ? '<span class="tag">補給中</span>' : ''}</td></tr>`;
+    } else {
+      const g = r.g;
+      h += `<tr><td><input type="checkbox" data-bsel="${esc(r.id)}" ${ui.bagSel.has(r.id) ? 'checked' : ''}></td><td>${esc(g.name)} ${g.plus ? `<span class="plus">+${g.plus}</span>` : ''}</td><td class="dim">裝備・${slotLabel(g.slot)}</td><td class="num">1</td>
+        <td>${g.locked ? '🔒' : ''}</td><td class="num dim">—</td><td class="dim">${esc(statLine(g.stats || {}, STAT_ORDER))}　可衝 ${g.slotsLeft}/${g.maxSlots}</td></tr>`;
+    }
+  }
+  if (!rows.length) h += '<tr><td colspan="7" class="empty">沒有符合條件的物品</td></tr>';
+  $('#bagOut').innerHTML = h + '</tbody></table>';
+}
+function bagJob(kind) {
+  const s = DATA.chars[$('#bChar').value];
+  if (!s) throw new Error('請先選擇角色');
+  const rows = bagRows(s).filter(r => ui.bagSel.has(r.id));
+  const items = [], gear = [];
+  let estimate = 0;
+  for (const r of rows) {
+    if (r.t === 'i') {
+      const i = r.i;
+      const stacks = (i.stacks || []).filter(st => kind === 'unlock' ? st.locked : !st.locked);
+      if (!stacks.length) continue;
+      if (kind === 'sell' && (!r.sellable)) continue;
+      const qty = stacks.reduce((a, st) => a + st.qty, 0);
+      if (kind === 'sell') estimate += qty * i.sellPrice;
+      items.push({ key: i.key, name: i.name, cat: i.cat, qty, uids: stacks.map(st => st.uid) });
+    } else {
+      const g = r.g;
+      if (kind === 'unlock' ? !g.locked : g.locked) continue;
+      gear.push({ uid: g.uid, name: gearLabel(g) });
+    }
+  }
+  if (!items.length && !gear.length) throw new Error('選取的物品裡沒有可以' + JOB_KIND[kind] + '的');
+  return { kind, fromCharId: s.char.id, toCharId: s.char.id, estimate, batches: [{ items, gear, money: 0 }] };
+}
+
 
 async function api(path, body) {
   const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
@@ -632,9 +777,16 @@ document.addEventListener('click', async e => {
   const t = e.target;
   try {
     if (t.dataset && t.dataset.job) {
-      if (t.dataset.act === 'cancel' && !confirm('確定取消這個交易工作？')) return;
+      if (t.dataset.act === 'cancel' && !confirm('確定取消這個工作？')) return;
       await api(`/api/jobs/${t.dataset.job}/${t.dataset.act}`); await poll(true);
     }
+    if (t.hasAttribute && t.hasAttribute('data-approve-all')) {
+      const n = (DATA.jobs || []).filter(j => j.status === 'pending').length;
+      const sells = (DATA.jobs || []).filter(j => j.status === 'pending' && j.kind === 'sell').length;
+      if (sells && !confirm(`其中有 ${sells} 個「賣出」工作，賣出後無法復原。確定全部（${n} 個）確認執行？`)) return;
+      await api('/api/jobs/approve-all'); await poll(true);
+    }
+    if (t.dataset && t.dataset.act === 'approve') { /* handled above */ }
     if (t.id === 'doUpdate') {
       const u = DATA.update || {};
       if (!confirm(`更新到 ${u.latest}？${u.notes ? '\n\n更新內容：' + u.notes : ''}\n\n伺服器會自動重啟，約 5 秒後面板就會恢復。`)) return;
@@ -642,43 +794,80 @@ document.addEventListener('click', async e => {
       await api('/api/update/apply');
       setTimeout(() => location.reload(), 5000);
     }
-    if (t.id === 'approveAll') { await api('/api/jobs/approve-all'); await poll(true); }
+    // 收集
     if (t.id === 'cAll') document.querySelectorAll('#collectPick input[data-cpick]:not(:disabled)').forEach(i => i.checked = t.checked);
     if (t.id === 'mkCollect') {
       const ids = [...document.querySelectorAll('#collectPick input[data-cpick]:checked')].map(i => i.dataset.cpick);
       const reqs = ids.map(id => ({ kind: 'collect', fromCharId: id, toCharId: S.mainCharId, batches: collectPlan(DATA.chars[id]).batches })).filter(r => r.batches.length);
       if (!reqs.length) { $('#collectMsg').textContent = '沒有可收集的內容'; return; }
-      await saveSettings({ collectExclude: excludeWords() });
+      await saveSettings({ collectFilter: ui.ff.collect });
       const r = await api('/api/jobs', reqs);
       $('#collectMsg').textContent = `已建立 ${r.jobs.length} 個工作，請在上方「工作佇列」核對後按確認執行。`;
       await poll(true);
+    }
+    // 分發
+    if (t.id === 'gSelItems' || t.id === 'gSelGear' || t.id === 'gClear') {
+      const s = DATA.chars[$('#gFrom').value]; if (!s) return;
+      const { items, gear } = giveLists(s);
+      if (t.id === 'gSelItems') for (const i of items) giveDraft.items[i.key] = i.tradableQty ?? i.qty;
+      if (t.id === 'gSelGear') for (const g of gear) giveDraft.gear.add(g.uid);
+      if (t.id === 'gClear') { giveDraft.items = {}; giveDraft.gear.clear(); }
+      renderGivePick();
     }
     if (t.id === 'mkGive') {
       const from = $('#gFrom').value, to = $('#gTo').value;
       if (!from || !to) { $('#giveMsg').textContent = '請選擇從誰給誰'; return; }
       const s = DATA.chars[from];
       const items = Object.entries(giveDraft.items).filter(([, q]) => q > 0).map(([key, qty]) => ({ key, qty, name: ((s.items || []).find(i => i.key === key) || {}).name || key }));
-      const gear = [...giveDraft.gear].map(uid => { const g = (s.gear || []).find(x => x.uid === uid); return g && { uid, name: g.name + (g.plus ? ' +' + g.plus : '') }; }).filter(Boolean);
+      const gear = [...giveDraft.gear].map(uid => { const g = (s.gear || []).find(x => x.uid === uid); return g && { uid, name: gearLabel(g) }; }).filter(Boolean);
       const money = Number($('#gMoney').value) || 0;
-      const slots = [...items.map(v => ({ t: 'i', v })), ...gear.map(v => ({ t: 'g', v }))];
-      const batches = [];
-      for (let k = 0; k < slots.length; k += 20) { const p = slots.slice(k, k + 20); batches.push({ items: p.filter(x => x.t === 'i').map(x => x.v), gear: p.filter(x => x.t === 'g').map(x => x.v), money: 0 }); }
-      if (money > 0) { if (!batches.length) batches.push({ items: [], gear: [], money }); else batches[batches.length - 1].money = money; }
-      await api('/api/jobs', { kind: 'give', fromCharId: from, toCharId: to, batches });
+      await api('/api/jobs', { kind: 'give', fromCharId: from, toCharId: to, batches: toBatches(items, gear, money) });
       giveDraft.items = {}; giveDraft.gear.clear(); $('#gMoney').value = '';
       $('#giveMsg').textContent = '已建立工作，請在上方「工作佇列」核對後按確認執行。';
+      await poll(true);
+    }
+    // 背包
+    if (t.id === 'bSelAll' || t.id === 'bSelSell' || t.id === 'bClear') {
+      const s = DATA.chars[$('#bChar').value]; if (!s) return;
+      if (t.id === 'bClear') ui.bagSel.clear();
+      else { if (t.id === 'bSelSell') ui.bagSel.clear(); for (const r of bagRows(s)) if (t.id === 'bSelAll' || r.sellable) ui.bagSel.add(r.id); }
+      renderBagList();
+    }
+    if (t.id === 'bSell' || t.id === 'bLock' || t.id === 'bUnlock') {
+      const kind = { bSell: 'sell', bLock: 'lock', bUnlock: 'unlock' }[t.id];
+      const req = bagJob(kind);
+      await api('/api/jobs', req);
+      ui.bagSel.clear();
+      $('#bMsg').textContent = `已建立「${JOB_KIND[kind]}」工作，請在上方佇列核對後按確認執行。`;
       await poll(true);
     }
   } catch (err) { alert('失敗：' + err.message); }
 });
 document.addEventListener('change', e => {
   const t = e.target;
+  if (t.dataset && t.dataset.ff) {
+    readFF(t.dataset.ff);
+    if (t.dataset.ff === 'collect') renderTrade();
+    if (t.dataset.ff === 'give') renderGivePick();
+    if (t.dataset.ff === 'bag') renderBagList();
+    return;
+  }
+  if (t.id === 'cMoney') renderTrade();
   if (t.id === 'gFrom') { giveDraft.items = {}; giveDraft.gear.clear(); renderGivePick(); }
-  if (t.dataset && t.dataset.gitem) { const max = Number(t.max) || 0; let v = Math.max(0, Math.min(max, Number(t.value) || 0)); t.value = v || ''; giveDraft.items[t.dataset.gitem] = v; }
-  if (t.dataset && t.dataset.ggear) { if (t.checked) giveDraft.gear.add(t.dataset.ggear); else giveDraft.gear.delete(t.dataset.ggear); }
-  if (['cMoney', 'cItems', 'cGear', 'cExclude'].includes(t.id)) renderTrade();
+  if (t.id === 'bChar') { ui.bagSel.clear(); renderBagList(); }
+  if (t.dataset && t.dataset.gitem) { const max = Number(t.max) || 0; const v = Math.max(0, Math.min(max, Number(t.value) || 0)); t.value = v || ''; giveDraft.items[t.dataset.gitem] = v; renderGivePick(); }
+  if (t.dataset && t.dataset.ggear) { if (t.checked) giveDraft.gear.add(t.dataset.ggear); else giveDraft.gear.delete(t.dataset.ggear); renderGivePick(); }
+  if (t.dataset && t.dataset.bsel) { if (t.checked) ui.bagSel.add(t.dataset.bsel); else ui.bagSel.delete(t.dataset.bsel); renderBagList(); }
 });
-document.addEventListener('input', e => { if (e.target.id === 'gSearch') renderGivePick(); });
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (t.dataset && t.dataset.ff && (t.dataset.k === 'inc' || t.dataset.k === 'exc')) {
+    readFF(t.dataset.ff);
+    if (t.dataset.ff === 'collect') renderTrade();
+    if (t.dataset.ff === 'give') renderGivePick();
+    if (t.dataset.ff === 'bag') renderBagList();
+  }
+});
 
 // ================= 主流程 =================
 function renderAll() {
@@ -687,6 +876,7 @@ function renderAll() {
   if (active === 'gear') renderGear();
   if (active === 'res') renderRes();
   if (active === 'trade') renderTrade();
+  if (active === 'bag') renderBag();
 }
 
 async function poll(force) {
