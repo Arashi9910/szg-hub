@@ -320,7 +320,12 @@ function agentMain(ctx) {
         items.push({ kind: 'gear', uid: g.uid, qty: 1 });
       }
       let money = 0;
-      if (batch.money === 'ALL') money = Math.max(0, Math.floor((c.money || 0) / 1.05) - 1000); // 預留 5% 手續費
+      if (batch.money === 'ALL') {
+        // 保留 keepPct% 給分身自己買水，其餘扣掉 5% 手續費後轉出
+        const keep = Math.min(100, Math.max(0, Number(batch.keepPct) || 0));
+        const avail = (c.money || 0) * (1 - keep / 100);
+        money = Math.max(0, Math.floor(avail / 1.05) - 1000);
+      }
       else if (batch.money) money = Math.min(Number(batch.money) || 0, Math.floor((c.money || 0) / 1.05));
       return { offer: { money, points: 0, items: items.slice(0, 20) }, skipped };
     }
