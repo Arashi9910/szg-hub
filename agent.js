@@ -281,7 +281,7 @@ function agentMain(ctx) {
           itemStackCount: (c.inventoryStacks || []).length,
         },
         knowledge: (() => { const k = lastKnowledge || state.knowledge; return k ? { ready: !!k.ready, remaining: k.remaining,
-          round: k.round ? { index: k.round.index, done: !!k.round.done, correct: k.round.correct } : null, dbg: quizDbg.step + (quizDbg.err ? '｜' + quizDbg.err : '') } : undefined; })(),
+          round: k.round ? { index: k.round.index, done: !!k.round.done, correct: k.round.correct } : null, dbg: `${quizDbg.step}｜${quizDbg.why}｜${quizDbg.ticks}次｜${quizDbg.at ? Math.round((Date.now() - quizDbg.at) / 1000) + '秒前' : ''}${quizDbg.err ? '｜' + quizDbg.err : ''}` } : undefined; })(),
         gear, items,
       };
     }
@@ -513,12 +513,13 @@ function agentMain(ctx) {
 
     let quizRunning = false;
     let lastKnowledge = null;
-    const quizDbg = { step: '', at: 0, err: '' };
+    const quizDbg = { step: '', at: 0, err: '', ticks: 0, why: '' };
     const qstep = st => { quizDbg.step = st; quizDbg.at = Date.now(); };
     async function quizTick() {
       if (quizRunning) { if (Date.now() - quizDbg.at > 5 * 60 * 1000) { quizDbg.err = '卡在 ' + quizDbg.step + ' 超過 5 分鐘，重設'; quizRunning = false; } return; }
-      if (agentBusy || agentRunning) return;
-      quizRunning = true; qstep('開始');
+      quizDbg.ticks++;
+      if (agentBusy || agentRunning) { quizDbg.why = '交易/背包工作中'; return; }
+      quizRunning = true; qstep('開始'); quizDbg.why = '';
       try {
         const state = readState();
         if (!state || !state.character) return;
@@ -530,13 +531,13 @@ function agentMain(ctx) {
         let k = j && j.knowledge;
         if (k) lastKnowledge = k;
         qstep('已同步');
-        if (!cfg.auto || !k || !k.ready) return;
+        if (!cfg.auto || !k || !k.ready) { quizDbg.why = !cfg.auto ? '未開啟' : !k ? '同步沒有知識王資料' : '知識王未開放'; return; }
         const log = msg => hub('POST', '/api/quiz/log', { charId, msg }).catch(() => {});
         let waitNext = 0;
         for (let guard = 0; guard < 40; guard++) {
           const r = k.round;
           if (!r || r.done) {
-            if (!(k.remaining > 0)) return;
+            if (!(k.remaining > 0)) { quizDbg.why = '今日次數用完'; return; }
             setBadge(null, `知識王：開始新一輪（今日剩 ${k.remaining} 次）`);
             qstep('開新一輪');
             j = await game({ type: 'knowledgeStart' });
@@ -554,6 +555,7 @@ function agentMain(ctx) {
           const ans = cfg.answers[qnorm(q.text)];
           const idx = ans == null ? -1 : q.options.findIndex(o => qnorm(o) === qnorm(ans));
           if (idx < 0) {
+            quizDbg.why = '等你作答第 ' + (r.index + 1) + ' 題';
             await hub('POST', '/api/quiz/unknown', { q: q.text, options: q.options, charId });
             setBadge(null, `知識王：第 ${r.index + 1} 題題庫沒有，等你在面板選答案`);
             return;
@@ -568,7 +570,7 @@ function agentMain(ctx) {
           if (k && k.round && k.round.done) await log(`本輪結束：答對 ${k.round.correct}/5`);
         }
       } catch (e) {
-        console.warn('[szg-hub quiz]', e); quizDbg.err = e.message;
+        console.warn('[szg-hub quiz]', e); quizDbg.err = e.message + '@' + quizDbg.step;
         hub('POST', '/api/quiz/log', { msg: '自動作答出錯：' + e.message }).catch(() => {});
       } finally { quizRunning = false; qstep('閒置'); }
     }

@@ -1,6 +1,6 @@
 {
-  "version": "0.9.2",
-  "notes": "知識王：作答後等遊戲出下一題",
+  "version": "0.9.3",
+  "notes": "知識王：回報停下原因",
   "files": [
     "server.js",
     "update.js",
