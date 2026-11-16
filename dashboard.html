@@ -16,7 +16,8 @@
   header h1 { font-size: 16px; margin: 0; }
   nav button { background: transparent; color: var(--dim); border: 1px solid transparent; padding: 6px 14px; border-radius: 6px; cursor: pointer; font: inherit; }
   nav button.on { color: var(--text); background: var(--panel2); border-color: var(--line); }
-  #status { margin-left: auto; color: var(--dim); font-size: 12px; }
+  #status { color: var(--dim); font-size: 12px; }
+  #updBox { margin-left: auto; display: flex; gap: 6px; align-items: center; font-size: 12px; }
   main { padding: 14px 18px 40px; }
   section { display: none; } section.on { display: block; }
   .bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 0 0 10px; }
@@ -794,6 +795,14 @@ document.addEventListener('click', async e => {
       await api('/api/jobs/approve-all'); await poll(true);
     }
     if (t.dataset && t.dataset.act === 'approve') { /* handled above */ }
+    if (t.id === 'chkUpd') {
+      t.disabled = true; t.textContent = '檢查中…';
+      const r = await api('/api/update/check');
+      if (r.error) alert('檢查更新失敗：' + r.error + '\n\n通常是網路擋住了 raw.githubusercontent.com（防毒、防火牆或公司網路）。');
+      else if (!r.hasUpdate) alert(`目前是最新版（${r.current}）`);
+      await poll(true);
+      if (r.hasUpdate && S.autoUpdate !== false) setTimeout(() => location.reload(), 6000);
+    }
     if (t.id === 'doUpdate') {
       const u = DATA.update || {};
       if (!confirm(`更新到 ${u.latest}？${u.notes ? '\n\n更新內容：' + u.notes : ''}\n\n伺服器會自動重啟，約 5 秒後面板就會恢復。`)) return;
@@ -898,6 +907,9 @@ async function poll(force) {
     const u = DATA.update || {};
     const auto = S.autoUpdate !== false;
     $('#updBox').innerHTML = (u.hasUpdate ? `<span class="warn">有新版本 ${esc(u.latest)}${auto ? '（工作結束後自動更新）' : ''}</span> <button class="btn primary" id="doUpdate" title="${esc(u.notes || '')}">立即更新並重啟</button> ` : '')
+      + (u.error ? `<span class="bad" title="${esc(u.error)}">檢查更新失敗</span> ` : '')
+      + (u.checkedAt ? `<span class="dim" title="${esc(u.error || '')}">已檢查 ${new Date(u.checkedAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}</span> ` : '')
+      + `<button class="btn" id="chkUpd">檢查更新</button> `
       + `<label class="dim" title="GitHub 有新版時，伺服器在沒有工作執行時自動更新並重啟"><input type="checkbox" id="autoUpd" ${auto ? 'checked' : ''}> 自動更新</label>`;
     // 正在輸入時不要重畫，避免打斷
     const ae = document.activeElement;

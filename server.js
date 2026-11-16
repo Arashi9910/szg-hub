@@ -38,7 +38,12 @@ async function checkUpdate() {
       if (db.settings.autoUpdate !== false && !busy) return await applyUpdateAndRestart();
       console.log(`有新版本 ${r.latest}（目前 ${r.current}）${busy ? '，等工作結束後自動更新' : '，可在面板按「更新並重啟」'}。`);
     }
-  } catch (e) { updateInfo.error = e.message; updateInfo.checkedAt = Date.now(); }
+  } catch (e) {
+    const c = e.cause && (e.cause.code || (e.cause.errors && e.cause.errors[0] && e.cause.errors[0].code) || e.cause.message);
+    updateInfo.error = c ? `${e.message}（${c}）` : e.message;
+    updateInfo.checkedAt = Date.now();
+    console.log('檢查更新失敗：' + updateInfo.error);
+  }
 }
 
 // 腳本裡 //== AGENT START == 到 //== AGENT END == 之間是實際功能，各設定檔每次載入都會來拿這一段
