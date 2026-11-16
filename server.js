@@ -33,12 +33,33 @@ async function checkUpdate() {
   try {
     const r = await updater.check();
     updateInfo = { current: r.current, latest: r.latest, hasUpdate: r.hasUpdate, notes: r.notes, checkedAt: Date.now(), error: '' };
-    if (r.hasUpdate) console.log(`有新版本 ${r.latest}（目前 ${r.current}），可在面板按「更新並重啟」。`);
+    if (r.hasUpdate) {
+      const busy = db.jobs.some(j => ACTIVE.has(j.status));
+      if (db.settings.autoUpdate !== false && !busy) return await applyUpdateAndRestart();
+      console.log(`有新版本 ${r.latest}（目前 ${r.current}）${busy ? '，等工作結束後自動更新' : '，可在面板按「更新並重啟」'}。`);
+    }
   } catch (e) { updateInfo.error = e.message; updateInfo.checkedAt = Date.now(); }
 }
 
+// 腳本裡 //== AGENT START == 到 //== AGENT END == 之間是實際功能，各設定檔每次載入都會來拿這一段
+function agentSource() {
+  const src = fs.readFileSync(USERSCRIPT, 'utf8');
+  const a = src.indexOf('//== AGENT START =='), b = src.indexOf('//== AGENT END ==');
+  if (a < 0 || b < 0) throw new Error('腳本缺少 AGENT 區段');
+  return src.slice(a, b);
+}
+async function applyUpdateAndRestart() {
+  const r = await updater.apply();
+  if (r.updated) {
+    console.log(`已更新到 ${r.latest}，重新啟動中…`);
+    clearTimeout(saveTimer);
+    try { fs.writeFileSync(STATE_FILE, JSON.stringify(db)); } catch (_) {}
+    setTimeout(() => process.exit(3), 300); // start.bat 看到代碼 3 會自動重開
+  }
+  return r;
+}
 function scriptVersion() {
-  try { return (fs.readFileSync(USERSCRIPT, 'utf8').match(/@version\s+([\d.]+)/) || [])[1] || '?'; } catch (_) { return '?'; }
+  try { return (agentSource().match(/const AGENT_VERSION = '([^']+)'/) || [])[1] || '?'; } catch (_) { return '?'; }
 }
 function isLocal(req) {
   const a = req.socket.remoteAddress || '';
@@ -182,6 +203,12 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') return send(res, 204, '');
     if (!isLocal(req) && !tokenOk(req, url)) return send(res, 401, { error: '需要通行碼' });
 
+    if (req.method === 'GET' && url.pathname === '/agent.js') {
+      return send(res, 200, agentSource(), 'text/javascript; charset=utf-8');
+    }
+    if (req.method === 'GET' && url.pathname === '/api/agent-version') {
+      return send(res, 200, { version: scriptVersion() });
+    }
     if (req.method === 'GET' && url.pathname === '/szg-hub.user.js') {
       return send(res, 200, fs.readFileSync(USERSCRIPT, 'utf8'), 'text/javascript; charset=utf-8');
     }
@@ -232,15 +259,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/update/apply') {
       if (!isLocal(req)) return send(res, 403, { error: '只能在家裡電腦上更新' });
       if (db.jobs.some(j => ACTIVE.has(j.status))) return send(res, 409, { error: '有交易工作正在執行，請等它結束或取消後再更新' });
-      const r = await updater.apply();
-      send(res, 200, { ok: true, updated: r.updated, latest: r.latest });
-      if (r.updated) {
-        console.log(`已更新到 ${r.latest}，重新啟動中…`);
-        clearTimeout(saveTimer);
-        try { fs.writeFileSync(STATE_FILE, JSON.stringify(db)); } catch (_) {}
-        setTimeout(() => process.exit(3), 300); // start.bat 看到代碼 3 會自動重開
-      }
-      return;
+      const r = await applyUpdateAndRestart();
+      return send(res, 200, { ok: true, updated: r.updated, latest: r.latest });
     }
 
     // ---- 交易工作 ----
@@ -331,5 +351,5 @@ server.listen(PORT, HOST, () => {
   console.log('');
   console.log(`程式版本 ${updater.localVersion()}。保持這個視窗開著；關掉視窗就會停止。`);
   checkUpdate();
-  setInterval(checkUpdate, 30 * 60 * 1000);
+  setInterval(checkUpdate, 10 * 60 * 1000);
 });
