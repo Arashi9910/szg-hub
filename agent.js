@@ -38,26 +38,37 @@ function agentMain(ctx) {
     // 送指令給遊戲伺服器：
     //  - 「忙碌／稍後重試」：等 2、4、6 秒重送，最多 4 次
     //  - 「遊戲已更新，請重新整理」：這個頁面已經過期，自動重新整理（交易進度存在遊戲伺服器上，重整後會接著做）
+    //  - 一律透過「遊戲頁面自己的 fetch」送出：遊戲的 client-update.js 會在上面補上版本標頭（X-Game-Version 等），
+    //    少了這個標頭，伺服器會當成舊版遊戲而拒絕（回「遊戲已更新」）
+    //  - 每個操作都要帶 requestId（遊戲規定的操作識別碼）
     let reloadingForGameUpdate = false;
+    const pageFetch = (...args) => (W && typeof W.fetch === 'function' ? W.fetch(...args) : fetch(...args));
+    const newRequestId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
     async function game(action) {
       const characterId = sessionStorage.getItem('mapleCharacter');
+      const payload = { ...action, characterId };
+      if (payload.type !== 'sync' && !payload.requestId) payload.requestId = newRequestId();
       for (let attempt = 0; ; attempt++) {
-        const r = await fetch('/api/game', {
+        const r = await pageFetch('/api/game', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...action, characterId }),
+          body: JSON.stringify(payload),
         });
         let j = null;
         try { j = await r.json(); } catch (_) {}
         if (r.ok && !(j && j.error)) return j;
         const msg = (j && (j.error || j.message)) || ('HTTP ' + r.status);
         if (/遊戲已更新|重新整理後/.test(msg)) {
-          if (!reloadingForGameUpdate) {
+          // 5 分鐘內最多自動重整一次，避免一直重整
+          const last = GM_getValue('gameUpdateReloadAt', 0);
+          if (!reloadingForGameUpdate && Date.now() - last > 5 * 60 * 1000) {
             reloadingForGameUpdate = true;
+            GM_setValue('gameUpdateReloadAt', Date.now());
             setBadge(null, '遊戲有新版本，3 秒後自動重新整理頁面');
             setTimeout(() => location.reload(), 3000);
+            const e = new Error(msg); e.gameUpdated = true; throw e;
           }
-          const e = new Error(msg); e.gameUpdated = true; throw e;
+          throw new Error(msg + '（已經自動重新整理過，仍然被拒絕）');
         }
         if (/忙碌|稍後重試|稍後再試|too many|busy/i.test(msg) && attempt < 3) {
           await new Promise(res => setTimeout(res, 2000 * (attempt + 1)));
