@@ -339,7 +339,8 @@ function agentMain(ctx) {
       for (const it of batch.items || []) {
         if (it.excludeSupply !== false && sup.has(it.key) && it.qty === 'ALL') { skipped.push(it.name + '（補給中）'); continue; }
         const can = itemTradableQty(c, it.key, locked);
-        const qty = it.qty === 'ALL' ? can : Math.min(Number(it.qty) || 0, can);
+        const MAX_PER_SLOT = 9999; // 交易每格最多 9999 個，超過的由後面的批次處理
+        const qty = Math.min(MAX_PER_SLOT, it.qty === 'ALL' ? can : Math.min(Number(it.qty) || 0, can));
         if (qty > 0) items.push({ kind: 'item', item: it.key, qty });
         else skipped.push(it.name);
         if (it.qty !== 'ALL' && can < Number(it.qty)) skipped.push(`${it.name} 只剩 ${can}`);

@@ -717,10 +717,26 @@ function charOpt(sel, includeEmpty) {
   const ss = snaps().slice().sort((a, b) => cmp(a.char.name, b.char.name));
   return (includeEmpty ? '<option value="">（選擇角色）</option>' : '') + ss.map(s => `<option value="${s.char.id}" ${sel === s.char.id ? 'selected' : ''}>${esc(s.char.name)}${isOnline(s) ? '' : '（離線）'}</option>`).join('');
 }
+// 交易每格最多 9999 個、每次最多 20 格；同一種道具超過 9999 個時拆成好幾份，分到不同批次
+const MAX_PER_SLOT = 9999;
+function splitItem(v, available) {
+  if (v.qty === 'ALL') {
+    const n = Math.max(1, Math.ceil((Number(available) || 0) / MAX_PER_SLOT));
+    return Array.from({ length: n }, () => ({ ...v }));
+  }
+  const out = [];
+  for (let left = Number(v.qty) || 0; left > 0; left -= MAX_PER_SLOT) out.push({ ...v, qty: Math.min(MAX_PER_SLOT, left) });
+  return out;
+}
 function toBatches(items, gear, money) {
   const slots = [...items.map(v => ({ t: 'i', v })), ...gear.map(v => ({ t: 'g', v }))];
   const batches = [];
-  for (let k = 0; k < slots.length; k += 20) { const p = slots.slice(k, k + 20); batches.push({ items: p.filter(x => x.t === 'i').map(x => x.v), gear: p.filter(x => x.t === 'g').map(x => x.v), money: 0 }); }
+  for (const s of slots) {
+    // 放進第一個「還有空格、而且沒有同一種道具」的批次
+    let b = batches.find(b => b.items.length + b.gear.length < 20 && (s.t === 'g' || !b.items.some(x => x.key === s.v.key)));
+    if (!b) { b = { items: [], gear: [], money: 0 }; batches.push(b); }
+    (s.t === 'i' ? b.items : b.gear).push(s.v);
+  }
   if (money) { if (!batches.length) batches.push({ items: [], gear: [], money }); else batches[batches.length - 1].money = money; }
   return batches;
 }
@@ -738,7 +754,7 @@ function collectPlan(s) {
   const keepPct = keepPctValue();
   const transferable = Math.floor((s.char.money || 0) * (1 - keepPct / 100) / 1.05) - 1000;
   const money = $('#cMoney').checked && transferable >= 10000 ? 'ALL' : 0;
-  const batches = toBatches(items.map(i => ({ key: i.key, name: i.name, qty: 'ALL' })), gear.map(g => ({ uid: g.uid, name: gearLabel(g) })), money);
+  const batches = toBatches(items.flatMap(i => splitItem({ key: i.key, name: i.name, qty: 'ALL' }, i.tradableQty ?? i.qty)), gear.map(g => ({ uid: g.uid, name: gearLabel(g) })), money);
   for (const b of batches) if (b.money === 'ALL') b.keepPct = keepPct;
   return { items, gear, batches, moneyOut: money ? Math.max(0, transferable) : 0 };
 }
@@ -761,7 +777,7 @@ function renderJobs(sel, filterFn) {
       !isOnline(fromS) && `${j.fromName} 離線`, !bag && !isOnline(toS) && `${j.toName} 離線`,
       fromS && fromS.activeCharId && fromS.activeCharId !== j.fromCharId && `${j.fromName} 不是目前角色`,
       !bag && toS && toS.activeCharId && toS.activeCharId !== j.toCharId && `${j.toName} 不是目前角色`].filter(Boolean) : [];
-    const detail = j.batches.map((b, i) => `<div>${bag ? '' : `<b>第 ${i + 1} 批</b>：`}${[...(b.items || []).map(x => esc(x.name) + (x.qty === 'ALL' ? '（全部）' : ' ×' + fmt(x.qty))), ...(b.gear || []).map(g => esc(g.name))].join('、') || '—'}${b.money ? '　＋' + (b.money === 'ALL' ? `楓幣（保留 ${b.keepPct || 0}%，其餘轉出）` : '楓幣 ' + fmt(b.money)) : ''}</div>`).join('');
+    const detail = j.batches.map((b, i) => `<div>${bag ? '' : `<b>第 ${i + 1} 批</b>：`}${[...(b.items || []).map(x => esc(x.name) + (x.qty === 'ALL' ? '（全部，最多 9999）' : ' ×' + fmt(x.qty))), ...(b.gear || []).map(g => esc(g.name))].join('、') || '—'}${b.money ? '　＋' + (b.money === 'ALL' ? `楓幣（保留 ${b.keepPct || 0}%，其餘轉出）` : '楓幣 ' + fmt(b.money)) : ''}</div>`).join('');
     const logs = (j.log || []).slice(-30).reverse().map(l => `<div><span class="dim">${new Date(l.at).toLocaleTimeString('zh-TW')}</span> ${esc(l.msg)}${l.n > 1 ? ` <span class="dim">×${l.n}</span>` : ''}</div>`).join('');
     h += `<tr><td class="dim">${clock(j.createdAt)}</td><td class="${j.kind === 'sell' ? 'warn' : ''}">${JOB_KIND[j.kind] || j.kind}</td><td>${bag ? esc(j.fromName) : `${esc(j.fromName)} → ${esc(j.toName)}`}</td>
       <td class="wrap">${[nItems && nItems + ' 種道具', nGear && nGear + ' 件裝備', money].filter(Boolean).join('、')}${j.estimate ? `<div class="dim">估計 ${short(j.estimate)} 楓幣</div>` : ''}<details><summary class="dim">明細</summary>${detail}</details></td>
@@ -986,7 +1002,7 @@ document.addEventListener('click', async e => {
       const items = Object.entries(giveDraft.items).filter(([, q]) => q > 0).map(([key, qty]) => ({ key, qty, name: ((s.items || []).find(i => i.key === key) || {}).name || key }));
       const gear = [...giveDraft.gear].map(uid => { const g = (s.gear || []).find(x => x.uid === uid); return g && { uid, name: gearLabel(g) }; }).filter(Boolean);
       const money = Number($('#gMoney').value) || 0;
-      await api('/api/jobs', { kind: 'give', fromCharId: from, toCharId: to, batches: toBatches(items, gear, money) });
+      await api('/api/jobs', { kind: 'give', fromCharId: from, toCharId: to, batches: toBatches(items.flatMap(v => splitItem(v)), gear, money) });
       giveDraft.items = {}; giveDraft.gear.clear(); $('#gMoney').value = '';
       $('#giveMsg').textContent = '已建立工作，請在上方「工作佇列」核對後按確認執行。';
       await poll(true);
