@@ -1,6 +1,6 @@
 {
-  "version": "0.7.1",
-  "notes": "自動更新流程實測（功能沒有變動）",
+  "version": "0.7.2",
+  "notes": "載入器：功能程式沒載入時顯示紅色提示並自動重試",
   "files": [
     "server.js",
     "update.js",

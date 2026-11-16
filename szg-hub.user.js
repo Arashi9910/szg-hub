@@ -47,10 +47,29 @@
     };
   } catch (e) { console.warn('[szg-hub] fetch hook failed', e); }
 
+  // 功能程式沒載入（例如 Tampermonkey 剛好在伺服器重啟時下載失敗）：顯示紅色提示，60 秒後自動重整，最多 3 次
   if (typeof agentMain !== 'function') {
-    console.warn('[szg-hub] 沒有載入到 agent.js（中控伺服器沒開？），稍後重新整理頁面再試');
+    const tries = GM_getValue('missingAgentTries', 0);
+    const show = text => {
+      const put = () => {
+        const el = document.createElement('div');
+        el.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:99999;font:12px sans-serif;padding:3px 8px;border-radius:10px;background:#8a2b2b;color:#fff;max-width:360px';
+        el.textContent = text;
+        document.body.appendChild(el);
+      };
+      if (document.body) put(); else document.addEventListener('DOMContentLoaded', put);
+    };
+    if (tries < 3) {
+      GM_setValue('missingAgentTries', tries + 1);
+      show(`中控：功能程式沒載入，60 秒後自動重試（${tries + 1}/3）`);
+      setTimeout(() => location.reload(), 60 * 1000);
+    } else {
+      show('中控：功能程式一直載入失敗。請確認中控伺服器有開，並打開 http://127.0.0.1:8787/szg-hub.user.js 重新安裝腳本');
+    }
+    console.warn('[szg-hub] 沒有載入到 agent.js');
     return;
   }
+  GM_setValue('missingAgentTries', 0);
 
   // 每次重整都沒拿到新版時，記錄下來回報給面板（代表 Tampermonkey 的 @require 還在用快取）
   const hdr = TOKEN ? { 'X-Hub-Token': TOKEN } : {};
