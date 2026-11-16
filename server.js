@@ -48,7 +48,7 @@ async function checkUpdate() {
 
 // 腳本裡 //== AGENT START == 到 //== AGENT END == 之間是實際功能，各設定檔每次載入都會來拿這一段
 function agentSource() {
-  const src = fs.readFileSync(USERSCRIPT, 'utf8');
+  const src = userscriptSource();
   const a = src.indexOf('//== AGENT START =='), b = src.indexOf('//== AGENT END ==');
   if (a < 0 || b < 0) throw new Error('腳本缺少 AGENT 區段');
   return src.slice(a, b);
@@ -63,9 +63,15 @@ async function applyUpdateAndRestart() {
   }
   return r;
 }
-function scriptVersion() {
-  try { return (agentSource().match(/const AGENT_VERSION = '([^']+)'/) || [])[1] || '?'; } catch (_) { return '?'; }
+// 版本號只有一個來源：version.json。提供給瀏覽器的腳本會把版本號換成它，
+// 所以伺服器、面板、腳本、Tampermonkey 顯示的數字永遠一致；每次發新版，遊戲頁面都會自動重整一次。
+function scriptVersion() { return updater.localVersion(); }
+function stampVersion(src) {
+  const v = scriptVersion();
+  return src.replace(/const AGENT_VERSION = '[^']*'/, `const AGENT_VERSION = '${v}'`)
+            .replace(/(\/\/ @version\s+)\S+/, `$1${v}`);
 }
+function userscriptSource() { return stampVersion(fs.readFileSync(USERSCRIPT, 'utf8')); }
 function isLocal(req) {
   const a = req.socket.remoteAddress || '';
   return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1';
@@ -80,7 +86,7 @@ function tokenOk(req, url) {
 function remoteUserscript(hostHeader) {
   const host = String(hostHeader || '').replace(/[^\w.:\-\[\]]/g, '');
   const hostname = host.replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
-  return fs.readFileSync(USERSCRIPT, 'utf8')
+  return userscriptSource()
     .replace(/(@name\s+.*)/, '$1（遠端）')
     .replace(/\/\/ @connect\s+127\.0\.0\.1/, `// @connect      ${hostname}`)
     .replace(/const HUB = '[^']*';/, `const HUB = 'http://${host}';`)
@@ -215,7 +221,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { version: scriptVersion() });
     }
     if (req.method === 'GET' && url.pathname === '/szg-hub.user.js') {
-      return send(res, 200, fs.readFileSync(USERSCRIPT, 'utf8'), 'text/javascript; charset=utf-8');
+      return send(res, 200, userscriptSource(), 'text/javascript; charset=utf-8');
     }
     if (req.method === 'GET' && url.pathname === '/remote.user.js') {
       return send(res, 200, remoteUserscript(req.headers.host), 'text/javascript; charset=utf-8');
@@ -342,7 +348,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`上漲谷中控已啟動：http://127.0.0.1:${PORT}`);
-  console.log(`腳本版本 ${scriptVersion()}，各設定檔安裝／更新網址：http://127.0.0.1:${PORT}/szg-hub.user.js`);
+  console.log(`版本 ${scriptVersion()}。各設定檔安裝網址：http://127.0.0.1:${PORT}/szg-hub.user.js`);
   if (REMOTE) {
     const ips = Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address);
     const ts = ips.filter(ip => /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip));
@@ -354,7 +360,7 @@ server.listen(PORT, HOST, () => {
     console.log('通行碼存在 data\\token.txt，刪掉它再重啟就會換一組（遠端腳本要重裝）。');
   }
   console.log('');
-  console.log(`程式版本 ${updater.localVersion()}。保持這個視窗開著；關掉視窗就會停止。`);
+  console.log('保持這個視窗開著；關掉視窗就會停止。');
   checkUpdate();
   setInterval(checkUpdate, 2 * 60 * 1000);
 });

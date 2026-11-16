@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         上漲谷中控 - 資料回報
 // @namespace    szg-hub
-// @version      0.6.0
+// @version      0.6.3
 // @description  回報角色資料到中控面板；執行你在面板上確認過的工作（交易、背包）。每次載入都向中控伺服器取得最新程式。
 // @match        https://play.szg08.com/game/*
 // @grant        GM_xmlhttpRequest
@@ -49,7 +49,7 @@
 //== AGENT START ==
 function agentMain(ctx) {
   'use strict';
-  const AGENT_VERSION = '0.6.0';
+  const AGENT_VERSION = '0.6.3';
   const { GM_xmlhttpRequest, GM_getValue, GM_setValue, W, HUB, TOKEN, shared } = ctx;
   const SCAN_MS = 10000;      // 資料回報間隔
   const HEARTBEAT_MS = 60000;

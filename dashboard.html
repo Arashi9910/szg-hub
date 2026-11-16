@@ -300,7 +300,7 @@ function renderOverview() {
   if (legacy.length) msgs.push(`⚠ ${legacy.map(s => esc(s.char.name)).join('、')} 還在用舊版腳本（沒有自動更新功能），請在那個設定檔打開 <b>http://127.0.0.1:8787/szg-hub.user.js</b> 按「更新」，這是最後一次手動更新。`);
   if (blocked.length) msgs.push(`⚠ ${blocked.map(s => esc(s.char.name)).join('、')} 的 Tampermonkey 不允許即時載入新程式，目前用腳本內建的版本。請點 Tampermonkey 圖示 →「檢查使用者腳本更新」。`);
   const pending = old.filter(s => s.scriptMode && s.scriptMode !== 'blocked');
-  if (pending.length) msgs.push(`${pending.map(s => esc(s.char.name)).join('、')} 會在 2 分鐘內自動重新整理到 ${esc(want)}（有工作在跑時會等工作結束）。`);
+  if (pending.length) msgs.push(`${pending.map(s => esc(s.char.name)).join('、')} 會在 2 分鐘內自動重新整理到 v${esc(want)}（有工作在跑時會等工作結束）。`);
   $('#verWarn').style.display = msgs.length ? '' : 'none';
   $('#verWarn').innerHTML = msgs.join('<br>');
 
@@ -903,7 +903,10 @@ async function poll(force) {
     S = { accountLabels: {}, mainCharId: null, presets: [], slotStats: {}, ...DATA.settings };
     const anyNames = snaps().find(s => s.statNames);
     if (anyNames) statNames = { ...DEFAULT_STAT_NAMES, ...anyNames.statNames };
-    $('#status').textContent = `v${(DATA.update && DATA.update.current) || '?'} · 已同步 ${snaps().length} 隻角色 · ${new Date().toLocaleTimeString('zh-TW')}`;
+    const ver = DATA.scriptVersion || (DATA.update && DATA.update.current) || '?';
+    const live = snaps().filter(isOnline);
+    const okN = live.filter(s => s.scriptVersion === DATA.scriptVersion).length;
+    $('#status').innerHTML = `伺服器 v${esc(ver)} · 腳本 <span class="${okN < live.length ? 'warn' : 'good'}" title="在線角色中，執行最新腳本的數量">${okN}/${live.length} 最新</span> · 已同步 ${snaps().length} 隻角色 · ${new Date().toLocaleTimeString('zh-TW')}`;
     const u = DATA.update || {};
     const auto = S.autoUpdate !== false;
     $('#updBox').innerHTML = (u.hasUpdate ? `<span class="warn">有新版本 ${esc(u.latest)}${auto ? '（工作結束後自動更新）' : ''}</span> <button class="btn primary" id="doUpdate" title="${esc(u.notes || '')}">立即更新並重啟</button> ` : '')
