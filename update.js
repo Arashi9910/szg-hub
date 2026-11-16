@@ -7,7 +7,10 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const REPO_RAW = process.env.SZG_UPDATE_URL || 'https://raw.githubusercontent.com/Arashi9910/szg-hub/main/';
+const OWNER_REPO = 'Arashi9910/szg-hub';
+const TEST_URL = process.env.SZG_UPDATE_URL || ''; // 測試用：指定一個本機網址取代 GitHub
+const API_HEAD = `https://api.github.com/repos/${OWNER_REPO}/commits/main`;
+const rawBase = ref => TEST_URL || `https://raw.githubusercontent.com/${OWNER_REPO}/${ref}/`;
 const DIR = __dirname;
 const LOCAL_MANIFEST = path.join(DIR, 'version.json');
 // .bat 不自動更新：Windows 執行中的 .bat 被覆蓋會出錯
@@ -26,16 +29,28 @@ function newer(a, b) { // a > b ?
   return false;
 }
 
-async function get(file) {
-  const r = await fetch(REPO_RAW + file + '?t=' + Date.now(), { cache: 'no-store' });
+// 先向 GitHub API 取得 main 最新的提交編號（不受快取影響），再用編號下載檔案，避免拿到快取中的舊版。
+// API 失敗（例如每小時次數用完）時退回直接下載 main。
+async function latestRef() {
+  if (TEST_URL) return 'main';
+  try {
+    const r = await fetch(API_HEAD, { headers: { Accept: 'application/vnd.github.sha', 'User-Agent': 'szg-hub-updater' }, cache: 'no-store' });
+    if (r.ok) { const sha = (await r.text()).trim(); if (/^[0-9a-f]{40}$/.test(sha)) return sha; }
+  } catch (_) {}
+  return 'main';
+}
+
+async function get(file, ref) {
+  const r = await fetch(rawBase(ref) + file + '?t=' + Date.now(), { cache: 'no-store' });
   if (!r.ok) throw new Error(`下載 ${file} 失敗（HTTP ${r.status}）`);
   return Buffer.from(await r.arrayBuffer());
 }
 
 async function check() {
-  const remote = JSON.parse((await get('version.json')).toString('utf8'));
+  const ref = await latestRef();
+  const remote = JSON.parse((await get('version.json', ref)).toString('utf8'));
   const current = localVersion();
-  return { current, latest: remote.version, notes: remote.notes || '', hasUpdate: newer(remote.version, current), remote };
+  return { current, latest: remote.version, notes: remote.notes || '', hasUpdate: newer(remote.version, current), remote, ref };
 }
 
 async function apply() {
@@ -48,7 +63,7 @@ async function apply() {
 
   // 1) 全部下載到暫存資料夾
   for (const f of files) {
-    const buf = await get(f);
+    const buf = await get(f, info.ref);
     if (!buf.length) throw new Error(`${f} 是空檔案，取消更新`);
     fs.writeFileSync(path.join(stage, f), buf);
   }

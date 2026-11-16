@@ -356,5 +356,5 @@ server.listen(PORT, HOST, () => {
   console.log('');
   console.log(`程式版本 ${updater.localVersion()}。保持這個視窗開著；關掉視窗就會停止。`);
   checkUpdate();
-  setInterval(checkUpdate, 10 * 60 * 1000);
+  setInterval(checkUpdate, 2 * 60 * 1000);
 });
