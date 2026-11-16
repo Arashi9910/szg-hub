@@ -376,6 +376,17 @@ function agentMain(ctx) {
       return null;
     }
 
+    // 收貨方：遊戲裡已經有某帳號的邀請時，問伺服器能不能改成先處理那個帳號的工作
+    async function claimIncomingInvite(job, t) {
+      try {
+        if (!t) { const s = await game({ type: 'sync', tradeOnly: true }); t = s && s.trade; }
+        if (!t || t.status !== 'invited' || !t.sides) return false;
+        const inviter = t.sides[1 - t.self];
+        if (!inviter || !inviter.code || inviter.code === account.playerCode) return false;
+        const r = await hub('POST', '/api/agent/claim', { code: account.playerCode, inviterCode: inviter.code });
+        return !!(r && r.ok);
+      } catch (_) { return false; }
+    }
     async function report(job, ev) {
       try { await hub('POST', '/api/agent/report', { jobId: job.id, batchIndex: job.batchIndex, ...ev }); } catch (_) {}
     }
@@ -465,7 +476,10 @@ function agentMain(ctx) {
           return report(job, { event: 'waiting', msg: `等待切換到 ${role === 'giver' ? job.fromName : job.toName}` });
         }
         if (!res.peerReady) {
-          setBadge(null, `交易等待中：對方（${role === 'giver' ? job.toName : job.fromName}）尚未上線`);
+          // 排隊中（對方正在和別人交易）或對方離線：重設計時，輪到自己時才開始算逾時
+          L.step = ''; L.stepAt = Date.now();
+          setBadge(null, `交易排隊中：等待 ${role === 'giver' ? job.toName : job.fromName}（對方可能正在和別人交易，或不在線）`);
+          if (role === 'receiver') await claimIncomingInvite(job);
           return;
         }
 
@@ -489,6 +503,8 @@ function agentMain(ctx) {
 
         // 有其他人的交易卡著
         if (t && !isOurTrade && t.status !== 'done' && t.status !== 'cancelled' && theirs) {
+          // 收貨方收到的是另一隻分身的邀請：請伺服器改成先處理那一個
+          if (role === 'receiver' && t.status === 'invited' && (await claimIncomingInvite(job, t))) return;
           setBadge(null, `交易等待中：目前有和其他人的交易未結束`);
           return report(job, { event: 'waiting', msg: '有其他交易進行中，請先在遊戲裡取消或完成' });
         }
@@ -508,10 +524,10 @@ function agentMain(ctx) {
               await report(job, { event: 'log', msg: `${label}：沒有可交易的東西，略過。${skipped.length ? '略過：' + skipped.join('、') : ''}` });
               return report(job, { event: 'batchDone', tradeId: null, skippedEmpty: true });
             }
-            step('invited');
             setBadge(null, `${label}：送出邀請給 ${job.toName}`);
             await game({ type: 'tradeInvite', code: job.toCode });
             L.invites++; // 只有成功送出的邀請才算次數
+            step('invited');
             return report(job, { event: 'log', msg: `${label}：已送出邀請` });
           }
           L.tradeId = t.id;

@@ -126,9 +126,24 @@ function onlineCode(code) {
   return Object.values(db.chars).some(s => s.playerCode === code && Date.now() - (s.receivedAt || 0) < ONLINE_MS);
 }
 // 某個帳號目前應該處理的工作：最早建立、還沒結束、而且牽涉到它的那一個
+// 排程規則：
+//  1. 某個工作一旦開始交易，就把雙方帳號「鎖」在這個工作上，直到它結束，才換下一個（避免中途被別的工作插隊）
+//  2. 沒有鎖的時候，依「按下確認執行」的先後排隊（同時確認的，依建立順序）
+const locks = {}; // 帳號代碼 -> 工作 id
+function jobOrder(j) { return [j.approvedAt || j.createdAt, db.jobs.indexOf(j)]; }
 function currentJobFor(code) {
+  const lockedId = locks[code];
+  if (lockedId) {
+    const lj = db.jobs.find(j => j.id === lockedId);
+    if (lj && ACTIVE.has(lj.status)) return lj;
+    delete locks[code];
+  }
   return db.jobs.filter(j => ACTIVE.has(j.status) && (j.fromCode === code || j.toCode === code))
-    .sort((a, b) => a.createdAt - b.createdAt)[0] || null;
+    .sort((a, b) => { const x = jobOrder(a), y = jobOrder(b); return x[0] - y[0] || x[1] - y[1]; })[0] || null;
+}
+function lockJob(job) {
+  locks[job.fromCode] = job.id;
+  locks[job.toCode] = job.id;
 }
 function jobLog(job, msg) {
   const last = job.log[job.log.length - 1];
@@ -293,15 +308,15 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && (m = url.pathname.match(/^\/api\/jobs\/(\w+)\/(approve|cancel|retry|delete)$/))) {
       const job = db.jobs.find(j => j.id === m[1]);
       if (!job) return send(res, 404, { error: 'no job' });
-      if (m[2] === 'approve' && job.status === 'pending') { job.status = 'approved'; jobLog(job, '已確認，排隊等待執行'); }
+      if (m[2] === 'approve' && job.status === 'pending') { job.status = 'approved'; job.approvedAt = Date.now(); jobLog(job, '已確認，排隊等待執行'); }
       if (m[2] === 'cancel' && !['done', 'cancelled'].includes(job.status)) { job.status = 'cancelled'; jobLog(job, '已取消（若遊戲裡還有進行中的交易，請手動取消）'); }
-      if (m[2] === 'retry' && job.status === 'failed') { job.status = 'approved'; jobLog(job, `從第 ${job.batchIndex + 1} 批重新開始`); }
+      if (m[2] === 'retry' && job.status === 'failed') { job.status = 'approved'; job.approvedAt = Date.now(); jobLog(job, `從第 ${job.batchIndex + 1} 批重新開始`); }
       if (m[2] === 'delete' && !ACTIVE.has(job.status)) db.jobs = db.jobs.filter(j => j !== job);
       save();
       return send(res, 200, { ok: true });
     }
     if (req.method === 'POST' && url.pathname === '/api/jobs/approve-all') {
-      for (const j of db.jobs) if (j.status === 'pending') { j.status = 'approved'; jobLog(j, '已確認，排隊等待執行'); }
+      for (const j of db.jobs) if (j.status === 'pending') { j.status = 'approved'; j.approvedAt = Date.now(); jobLog(j, '已確認，排隊等待執行'); }
       save();
       return send(res, 200, { ok: true });
     }
@@ -317,7 +332,20 @@ const server = http.createServer(async (req, res) => {
       // 對方帳號也必須以這個工作為優先，才開始（避免同時跟兩個人交易）
       const peerJob = currentJobFor(peer);
       const peerReady = !!peerJob && peerJob.id === job.id && onlineCode(peer);
+      if (peerReady) lockJob(job);
       return send(res, 200, { job, role, peerReady });
+    }
+    // 收貨方發現遊戲裡已經有某個帳號的邀請：如果那個帳號正好有工作要交給我，就改成先處理它
+    if (req.method === 'POST' && url.pathname === '/api/agent/claim') {
+      const { code, inviterCode } = JSON.parse(await readBody(req));
+      const job = db.jobs.filter(j => ACTIVE.has(j.status) && !BAG_KINDS.has(j.kind) && j.fromCode === inviterCode && j.toCode === code)
+        .sort((a, b) => { const x = jobOrder(a), y = jobOrder(b); return x[0] - y[0] || x[1] - y[1]; })[0];
+      if (!job) return send(res, 200, { ok: false });
+      const cur = currentJobFor(code);
+      if (cur && cur.id !== job.id) jobLog(cur, `${job.fromName} 的邀請已經送到，先處理它，這個工作稍後再繼續`);
+      for (const k of Object.keys(locks)) if (locks[k] === (cur && cur.id)) delete locks[k];
+      lockJob(job);
+      return send(res, 200, { ok: true, jobId: job.id });
     }
     if (req.method === 'POST' && url.pathname === '/api/agent/report') {
       const ev = JSON.parse(await readBody(req));
