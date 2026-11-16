@@ -1,6 +1,6 @@
 {
-  "version": "0.7.0",
-  "notes": "腳本改用 Tampermonkey @require 載入功能程式（不再被瀏覽器擋）；需在 Tampermonkey 把 Externals 的 Update Interval 設為 Always",
+  "version": "0.7.1",
+  "notes": "自動更新流程實測（功能沒有變動）",
   "files": [
     "server.js",
     "update.js",
