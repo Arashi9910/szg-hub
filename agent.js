@@ -518,7 +518,8 @@ function agentMain(ctx) {
     async function quizTick() {
       if (quizRunning) { if (Date.now() - quizDbg.at > 5 * 60 * 1000) { quizDbg.err = '卡在 ' + quizDbg.step + ' 超過 5 分鐘，重設'; quizRunning = false; } return; }
       quizDbg.ticks++;
-      if (agentBusy || agentRunning) { quizDbg.why = '交易/背包工作中'; return; }
+      // 只在真的有交易／背包工作時讓路（agentRunning 只是每 3 秒查一次工作，背景分頁會跟這裡同時醒來）
+      if (agentBusy) { quizDbg.why = '交易/背包工作中'; return; }
       quizRunning = true; qstep('開始'); quizDbg.why = '';
       try {
         const state = readState();

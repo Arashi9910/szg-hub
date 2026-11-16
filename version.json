@@ -1,6 +1,6 @@
 {
-  "version": "0.9.3",
-  "notes": "知識王：回報停下原因",
+  "version": "0.9.4",
+  "notes": "知識王：修正背景分頁一直被略過",
   "files": [
     "server.js",
     "update.js",
