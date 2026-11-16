@@ -18,6 +18,7 @@ const STATE_FILE = path.join(DATA_DIR, 'state.json');
 const TOKEN_FILE = path.join(DATA_DIR, 'token.txt');
 const DASHBOARD = path.join(__dirname, 'dashboard.html');
 const USERSCRIPT = path.join(__dirname, 'szg-hub.user.js');
+const AGENT_FILE = path.join(__dirname, 'agent.js');
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -46,13 +47,8 @@ async function checkUpdate() {
   }
 }
 
-// 腳本裡 //== AGENT START == 到 //== AGENT END == 之間是實際功能，各設定檔每次載入都會來拿這一段
-function agentSource() {
-  const src = userscriptSource();
-  const a = src.indexOf('//== AGENT START =='), b = src.indexOf('//== AGENT END ==');
-  if (a < 0 || b < 0) throw new Error('腳本缺少 AGENT 區段');
-  return src.slice(a, b);
-}
+// 功能程式在 agent.js，由各設定檔的 Tampermonkey 透過 @require 載入
+function agentSource() { return stampVersion(fs.readFileSync(AGENT_FILE, 'utf8')); }
 async function applyUpdateAndRestart() {
   const r = await updater.apply();
   if (r.updated) {
@@ -68,7 +64,7 @@ async function applyUpdateAndRestart() {
 function scriptVersion() { return updater.localVersion(); }
 function stampVersion(src) {
   const v = scriptVersion();
-  return src.replace(/const AGENT_VERSION = '[^']*'/, `const AGENT_VERSION = '${v}'`)
+  return src.replace(/const AGENT_VERSION = '[\d.]+';/, `const AGENT_VERSION = '${v}';`)
             .replace(/(\/\/ @version\s+)\S+/, `$1${v}`);
 }
 function userscriptSource() { return stampVersion(fs.readFileSync(USERSCRIPT, 'utf8')); }
@@ -91,6 +87,7 @@ function remoteUserscript(hostHeader) {
     .replace(/\/\/ @connect\s+127\.0\.0\.1/, `// @connect      ${hostname}`)
     .replace(/const HUB = '[^']*';/, `const HUB = 'http://${host}';`)
     .replace(/const TOKEN = '[^']*';/, `const TOKEN = '${TOKEN}';`)
+    .replace(/(\/\/ @require\s+).*agent\.js.*/, `$1http://${host}/agent.js?token=${TOKEN}`)
     .replace(/(\/\/ @(?:updateURL|downloadURL)\s+).*/g, `$1http://${host}/remote.user.js?token=${TOKEN}`);
 }
 

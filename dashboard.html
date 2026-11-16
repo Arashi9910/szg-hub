@@ -294,13 +294,16 @@ function renderOverview() {
   // 腳本版本檢查
   const want = DATA.scriptVersion;
   const old = snaps().filter(s => isOnline(s) && want && s.scriptVersion !== want);
-  const blocked = snaps().filter(s => isOnline(s) && s.scriptMode === 'blocked');
-  const legacy = old.filter(s => !s.scriptMode); // 0.6 以前的腳本沒有自動載入功能
+  const names = list => list.map(s => esc(s.char.name)).join('、');
+  const INSTALL = '打開 <b>http://127.0.0.1:8787/szg-hub.user.js</b> 按「更新」';
+  const ALWAYS = 'Tampermonkey 圖示 →「控制台」→「設定」→ 設定模式改「進階」→ 找到「Externals」→「Update Interval」改成「Always」→ 存檔';
+  const reinstall = old.filter(s => !s.scriptMode || s.scriptMode === 'blocked' || s.scriptMode === 'bundled' || s.scriptMode === 'live');
+  const stale = old.filter(s => s.scriptMode === 'stale');
+  const pending = old.filter(s => s.scriptMode === 'require');
   const msgs = [];
-  if (legacy.length) msgs.push(`⚠ ${legacy.map(s => esc(s.char.name)).join('、')} 還在用舊版腳本（沒有自動更新功能），請在那個設定檔打開 <b>http://127.0.0.1:8787/szg-hub.user.js</b> 按「更新」，這是最後一次手動更新。`);
-  if (blocked.length) msgs.push(`⚠ ${blocked.map(s => esc(s.char.name)).join('、')} 的 Tampermonkey 不允許即時載入新程式，目前用腳本內建的版本。請點 Tampermonkey 圖示 →「檢查使用者腳本更新」。`);
-  const pending = old.filter(s => s.scriptMode && s.scriptMode !== 'blocked');
-  if (pending.length) msgs.push(`${pending.map(s => esc(s.char.name)).join('、')} 會在 2 分鐘內自動重新整理到 v${esc(want)}（有工作在跑時會等工作結束）。`);
+  if (reinstall.length) msgs.push(`⚠ ${names(reinstall)} 還在用舊的載入方式，請在那個設定檔：① ${INSTALL}；② ${ALWAYS}。每個設定檔只要做一次。`);
+  if (stale.length) msgs.push(`⚠ ${names(stale)} 重新整理後還是舊版，代表 Tampermonkey 還在用快取。請在那個設定檔：${ALWAYS}，然後重新整理遊戲頁面。`);
+  if (pending.length) msgs.push(`${names(pending)} 會在 2 分鐘內自動重新整理到 v${esc(want)}（有工作在跑時會等工作結束）。`);
   $('#verWarn').style.display = msgs.length ? '' : 'none';
   $('#verWarn').innerHTML = msgs.join('<br>');
 

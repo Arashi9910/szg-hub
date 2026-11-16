@@ -1,9 +1,10 @@
 {
-  "version": "0.6.4",
-  "notes": "修正交易頁偶爾顯示「尚未回報 ID」：查詢失敗時沿用記住的 ID、30 秒重試、從畫面讀取備援，並顯示實際失敗原因",
+  "version": "0.7.0",
+  "notes": "腳本改用 Tampermonkey @require 載入功能程式（不再被瀏覽器擋）；需在 Tampermonkey 把 Externals 的 Update Interval 設為 Always",
   "files": [
     "server.js",
     "update.js",
+    "agent.js",
     "dashboard.html",
     "szg-hub.user.js",
     "README.md",
