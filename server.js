@@ -35,7 +35,7 @@ async function checkUpdate() {
     const r = await updater.check();
     updateInfo = { current: r.current, latest: r.latest, hasUpdate: r.hasUpdate, notes: r.notes, checkedAt: Date.now(), error: '' };
     if (r.hasUpdate) {
-      const busy = db.jobs.some(j => ACTIVE.has(j.status));
+      const busy = db.jobs.some(j => ACTIVE.has(j.status) && j.kind !== 'idle');
       if (db.settings.autoUpdate !== false && !busy) return await applyUpdateAndRestart();
       console.log(`有新版本 ${r.latest}（目前 ${r.current}）${busy ? '，等工作結束後自動更新' : '，可在面板按「更新並重啟」'}。`);
     }
@@ -138,7 +138,7 @@ function currentJobFor(code) {
     if (lj && ACTIVE.has(lj.status)) return lj;
     delete locks[code];
   }
-  return db.jobs.filter(j => ACTIVE.has(j.status) && (j.fromCode === code || j.toCode === code))
+  return db.jobs.filter(j => j.kind !== 'idle' && ACTIVE.has(j.status) && (j.fromCode === code || j.toCode === code))
     .sort((a, b) => { const x = jobOrder(a), y = jobOrder(b); return x[0] - y[0] || x[1] - y[1]; })[0] || null;
 }
 function lockJob(job) {
@@ -153,7 +153,64 @@ function jobLog(job, msg) {
 }
 function publicJob(j) { return j; }
 
-const BAG_KINDS = new Set(['sell', 'lock', 'unlock']);
+const BAG_KINDS = new Set(['sell', 'lock', 'unlock', 'idle']);
+
+// ================= 掛機控制 =================
+// 指令（開始／暫停／重新開始）依帳號分組，交給那個帳號目前在線的遊戲頁面執行；
+// 同帳號的第二隻角色也可以直接控制（遊戲允許用 characterId 指定）。
+const IDLE_ACTIONS = new Set(['start', 'stop', 'restart']);
+function accountOfChar(charId) {
+  const own = db.chars[charId];
+  if (own) return own.accountId;
+  const holder = Object.values(db.chars).find(s => (s.accountChars || []).some(c => c.id === charId));
+  return holder && holder.accountId;
+}
+function charName(charId) {
+  const own = db.chars[charId];
+  if (own) return own.char.name;
+  for (const s of Object.values(db.chars)) { const c = (s.accountChars || []).find(c => c.id === charId); if (c) return c.name; }
+  return charId;
+}
+function routeForAccount(accountId) {
+  // 優先：最近回報、而且是帳號目前角色的那個頁面
+  const list = Object.values(db.chars).filter(s => s.accountId === accountId && s.playerCode)
+    .sort((a, b) => (b.receivedAt || 0) - (a.receivedAt || 0));
+  return list.find(s => s.activeCharId === s.char.id) || list[0];
+}
+function createIdleJobs(body) {
+  const targets = (body.targets || []).filter(t => t && t.charId && IDLE_ACTIONS.has(t.action));
+  if (!targets.length) throw new Error('沒有選擇角色');
+  const byAcc = {};
+  for (const t of targets) {
+    const acc = accountOfChar(t.charId);
+    if (!acc) continue;
+    (byAcc[acc] || (byAcc[acc] = [])).push({ charId: t.charId, name: charName(t.charId), action: t.action });
+    db.settings.idleLast = { ...(db.settings.idleLast || {}), [t.charId]: { action: t.action, at: Date.now(), by: 'panel' } };
+  }
+  const jobs = [];
+  for (const [acc, list] of Object.entries(byAcc)) {
+    const route = routeForAccount(acc);
+    if (!route) continue;
+    const job = {
+      id: crypto.randomBytes(6).toString('hex'), kind: 'idle', status: 'approved', createdAt: Date.now(), approvedAt: Date.now(),
+      fromCharId: route.char.id, fromName: route.char.name, fromCode: route.playerCode,
+      toCharId: route.char.id, toName: route.char.name, toCode: route.playerCode,
+      batches: [{ targets: list, items: [], gear: [], money: 0 }], batchIndex: 0, log: [], lastMsg: '',
+    };
+    jobLog(job, '已送出：' + list.map(t => `${t.name} ${({ start: '開始', stop: '暫停', restart: '重新開始' })[t.action]}`).join('、'));
+    db.jobs.push(job);
+    jobs.push(job);
+  }
+  if (!jobs.length) throw new Error('找不到可執行的遊戲頁面（那些帳號的遊戲分頁要開著）');
+  save();
+  return jobs;
+}
+function idleLog(entry) {
+  db.idleLog = db.idleLog || [];
+  db.idleLog.push({ at: Date.now(), ...entry });
+  if (db.idleLog.length > 200) db.idleLog.splice(0, db.idleLog.length - 200);
+  save();
+}
 function createBagJob(body) {
   const owner = db.chars[body.fromCharId];
   if (!owner) throw new Error('找不到角色資料');
@@ -173,6 +230,7 @@ function createBagJob(body) {
 }
 
 function createJob(body) {
+  if (body.kind === 'idle') throw new Error('掛機指令請用 /api/idle');
   if (BAG_KINDS.has(body.kind)) return createBagJob(body);
   const from = db.chars[body.fromCharId], to = db.chars[body.toCharId];
   if (!from || !to) throw new Error('找不到角色資料');
@@ -244,7 +302,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/data') {
-      return send(res, 200, { now: Date.now(), chars: db.chars, settings: db.settings, jobs: db.jobs.slice(-100), scriptVersion: scriptVersion(), update: updateInfo });
+      return send(res, 200, { now: Date.now(), chars: db.chars, settings: db.settings, jobs: db.jobs.slice(-100), idleLog: (db.idleLog || []).slice(-50), scriptVersion: scriptVersion(), update: updateInfo });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/push') {
@@ -321,9 +379,31 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
 
+    // ---- 掛機控制 ----
+    if (req.method === 'POST' && url.pathname === '/api/idle') {
+      const jobs = createIdleJobs(JSON.parse(await readBody(req)));
+      return send(res, 200, { ok: true, jobs });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/idle-policy') {
+      const p = db.settings.idlePolicy || {};
+      return send(res, 200, { policy: { autoRenew: !!p.autoRenew, renewBeforeMin: Number(p.renewBeforeMin) || 30, stopAfterHours: Number(p.stopAfterHours) || 0 },
+        excluded: db.settings.idleExcluded || {}, last: db.settings.idleLast || {} });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/idle-log') {
+      const e = JSON.parse(await readBody(req));
+      if (e && e.charId && e.msg) {
+        idleLog({ charId: e.charId, name: charName(e.charId), msg: String(e.msg).slice(0, 200) });
+        if (e.action) db.settings.idleLast = { ...(db.settings.idleLast || {}), [e.charId]: { action: e.action, at: Date.now(), by: 'auto' } };
+      }
+      return send(res, 200, { ok: true });
+    }
+
     // 腳本查詢：這個帳號現在要做什麼
     if (req.method === 'GET' && url.pathname === '/api/agent') {
       const code = url.searchParams.get('code') || '';
+      // 掛機指令馬上執行，不用排在交易後面
+      const idleJob = db.jobs.find(j => j.kind === 'idle' && ACTIVE.has(j.status) && j.fromCode === code);
+      if (idleJob) return send(res, 200, { job: idleJob, role: 'owner', peerReady: true });
       const job = currentJobFor(code);
       if (!job) return send(res, 200, { job: null });
       if (BAG_KINDS.has(job.kind)) return send(res, 200, { job, role: 'owner', peerReady: true });

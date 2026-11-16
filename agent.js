@@ -46,7 +46,7 @@ function agentMain(ctx) {
     const newRequestId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
     async function game(action) {
       const characterId = sessionStorage.getItem('mapleCharacter');
-      const payload = { ...action, characterId };
+      const payload = { ...action, characterId: action.characterId || characterId };
       if (payload.type !== 'sync' && !payload.requestId) payload.requestId = newRequestId();
       for (let attempt = 0; ; attempt++) {
         const r = await pageFetch('/api/game', {
@@ -400,7 +400,83 @@ function agentMain(ctx) {
       for (const v of Object.values(o)) { const q = findQuote(v, depth + 1); if (q) return q; }
       return null;
     }
+    // ---------- 掛機控制 ----------
+    const IDLE_LABEL = { start: '開始掛機', stop: '暫停掛機', restart: '重新開始掛機' };
+    async function idleAction(charId, action) {
+      if (action === 'restart') {
+        await game({ type: 'stop', characterId: charId });
+        await new Promise(r => setTimeout(r, 1500));
+        await game({ type: 'start', characterId: charId });
+      } else {
+        await game({ type: action, characterId: charId });
+      }
+    }
+    async function runIdleJob(job) {
+      const done = [], failed = [];
+      for (const t of (job.batches[0] && job.batches[0].targets) || []) {
+        try {
+          setBadge(null, `${t.name}：${IDLE_LABEL[t.action]}…`);
+          await idleAction(t.charId, t.action);
+          done.push(`${t.name} ${IDLE_LABEL[t.action]}`);
+        } catch (e) { failed.push(`${t.name}（${e.message}）`); }
+      }
+      if (done.length) await report(job, { event: 'log', msg: '完成：' + done.join('、') });
+      if (failed.length) return report(job, { event: 'error', msg: '失敗：' + failed.join('、') });
+      return report(job, { event: 'batchDone' });
+    }
+
+    // 自動規則（每 30 秒）：
+    //  - 掛滿 N 小時自動暫停（N=0 代表不限）
+    //  - 自動續掛：到期前 M 分鐘重新開始；已經到期停掉的自動開始。從面板手動暫停的不會被重新開始。
+    const H = 3600 * 1000, IDLE_CAP = 24 * H;
+    async function idleTick() {
+      try {
+        const state = readState();
+        if (!state || !account || !account.playerCode) return;
+        // 先記下同帳號其他角色目前是否在掛機（不論規則有沒有開，才看得出「從掛機變成停止」）
+        const sibPrev = {};
+        for (const sib of state.characters || []) {
+          if (sib.id === state.character.id) continue;
+          sibPrev[sib.id] = GM_getValue('sibAuto:' + sib.id, null);
+          GM_setValue('sibAuto:' + sib.id, !!sib.auto);
+        }
+        const r = await hub('GET', '/api/idle-policy');
+        const p = r.policy, excluded = r.excluded || {}, last = r.last || {};
+        if (!p.autoRenew && !p.stopAfterHours) return;
+        const skew = (state.serverTime || Date.now()) - Date.now();
+        const now = Date.now() + skew;
+        const recent = (id, ms) => { const t = GM_getValue('idleAuto:' + id, 0); return Date.now() - t < ms; };
+        const mark = id => GM_setValue('idleAuto:' + id, Date.now());
+        const panelStopped = id => last[id] && last[id].action === 'stop' && last[id].by === 'panel';
+        const act = async (id, name, action, why) => {
+          if (recent(id, 5 * 60 * 1000)) return; // 同一隻 5 分鐘內最多自動處理一次
+          mark(id);
+          try { await idleAction(id, action); await hub('POST', '/api/idle-log', { charId: id, action, msg: `${why}，已自動${IDLE_LABEL[action]}` }); }
+          catch (e) { await hub('POST', '/api/idle-log', { charId: id, msg: `自動${IDLE_LABEL[action]}失敗：${e.message}` }).catch(() => {}); }
+        };
+        // 目前角色：有完整的到期時間
+        const c = state.character;
+        if (!excluded[c.id]) {
+          const startedAt = c.until ? c.until - IDLE_CAP : null;
+          if (p.stopAfterHours > 0 && c.auto && startedAt && now >= startedAt + p.stopAfterHours * H) {
+            await act(c.id, c.name, 'stop', `已掛滿 ${p.stopAfterHours} 小時`);
+          } else if (p.autoRenew && !p.stopAfterHours) {
+            if (c.auto && c.until && c.until - now < p.renewBeforeMin * 60 * 1000) await act(c.id, c.name, 'restart', `剩不到 ${p.renewBeforeMin} 分鐘到期`);
+            else if (!c.auto && c.until && c.until <= now && !panelStopped(c.id)) await act(c.id, c.name, 'start', '掛機已到期');
+          }
+        }
+        // 同帳號的其他角色：只知道是否在掛機，看到「從掛機變成停止」而且不是從面板暫停的，就重新開始
+        for (const sib of state.characters || []) {
+          if (sib.id === c.id) continue;
+          const prev = sibPrev[sib.id];
+          if (excluded[sib.id] || !p.autoRenew || p.stopAfterHours) continue;
+          if (prev === true && !sib.auto && !panelStopped(sib.id)) await act(sib.id, sib.name, 'start', '掛機已停止（可能到期）');
+        }
+      } catch (e) { console.warn('[szg-hub idle]', e); }
+    }
+
     async function runBagJob(job, state, charId) {
+      if (job.kind === 'idle') return runIdleJob(job);
       if (charId !== job.fromCharId) {
         setBadge(null, `背包工作等待中：請切到「${job.fromName}」`);
         return report(job, { event: 'waiting', msg: `等待切換到 ${job.fromName}` });
@@ -607,6 +683,8 @@ function agentMain(ctx) {
       setTimeout(tick, 3000);
       setInterval(tick, SCAN_MS);
       setInterval(agentTick, AGENT_MS);
+      setTimeout(idleTick, 15000);
+      setInterval(idleTick, 30000);
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
     else start();

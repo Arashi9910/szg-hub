@@ -75,6 +75,29 @@
     <div class="card warn" id="verWarn" style="display:none"></div>
     <div class="card"><div class="stats-row" id="ovSummary"></div></div>
     <div class="bar dim">★ 設定本尊　·　帳號名稱可直接點擊修改　·　灰色列＝超過 5 分鐘沒更新（那個設定檔的遊戲分頁可能沒開）</div>
+    <div class="card" id="idleCard">
+      <h3>掛機控制</h3>
+      <div class="bar">
+        <span class="dim" id="idleSelInfo">先在下表左邊勾選角色</span>
+        <button class="btn" id="idleSelAll">全選</button>
+        <button class="btn" id="idleSelStopped">選未掛機的</button>
+        <button class="btn" id="idleSelNone">清除</button>
+        <span style="margin-left:12px"></span>
+        <button class="btn primary" data-idle="start">▶ 開始掛機</button>
+        <button class="btn" data-idle="stop">Ⅱ 暫停掛機</button>
+        <button class="btn" data-idle="restart" title="先暫停再開始，掛機時間重新從 24 小時算起">↻ 重新開始</button>
+        <span class="dim" id="idleMsg"></span>
+      </div>
+      <div class="bar">
+        <label><input type="checkbox" id="ipRenew"> 自動續掛：到期前</label><input type="number" id="ipRenewMin" min="5" max="600" style="width:64px"><span>分鐘自動重新開始；已到期停掉的也會自動開始</span>
+      </div>
+      <div class="bar">
+        <label><input type="checkbox" id="ipStop"> 掛滿</label><input type="number" id="ipStopH" min="1" max="24" step="0.5" style="width:64px"><span>小時後自動暫停</span>
+        <span class="dim">（開啟後不會自動續掛）</span>
+      </div>
+      <div class="dim">自動規則套用在表格「自動」有勾的角色。從這裡按「暫停掛機」的角色不會被自動續掛重新開始。需要那個帳號的遊戲分頁開著才會執行。</div>
+      <details style="margin-top:6px"><summary class="dim">自動處理紀錄</summary><div id="idleLogOut"></div></details>
+    </div>
     <div id="ovTable"></div>
   </section>
 
@@ -278,6 +301,34 @@ function wearers(g) {
   return snaps().filter(s => (g.reqJob === 0 || (g.reqJob & s.char.branchBit)) && (s.char.lv || 0) >= (g.reqLevel || 0));
 }
 
+// ================= 掛機控制 =================
+ui.idleSel = new Set();
+function autoToggle(id) {
+  const ex = (S.idleExcluded || {})[id];
+  return `<label class="dim" title="套用自動規則"><input type="checkbox" data-iexcl="${id}" ${ex ? '' : 'checked'}>自動</label>`;
+}
+function idleTargets() {
+  const rows = [];
+  for (const s of snaps()) rows.push({ id: s.char.id, auto: !!s.char.auto });
+  for (const m of missingChars()) rows.push({ id: m.id, auto: !!m.auto });
+  return rows;
+}
+function renderIdleCard() {
+  const p = S.idlePolicy || {};
+  if (document.activeElement !== $('#ipRenewMin')) $('#ipRenewMin').value = p.renewBeforeMin || 30;
+  if (document.activeElement !== $('#ipStopH')) $('#ipStopH').value = p.stopAfterHours || 8;
+  $('#ipRenew').checked = !!p.autoRenew;
+  $('#ipStop').checked = !!p.stopAfterHours;
+  $('#idleSelInfo').textContent = ui.idleSel.size ? `已選 ${ui.idleSel.size} 隻` : '先在下表左邊勾選角色';
+  const logs = (DATA.idleLog || []).slice().reverse().slice(0, 30);
+  $('#idleLogOut').innerHTML = logs.length ? logs.map(l => `<div><span class="dim">${clock(l.at)}</span> ${esc(l.name)}：${esc(l.msg)}</div>`).join('') : '<span class="dim">還沒有紀錄</span>';
+}
+function saveIdlePolicy() {
+  const renew = $('#ipRenew').checked, stop = $('#ipStop').checked;
+  const policy = { autoRenew: renew, renewBeforeMin: Math.max(5, Number($('#ipRenewMin').value) || 30), stopAfterHours: stop ? Math.max(0.5, Number($('#ipStopH').value) || 8) : 0 };
+  return saveSettings({ idlePolicy: policy });
+}
+
 // ================= 總覽 =================
 function renderOverview() {
   const now = Date.now();
@@ -323,12 +374,13 @@ function renderOverview() {
     <div class="stat"><b>${short(totalMoney)}</b><span>楓幣總和（含倉庫）</span></div>`;
 
   const th = (key, label, cls = '') => `<th data-ovsort="${key}" class="${cls}">${label}${ui.ovSort.key === key ? (ui.ovSort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
-  let h = `<table><thead><tr><th class="nosort"></th>${th('account','帳號')}${th('name','角色')}${th('job','職業')}${th('lv','Lv','num')}${th('exp','EXP%','num')}${th('hourly','每小時經驗','num')}${th('map','地圖')}${th('idle','掛機')}${th('money','楓幣','num')}${th('hp','HP藥','num')}${th('mp','MP藥','num')}<th class="nosort num">裝備欄</th><th class="nosort num">道具</th><th class="nosort">交易ID</th>${th('upd','更新')}</tr></thead><tbody>`;
-  if (!rows.length) h += `<tr><td colspan="16" class="empty">還沒有資料。打開任一個設定檔的遊戲分頁，右下角出現「中控：已連線」就代表在回報了。</td></tr>`;
+  let h = `<table><thead><tr><th class="nosort"><input type="checkbox" id="ovAll" title="全選"></th><th class="nosort"></th>${th('account','帳號')}${th('name','角色')}${th('job','職業')}${th('lv','Lv','num')}${th('exp','EXP%','num')}${th('hourly','每小時經驗','num')}${th('map','地圖')}${th('idle','掛機')}${th('money','楓幣','num')}${th('hp','HP藥','num')}${th('mp','MP藥','num')}<th class="nosort num">裝備欄</th><th class="nosort num">道具</th><th class="nosort">交易ID</th>${th('upd','更新')}</tr></thead><tbody>`;
+  if (!rows.length) h += `<tr><td colspan="17" class="empty">還沒有資料。打開任一個設定檔的遊戲分頁，右下角出現「中控：已連線」就代表在回報了。</td></tr>`;
   for (const r of rows) {
     const c = r.c;
     if (r.missing) {
-      h += `<tr class="stale"><td></td><td>${esc(r.account)}</td><td>${esc(c.name)}</td><td class="dim">${esc(c.job)}</td><td class="num">${c.lv}</td><td colspan="11" class="dim">尚未同步：在遊戲裡切到這隻角色一次就會出現詳細資料</td></tr>`;
+      h += `<tr class="stale"><td><input type="checkbox" data-isel="${c.id}" ${ui.idleSel.has(c.id) ? 'checked' : ''}></td><td></td><td>${esc(r.account)}</td><td>${esc(c.name)}</td><td class="dim">${esc(c.job)}</td><td class="num">${c.lv}</td><td colspan="3" class="dim">未同步詳細資料（切到這隻角色一次就會出現）</td>
+        <td>${c.auto ? '<span class="good">● 掛機中</span>' : '<span class="bad">● 未掛機</span>'} ${autoToggle(c.id)}</td><td colspan="7"></td></tr>`;
       continue;
     }
     const isMain = S.mainCharId === c.id;
@@ -339,6 +391,7 @@ function renderOverview() {
     else idle = `<span class="${r.remain < 3600e3 ? 'warn' : 'good'}">● 剩 ${hm(r.remain)}</span> <span class="dim">至 ${clock(c.until)}</span>`;
     const pot = (q, lim) => q == null ? '—' : `<span class="${q < lim ? 'bad' : ''}">${fmt(q)}</span>`;
     h += `<tr class="${r.stale ? 'stale' : ''}">
+      <td><input type="checkbox" data-isel="${c.id}" ${ui.idleSel.has(c.id) ? 'checked' : ''}></td>
       <td><span class="star ${isMain ? 'on' : ''}" data-main="${c.id}" title="設為本尊">★</span></td>
       <td><input class="label-edit" data-acc="${esc(r.s.accountId)}" value="${esc(r.account)}"></td>
       <td>${esc(c.name)}${isMain ? ' <span class="tag main">本尊</span>' : ''}</td>
@@ -347,7 +400,7 @@ function renderOverview() {
       <td class="num">${c.expPct == null ? '<span class="dim">—</span>' : c.expPct.toFixed(2) + '%'}</td>
       <td class="num">${c.hourlyExp ? short(c.hourlyExp) : '<span class="dim">—</span>'}</td>
       <td>${esc(c.mapName)}</td>
-      <td>${idle}</td>
+      <td>${idle} ${autoToggle(c.id)}</td>
       <td class="num">${short(c.money)}</td>
       <td class="num" title="${esc(c.hpItem || '')}">${pot(c.hpQty, 50)}</td>
       <td class="num" title="${esc(c.mpItem || '')}">${pot(c.mpQty, 20)}</td>
@@ -669,7 +722,7 @@ function renderJobs(sel, filterFn) {
 // ---------- 交易頁 ----------
 function renderTrade() {
   const main = S.mainCharId && DATA.chars[S.mainCharId];
-  renderJobs('#jobOut', j => !BAG_KINDS.includes(j.kind));
+  renderJobs('#jobOut', j => !BAG_KINDS.includes(j.kind) && j.kind !== 'idle');
   if (!ui.ff.collect) ui.ff.collect = { ...emptyFF(), ...(S.collectFilter || {}), lock: 'all' };
   if ($('#cKeep').value === '' && document.activeElement !== $('#cKeep')) $('#cKeep').value = S.collectKeepPct ?? 10;
   if (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#ffCollect')) $('#ffCollect').innerHTML = ffHTML('collect', ui.ff.collect, false);
@@ -736,7 +789,7 @@ function bagRows(s) {
   return [...items, ...gear];
 }
 function renderBag() {
-  renderJobs('#jobOut2', j => BAG_KINDS.includes(j.kind));
+  renderJobs('#jobOut2', j => BAG_KINDS.includes(j.kind) && j.kind !== 'idle');
   const cur = $('#bChar').value || S.mainCharId || '';
   $('#bChar').innerHTML = charOpt(cur, true);
   if (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#ffBag')) $('#ffBag').innerHTML = ffHTML('bag', ui.ff.bag, true);
@@ -828,6 +881,18 @@ document.addEventListener('click', async e => {
       await api('/api/update/apply');
       setTimeout(() => location.reload(), 5000);
     }
+    // 掛機控制
+    if (t.id === 'ovAll') { if (t.checked) idleTargets().forEach(r => ui.idleSel.add(r.id)); else ui.idleSel.clear(); renderOverview(); renderIdleCard(); }
+    if (t.id === 'idleSelAll') { idleTargets().forEach(r => ui.idleSel.add(r.id)); renderOverview(); renderIdleCard(); }
+    if (t.id === 'idleSelStopped') { ui.idleSel.clear(); idleTargets().filter(r => !r.auto).forEach(r => ui.idleSel.add(r.id)); renderOverview(); renderIdleCard(); }
+    if (t.id === 'idleSelNone') { ui.idleSel.clear(); renderOverview(); renderIdleCard(); }
+    if (t.dataset && t.dataset.idle) {
+      if (!ui.idleSel.size) { $('#idleMsg').textContent = '請先勾選角色'; return; }
+      const action = t.dataset.idle;
+      const r = await api('/api/idle', { targets: [...ui.idleSel].map(charId => ({ charId, action })) });
+      $('#idleMsg').textContent = `已送出 ${ui.idleSel.size} 隻（${r.jobs.length} 個帳號），幾秒內會生效`;
+      await poll(true);
+    }
     // 收集
     if (t.id === 'cAll') document.querySelectorAll('#collectPick input[data-cpick]:not(:disabled)').forEach(i => i.checked = t.checked);
     if (t.id === 'mkCollect') {
@@ -887,6 +952,9 @@ document.addEventListener('change', e => {
     return;
   }
   if (t.id === 'autoUpd') { saveSettings({ autoUpdate: t.checked }); return; }
+  if (t.dataset && t.dataset.isel) { if (t.checked) ui.idleSel.add(t.dataset.isel); else ui.idleSel.delete(t.dataset.isel); renderIdleCard(); return; }
+  if (t.dataset && t.dataset.iexcl) { saveSettings({ idleExcluded: { ...(S.idleExcluded || {}), [t.dataset.iexcl]: !t.checked } }); return; }
+  if (['ipRenew', 'ipStop', 'ipRenewMin', 'ipStopH'].includes(t.id)) { saveIdlePolicy().then(() => poll(true)); return; }
   if (t.id === 'cMoney') renderTrade();
   if (t.id === 'cKeep') { saveSettings({ collectKeepPct: keepPctValue() }); renderTrade(); }
   if (t.id === 'gFrom') { giveDraft.items = {}; giveDraft.gear.clear(); renderGivePick(); }
@@ -908,7 +976,7 @@ document.addEventListener('input', e => {
 // ================= 主流程 =================
 function renderAll() {
   const active = document.querySelector('nav button.on').dataset.tab;
-  if (active === 'overview') renderOverview();
+  if (active === 'overview') { renderOverview(); renderIdleCard(); }
   if (active === 'gear') renderGear();
   if (active === 'res') renderRes();
   if (active === 'trade') renderTrade();
