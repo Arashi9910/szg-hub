@@ -54,6 +54,16 @@
   .empty { padding: 30px; text-align: center; color: var(--dim); }
   .wrap { white-space: normal; }
   .more { margin-top: 8px; }
+  .pkwrap { position: relative; display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .pkpanel { position: absolute; top: 100%; left: 0; z-index: 20; margin-top: 4px; width: 460px; background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; padding: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+  .pklist { max-height: 340px; overflow: auto; margin: 6px 0; }
+  .pklist label { display: flex; gap: 6px; align-items: center; padding: 3px 4px; border-radius: 4px; cursor: pointer; }
+  .pklist label:hover { background: var(--panel2); }
+  .pklist .q { margin-left: auto; color: var(--dim); font-size: 12px; }
+  .pktabs { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+  .pktabs button.on { border-color: var(--accent); color: var(--text); }
+  .tag a { cursor: pointer; color: var(--dim); margin-left: 4px; }
+  .tag a:hover { color: var(--bad); }
 </style>
 </head>
 <body>
@@ -617,7 +627,9 @@ const JOB_STATUS = { pending: ['待確認', 'warn'], approved: ['排隊中', '']
 const JOB_KIND = { collect: '收集', give: '分發', sell: '賣出', lock: '鎖定', unlock: '解鎖' };
 const BAG_KINDS = ['sell', 'lock', 'unlock'];
 const giveDraft = { items: {}, gear: new Set() };
-const emptyFF = () => ({ kinds: [], inc: '', exc: '', gear: 'all', lock: 'all' });
+const emptyFF = () => ({ kinds: [], incKeys: [], excKeys: [], gear: 'all', lock: 'all' });
+ui.pickOpen = '';            // 目前打開的道具選單，例如 'collect|inc'
+ui.pk = { search: '', kind: '' };
 ui.ff = { collect: null, give: emptyFF(), bag: emptyFF() };
 ui.bagSel = new Set();
 
@@ -625,9 +637,8 @@ const words = s => String(s || '').split(/[,，、\s]+/).map(x => x.trim()).filt
 function allKinds() { const k = new Set(); for (const s of snaps()) for (const i of s.items || []) k.add(i.kind); return [...k].sort(); }
 function itemPass(i, f) {
   if (f.kinds.length && !f.kinds.includes(i.kind)) return false;
-  const inc = words(f.inc), exc = words(f.exc);
-  if (inc.length && !inc.some(w => i.name.includes(w))) return false;
-  if (exc.some(w => i.name.includes(w))) return false;
+  if ((f.incKeys || []).length && !f.incKeys.includes(i.key)) return false;
+  if ((f.excKeys || []).includes(i.key)) return false;
   if (f.lock === 'unlocked' && !((i.qty - (i.lockedQty || 0)) > 0)) return false;
   if (f.lock === 'locked' && !(i.lockedQty > 0)) return false;
   return true;
@@ -636,27 +647,70 @@ function gearPass(g, f) {
   if (f.gear === 'none') return false;
   if (f.lock === 'unlocked' && g.locked) return false;
   if (f.lock === 'locked' && !g.locked) return false;
-  const inc = words(f.inc), exc = words(f.exc);
-  if (inc.length && !inc.some(w => g.name.includes(w))) return false;
-  if (exc.some(w => g.name.includes(w))) return false;
   if (f.gear && f.gear.startsWith('p:')) {
     const p = (S.presets || [])[Number(f.gear.slice(2))];
     if (p && !gearMatch(g, p.filter, 'stats', true)) return false;
   }
   return true;
 }
+// 所有角色背包裡實際有的道具（給下拉選單用）
+function ownedItems() {
+  const m = {};
+  for (const s of snaps()) for (const i of s.items || []) {
+    if (i.loc !== '背包') continue;
+    const a = m[i.key] || (m[i.key] = { key: i.key, name: i.name, kind: i.kind, total: 0, holders: 0 });
+    a.total += i.qty; a.holders++;
+  }
+  return Object.values(m).sort((a, b) => cmp(a.kind, b.kind) || cmp(a.name, b.name));
+}
+function itemNameOf(key) { const it = ownedItems().find(x => x.key === key); return it ? it.name : key; }
+function pickerHTML(id, which) {
+  const f = ui.ff[id], keys = f[which + 'Keys'] || [];
+  const label = which === 'inc' ? '只要這些道具' : '排除這些道具';
+  const open = ui.pickOpen === id + '|' + which;
+  let h = `<span class="pkwrap"><button class="btn" data-pkopen="${id}|${which}">${label} ▾${keys.length ? `（${keys.length}）` : ''}</button>`;
+  h += keys.map(k => `<span class="tag">${esc(itemNameOf(k))}<a data-pkdel="${id}|${which}|${esc(k)}" title="移除">✕</a></span>`).join('');
+  if (open) {
+    const kinds = [...new Set(ownedItems().map(i => i.kind))];
+    h += `<div class="pkpanel">
+      <input data-pksearch="${id}|${which}" value="${esc(ui.pk.search)}" placeholder="搜尋道具名稱，例如：藥水" style="width:100%">
+      <div class="pktabs"><button class="btn ${ui.pk.kind === '' ? 'on' : ''}" data-pkkind="">全部</button>${kinds.map(k => `<button class="btn ${ui.pk.kind === k ? 'on' : ''}" data-pkkind="${esc(k)}">${esc(k)}</button>`).join('')}</div>
+      <div class="pklist" id="pklist-${id}-${which}">${pickerList(id, which)}</div>
+      <div class="bar" style="margin:0"><button class="btn" data-pkall="${id}|${which}">勾選目前列表全部</button><button class="btn" data-pkclear="${id}|${which}">全部清除</button><button class="btn primary" data-pkclose="1" style="margin-left:auto">完成</button></div>
+    </div>`;
+  }
+  return h + '</span>';
+}
+function pickerVisible() {
+  const q = ui.pk.search.trim();
+  return ownedItems().filter(i => (!ui.pk.kind || i.kind === ui.pk.kind) && (!q || i.name.includes(q)));
+}
+function pickerList(id, which) {
+  const keys = new Set(ui.ff[id][which + 'Keys'] || []);
+  const list = pickerVisible();
+  if (!list.length) return '<div class="dim" style="padding:6px">沒有符合的道具</div>';
+  return list.map(i => `<label><input type="checkbox" data-pkitem="${id}|${which}|${esc(i.key)}" ${keys.has(i.key) ? 'checked' : ''}>${esc(i.name)}<span class="q">${esc(i.kind)} · 共 ${fmt(i.total)}（${i.holders} 隻）</span></label>`).join('');
+}
+function rerenderFF(id) {
+  const box = { collect: '#ffCollect', give: '#ffGive', bag: '#ffBag' }[id];
+  if (box) $(box).innerHTML = ffHTML(id, ui.ff[id], id === 'bag');
+  if (id === 'collect') renderTrade();
+  if (id === 'give') renderGivePick();
+  if (id === 'bag') renderBagList();
+}
+
 function ffHTML(id, f, withLock) {
   const kinds = allKinds();
   return `<div class="bar"><span style="width:70px">道具類別</span><div class="chips">${kinds.map(k => `<label><input type="checkbox" data-ff="${id}" data-k="kinds" value="${esc(k)}" ${f.kinds.includes(k) ? 'checked' : ''}>${esc(k)}</label>`).join('')}<span class="dim">（都不勾＝全部）</span></div></div>
-    <div class="bar"><span style="width:70px">名稱</span><input data-ff="${id}" data-k="inc" value="${esc(f.inc)}" placeholder="包含（逗號分隔）" style="width:200px"><input data-ff="${id}" data-k="exc" value="${esc(f.exc)}" placeholder="排除（逗號分隔）" style="width:200px">
-      <span>裝備</span><select data-ff="${id}" data-k="gear"><option value="all" ${f.gear === 'all' ? 'selected' : ''}>全部背包裝備</option><option value="none" ${f.gear === 'none' ? 'selected' : ''}>不含裝備</option>${(S.presets || []).map((p, i) => `<option value="p:${i}" ${f.gear === 'p:' + i ? 'selected' : ''}>套用組合：${esc(p.name)}</option>`).join('')}</select>
+    <div class="bar"><span style="width:70px">指定道具</span>${pickerHTML(id, 'inc')}${pickerHTML(id, 'exc')}</div>
+    <div class="bar"><span style="width:70px">裝備</span><select data-ff="${id}" data-k="gear"><option value="all" ${f.gear === 'all' ? 'selected' : ''}>全部背包裝備</option><option value="none" ${f.gear === 'none' ? 'selected' : ''}>不含裝備</option>${(S.presets || []).map((p, i) => `<option value="p:${i}" ${f.gear === 'p:' + i ? 'selected' : ''}>套用組合：${esc(p.name)}</option>`).join('')}</select>
       ${withLock ? `<span>鎖定</span><select data-ff="${id}" data-k="lock">${[['all', '全部'], ['unlocked', '未鎖定'], ['locked', '已鎖定']].map(([v, n]) => `<option value="${v}" ${f.lock === v ? 'selected' : ''}>${n}</option>`).join('')}</select>` : ''}
     </div><div class="dim" style="margin:-4px 0 8px">裝備的「套用組合」來自「裝備」頁存好的篩選組合（部位、職業、素質條件…）。</div>`;
 }
 function readFF(id) {
   const f = ui.ff[id];
   f.kinds = [...document.querySelectorAll(`input[data-ff="${id}"][data-k="kinds"]:checked`)].map(i => i.value);
-  for (const k of ['inc', 'exc', 'gear', 'lock']) { const el = document.querySelector(`[data-ff="${id}"][data-k="${k}"]`); if (el) f[k] = el.value; }
+  for (const k of ['gear', 'lock']) { const el = document.querySelector(`[data-ff="${id}"][data-k="${k}"]`); if (el) f[k] = el.value; }
 }
 
 function charOpt(sel, includeEmpty) {
@@ -723,9 +777,9 @@ function renderJobs(sel, filterFn) {
 function renderTrade() {
   const main = S.mainCharId && DATA.chars[S.mainCharId];
   renderJobs('#jobOut', j => !BAG_KINDS.includes(j.kind) && j.kind !== 'idle');
-  if (!ui.ff.collect) ui.ff.collect = { ...emptyFF(), ...(S.collectFilter || {}), lock: 'all' };
+  if (!ui.ff.collect) { const sv = S.collectFilter || {}; ui.ff.collect = { ...emptyFF(), kinds: sv.kinds || [], incKeys: sv.incKeys || [], excKeys: sv.excKeys || [], gear: sv.gear || 'all', lock: 'all' }; }
   if ($('#cKeep').value === '' && document.activeElement !== $('#cKeep')) $('#cKeep').value = S.collectKeepPct ?? 10;
-  if (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#ffCollect')) $('#ffCollect').innerHTML = ffHTML('collect', ui.ff.collect, false);
+  if (!ui.pickOpen.startsWith('collect|') && (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#ffCollect'))) $('#ffCollect').innerHTML = ffHTML('collect', ui.ff.collect, false);
 
   if (!main) {
     $('#collectHead').innerHTML = '<span class="warn">先到「總覽」點 ★ 設定本尊。</span>';
@@ -754,7 +808,7 @@ function renderTrade() {
   const gFrom = $('#gFrom').value || S.mainCharId || '';
   $('#gFrom').innerHTML = charOpt(gFrom, true);
   $('#gTo').innerHTML = charOpt($('#gTo').value, true);
-  if (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#ffGive')) $('#ffGive').innerHTML = ffHTML('give', ui.ff.give, false);
+  if (!ui.pickOpen.startsWith('give|') && (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#ffGive'))) $('#ffGive').innerHTML = ffHTML('give', ui.ff.give, false);
   renderGivePick();
 }
 
@@ -792,7 +846,7 @@ function renderBag() {
   renderJobs('#jobOut2', j => BAG_KINDS.includes(j.kind) && j.kind !== 'idle');
   const cur = $('#bChar').value || S.mainCharId || '';
   $('#bChar').innerHTML = charOpt(cur, true);
-  if (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#ffBag')) $('#ffBag').innerHTML = ffHTML('bag', ui.ff.bag, true);
+  if (!ui.pickOpen.startsWith('bag|') && (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#ffBag'))) $('#ffBag').innerHTML = ffHTML('bag', ui.ff.bag, true);
   renderBagList();
 }
 function renderBagList() {
@@ -881,6 +935,18 @@ document.addEventListener('click', async e => {
       await api('/api/update/apply');
       setTimeout(() => location.reload(), 5000);
     }
+    // 道具下拉選單
+    if (t.dataset && t.dataset.pkopen) { const v = t.dataset.pkopen; ui.pickOpen = ui.pickOpen === v ? '' : v; ui.pk = { search: '', kind: '' }; rerenderFF(v.split('|')[0]); const s = document.querySelector(`[data-pksearch="${v}"]`); if (s) s.focus(); return; }
+    if (t.dataset && t.dataset.pkclose) { const id = ui.pickOpen.split('|')[0]; ui.pickOpen = ''; rerenderFF(id); return; }
+    if (t.dataset && t.dataset.pkdel) { const [id, which, key] = t.dataset.pkdel.split('|'); const f = ui.ff[id]; f[which + 'Keys'] = (f[which + 'Keys'] || []).filter(k => k !== key); rerenderFF(id); return; }
+    if (t.dataset && t.dataset.pkkind !== undefined && t.closest('.pkpanel')) { ui.pk.kind = t.dataset.pkkind; const [id] = ui.pickOpen.split('|'); rerenderFF(id); return; }
+    if (t.dataset && (t.dataset.pkall || t.dataset.pkclear)) {
+      const [id, which] = (t.dataset.pkall || t.dataset.pkclear).split('|'); const f = ui.ff[id];
+      const set = new Set(f[which + 'Keys'] || []);
+      if (t.dataset.pkall) pickerVisible().forEach(i => set.add(i.key)); else set.clear();
+      f[which + 'Keys'] = [...set]; rerenderFF(id); return;
+    }
+    if (ui.pickOpen && !t.closest('.pkwrap')) { const id = ui.pickOpen.split('|')[0]; ui.pickOpen = ''; rerenderFF(id); }
     // 掛機控制
     if (t.id === 'ovAll') { if (t.checked) idleTargets().forEach(r => ui.idleSel.add(r.id)); else ui.idleSel.clear(); renderOverview(); renderIdleCard(); }
     if (t.id === 'idleSelAll') { idleTargets().forEach(r => ui.idleSel.add(r.id)); renderOverview(); renderIdleCard(); }
@@ -944,6 +1010,17 @@ document.addEventListener('click', async e => {
 });
 document.addEventListener('change', e => {
   const t = e.target;
+  if (t.dataset && t.dataset.pkitem) {
+    const [id, which, key] = t.dataset.pkitem.split('|'); const f = ui.ff[id];
+    const set = new Set(f[which + 'Keys'] || []);
+    if (t.checked) set.add(key); else set.delete(key);
+    f[which + 'Keys'] = [...set];
+    // 只更新標籤與下方結果，選單保持打開
+    const wrap = t.closest('.pkwrap'); const scroll = wrap.querySelector('.pklist').scrollTop;
+    rerenderFF(id);
+    const nl = document.querySelector(`#pklist-${id}-${which}`); if (nl) nl.scrollTop = scroll;
+    return;
+  }
   if (t.dataset && t.dataset.ff) {
     readFF(t.dataset.ff);
     if (t.dataset.ff === 'collect') renderTrade();
@@ -965,11 +1042,10 @@ document.addEventListener('change', e => {
 });
 document.addEventListener('input', e => {
   const t = e.target;
-  if (t.dataset && t.dataset.ff && (t.dataset.k === 'inc' || t.dataset.k === 'exc')) {
-    readFF(t.dataset.ff);
-    if (t.dataset.ff === 'collect') renderTrade();
-    if (t.dataset.ff === 'give') renderGivePick();
-    if (t.dataset.ff === 'bag') renderBagList();
+  if (t.dataset && t.dataset.pksearch) {
+    ui.pk.search = t.value;
+    const [id, which] = t.dataset.pksearch.split('|');
+    const box = document.querySelector(`#pklist-${id}-${which}`); if (box) box.innerHTML = pickerList(id, which);
   }
 });
 
