@@ -1,0 +1,5 @@
+{
+  "version": "0.4.0",
+  "notes": "伺服器與面板改為從 GitHub 自動更新；交易助手（收集＋分發）",
+  "files": ["server.js", "update.js", "dashboard.html", "szg-hub.user.js", "README.md", "version.json"]
+}
