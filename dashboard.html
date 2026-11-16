@@ -670,7 +670,9 @@ function renderTrade() {
     for (const s of ss) {
       const p = collectPlan(s);
       const sameAcc = s.playerCode && s.playerCode === main.playerCode;
-      const notes = [sameAcc && '與本尊同帳號（請用倉庫）', !s.playerCode && '尚未回報 ID，請更新腳本', s.activeCharId && s.activeCharId !== s.char.id && '執行時需切到這隻角色'].filter(Boolean);
+      const notes = [sameAcc && '與本尊同帳號（請用倉庫）',
+        !s.playerCode && (s.accountError ? `拿不到 12 碼 ID：${esc(s.accountError)}。可以在那個分頁打開「人物」頁一次，腳本會從畫面讀取` : '還沒拿到 12 碼 ID（剛開頁面時正常，約 30 秒內會補上）'),
+        s.activeCharId && s.activeCharId !== s.char.id && '執行時需切到這隻角色'].filter(Boolean);
       const dis = sameAcc || !s.playerCode;
       c += `<tr><td><input type="checkbox" data-cpick="${s.char.id}" ${dis ? 'disabled' : ''} ${!dis && (first || checked.has(s.char.id)) ? 'checked' : ''}></td>
         <td>${esc(s.char.name)}</td><td>${isOnline(s) ? '<span class="good">在線</span>' : '<span class="dim">離線</span>'}</td>

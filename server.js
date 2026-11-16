@@ -239,6 +239,13 @@ const server = http.createServer(async (req, res) => {
       const snap = JSON.parse(await readBody(req));
       if (!snap || !snap.char || !snap.char.id) return send(res, 400, { error: 'bad snapshot' });
       snap.receivedAt = Date.now();
+      // 這次沒帶 12 碼 ID（查詢暫時失敗）時，沿用之前記住的；同帳號其他角色的 ID 也可以用（ID 跟著帳號）
+      if (!snap.playerCode) {
+        const prev = db.chars[snap.char.id];
+        const sibling = Object.values(db.chars).find(s => s.playerCode && s.accountId === snap.accountId);
+        snap.playerCode = (prev && prev.playerCode) || (sibling && sibling.playerCode) || undefined;
+        if (snap.playerCode) snap.codeFromCache = true;
+      }
       db.chars[snap.char.id] = snap;
       // 同帳號的另一隻角色：更新它在角色大廳看得到的基本資料（等級、是否掛機）
       for (const other of snap.accountChars || []) {

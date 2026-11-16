@@ -102,13 +102,47 @@ function agentMain(ctx) {
       return v && v.state && v.state.character ? v.state : null;
     }
 
+    // 帳號資訊（12 碼 ID、目前角色）。查詢失敗時沿用上次成功的結果，並記下失敗原因回報給面板。
+    const CODE_RE = /^[A-F0-9]{12}$/;
+    let accountError = '';
+    function rememberedCode() {
+      const charId = sessionStorage.getItem('mapleCharacter') || '';
+      return GM_getValue('code:' + charId, '') || '';
+    }
+    function rememberCode(code) {
+      const charId = sessionStorage.getItem('mapleCharacter') || '';
+      if (charId && CODE_RE.test(code)) GM_setValue('code:' + charId, code);
+    }
     async function loadAccount() {
-      if (account && Date.now() - accountAt < 5 * 60 * 1000) return account;
-      const r = await fetch('/api/account', { credentials: 'same-origin' });
-      const a = await r.json();
-      account = { playerCode: a.playerCode, activeCharacterId: a.activeCharacterId };
+      const ttl = account && account.playerCode && !accountError ? 5 * 60 * 1000 : 30 * 1000;
+      if (account && Date.now() - accountAt < ttl) return account;
       accountAt = Date.now();
+      try {
+        const r = await fetch('/api/account', { credentials: 'same-origin', cache: 'no-store' });
+        const text = await r.text();
+        let a = null;
+        try { a = JSON.parse(text); } catch (_) {}
+        if (!r.ok) throw new Error(`HTTP ${r.status}${a && (a.error || a.message) ? '：' + (a.error || a.message) : ''}`);
+        if (!a || !CODE_RE.test(String(a.playerCode || ''))) {
+          const keys = a ? Object.keys(a).filter(k => !/key|token|mail/i.test(k)).join(',') : '非 JSON';
+          throw new Error(`回應沒有 ID（欄位：${keys}${a && a.status ? '，status=' + a.status : ''}）`);
+        }
+        account = { playerCode: a.playerCode, activeCharacterId: a.activeCharacterId };
+        rememberCode(a.playerCode);
+        accountError = '';
+      } catch (e) {
+        accountError = String(e && e.message || e);
+        const code = (account && account.playerCode) || rememberedCode() || scrapeCode();
+        account = { playerCode: code || undefined, activeCharacterId: account && account.activeCharacterId };
+      }
       return account;
+    }
+    // 備援：從畫面上讀 ID（人物頁、交易視窗都會顯示）
+    function scrapeCode() {
+      const text = document.body ? document.body.innerText : '';
+      const m = text.match(/你的遊戲 ID[：:]\s*([A-F0-9]{12})/) || text.match(/\bID\s*\n?\s*([A-F0-9]{12})\b/);
+      if (m) { rememberCode(m[1]); return m[1]; }
+      return '';
     }
 
     // ---------- 目錄 ----------
@@ -241,7 +275,8 @@ function agentMain(ctx) {
         scriptVersion: AGENT_VERSION,
         scriptMode: ctx.mode,
         accountId, accountChars: chars, statNames: catalog.statNames,
-        playerCode: account && account.playerCode,
+        playerCode: (account && account.playerCode) || rememberedCode() || scrapeCode() || undefined,
+        accountError: accountError || undefined,
         activeCharId: account && account.activeCharacterId,
         eligibleKnown: !!shared.eligible,
         char: {
@@ -251,7 +286,7 @@ function agentMain(ctx) {
           lv: c.lv, xp: c.xp,
           expPct: meta.expNeed ? Math.min(100, (c.xp / meta.expNeed) * 100) : null,
           hourlyExp: meta.hourlyExp || null,
-          tradeId: account && account.playerCode,
+          tradeId: (account && account.playerCode) || rememberedCode() || undefined,
           money: c.money || 0, warehouseMesos: c.warehouseMesos || 0,
           map: c.map, mapName: catalog.mapsById[String(c.map)] || c.map,
           auto: !!c.auto, until: c.until || null,
