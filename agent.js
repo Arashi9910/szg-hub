@@ -281,7 +281,7 @@ function agentMain(ctx) {
           itemStackCount: (c.inventoryStacks || []).length,
         },
         knowledge: (() => { const k = lastKnowledge || state.knowledge; return k ? { ready: !!k.ready, remaining: k.remaining,
-          round: k.round ? { index: k.round.index, done: !!k.round.done, correct: k.round.correct } : null } : undefined; })(),
+          round: k.round ? { index: k.round.index, done: !!k.round.done, correct: k.round.correct } : null, dbg: quizDbg.step + (quizDbg.err ? '｜' + quizDbg.err : '') } : undefined; })(),
         gear, items,
       };
     }
@@ -513,17 +513,23 @@ function agentMain(ctx) {
 
     let quizRunning = false;
     let lastKnowledge = null;
+    const quizDbg = { step: '', at: 0, err: '' };
+    const qstep = st => { quizDbg.step = st; quizDbg.at = Date.now(); };
     async function quizTick() {
-      if (quizRunning || agentBusy || agentRunning) return;
-      quizRunning = true;
+      if (quizRunning) { if (Date.now() - quizDbg.at > 5 * 60 * 1000) { quizDbg.err = '卡在 ' + quizDbg.step + ' 超過 5 分鐘，重設'; quizRunning = false; } return; }
+      if (agentBusy || agentRunning) return;
+      quizRunning = true; qstep('開始');
       try {
         const state = readState();
         if (!state || !state.character) return;
+        qstep('讀題庫');
         const cfg = await hub('GET', '/api/quiz');
         const charId = state.character.id;
+        qstep('同步');
         let j = await game({ type: 'sync' });
         let k = j && j.knowledge;
         if (k) lastKnowledge = k;
+        qstep('已同步');
         if (!cfg.auto || !k || !k.ready) return;
         const log = msg => hub('POST', '/api/quiz/log', { charId, msg }).catch(() => {});
         for (let guard = 0; guard < 40; guard++) {
@@ -531,12 +537,13 @@ function agentMain(ctx) {
           if (!r || r.done) {
             if (!(k.remaining > 0)) return;
             setBadge(null, `知識王：開始新一輪（今日剩 ${k.remaining} 次）`);
+            qstep('開新一輪');
             j = await game({ type: 'knowledgeStart' });
-            k = j.knowledge; await log(`開始新一輪（今日剩 ${k && k.remaining}）`);
+            k = j.knowledge; if (k) lastKnowledge = k; await log(`開始新一輪（今日剩 ${k && k.remaining}）`);
             continue;
           }
           const q = r.question;
-          if (!q) { await new Promise(res => setTimeout(res, 1500)); j = await game({ type: 'sync' }); k = j.knowledge; continue; }
+          if (!q) { qstep('等下一題'); j = await game({ type: 'sync' }); k = j.knowledge; if (k) lastKnowledge = k; continue; }
           const ans = cfg.answers[qnorm(q.text)];
           const idx = ans == null ? -1 : q.options.findIndex(o => qnorm(o) === qnorm(ans));
           if (idx < 0) {
@@ -545,7 +552,7 @@ function agentMain(ctx) {
             return;
           }
           setBadge(null, `知識王：第 ${r.index + 1} 題 → ${q.options[idx]}`);
-          await new Promise(res => setTimeout(res, 800 + Math.random() * 700));
+          qstep('作答 ' + (r.index + 1));
           j = await game({ type: 'knowledgeAnswer', round: r.id, index: r.index, answer: idx });
           learnFrom(j);
           const f = j.knowledge && j.knowledge.round && j.knowledge.round.feedback;
@@ -554,9 +561,9 @@ function agentMain(ctx) {
           if (k && k.round && k.round.done) await log(`本輪結束：答對 ${k.round.correct}/5`);
         }
       } catch (e) {
-        console.warn('[szg-hub quiz]', e);
+        console.warn('[szg-hub quiz]', e); quizDbg.err = e.message;
         hub('POST', '/api/quiz/log', { msg: '自動作答出錯：' + e.message }).catch(() => {});
-      } finally { quizRunning = false; }
+      } finally { quizRunning = false; qstep('閒置'); }
     }
 
     async function runBagJob(job, state, charId) {
