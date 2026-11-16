@@ -532,6 +532,7 @@ function agentMain(ctx) {
         qstep('已同步');
         if (!cfg.auto || !k || !k.ready) return;
         const log = msg => hub('POST', '/api/quiz/log', { charId, msg }).catch(() => {});
+        let waitNext = 0;
         for (let guard = 0; guard < 40; guard++) {
           const r = k.round;
           if (!r || r.done) {
@@ -543,7 +544,13 @@ function agentMain(ctx) {
             continue;
           }
           const q = r.question;
-          if (!q) { qstep('等下一題'); j = await game({ type: 'sync' }); k = j.knowledge; if (k) lastKnowledge = k; continue; }
+          if (!q) {
+            // 剛作答完，遊戲可能先顯示對錯、過一下才給下一題
+            if (++waitNext > 8) { quizDbg.err = '等不到下一題：' + JSON.stringify({ i: r.index, done: r.done, fb: !!r.feedback, keys: Object.keys(r) }).slice(0, 150); return; }
+            qstep('等下一題'); await new Promise(res => setTimeout(res, 2500));
+            j = await game({ type: 'sync' }); k = j.knowledge; if (k) lastKnowledge = k; continue;
+          }
+          waitNext = 0;
           const ans = cfg.answers[qnorm(q.text)];
           const idx = ans == null ? -1 : q.options.findIndex(o => qnorm(o) === qnorm(ans));
           if (idx < 0) {

@@ -1,6 +1,6 @@
 {
-  "version": "0.9.1",
-  "notes": "知識王：卡住時自動重設、回報作答進度",
+  "version": "0.9.2",
+  "notes": "知識王：作答後等遊戲出下一題",
   "files": [
     "server.js",
     "update.js",
