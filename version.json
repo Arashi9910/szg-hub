@@ -1,6 +1,6 @@
 {
-  "version": "0.9.4",
-  "notes": "知識王：修正背景分頁一直被略過",
+  "version": "0.9.5",
+  "notes": "知識王：題庫匯出",
   "files": [
     "server.js",
     "update.js",

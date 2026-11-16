@@ -402,6 +402,9 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { auto: !!db.settings.quizAuto, answers, count: Object.keys(bank).length,
         unknown: Object.values(st.unknown), learned: Object.values(st.learned).slice(-100), log: st.log.slice(-50) });
     }
+    if (req.method === 'GET' && url.pathname === '/api/quiz/export') {
+      return send(res, 200, { version: 1, questions: Object.values(quizBank()).map(x => ({ q: x.q, options: x.options || [], answer: x.answer, src: x.src })) });
+    }
     if (req.method === 'POST' && url.pathname === '/api/quiz/learn') {
       const e = JSON.parse(await readBody(req));
       if (!e || !e.q || !e.answer) return send(res, 400, { error: '缺少題目或答案' });
