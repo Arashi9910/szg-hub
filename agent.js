@@ -1145,20 +1145,30 @@ function agentMain(ctx) {
       if (skipped.length) await report(job, { event: 'log', msg: '略過：' + skipped.join('、') });
       if (!rows.length) { await report(job, { event: 'log', msg: '沒有可以處理的物品' }); return report(job, { event: 'batchDone', skippedEmpty: true }); }
       const op = job.kind === 'guildDeposit' ? 'deposit' : 'withdraw', label = op === 'deposit' ? '存入' : '領取';
-      let done = 0;
-      for (let i = 0; i < rows.length; i += GUILD_MAX) {
-        const chunk = rows.slice(i, i + GUILD_MAX);
-        setBadge(null, `公會倉庫${label} ${done + chunk.length}/${rows.length}…`);
+      // 遊戲伺服器對單次請求另有上限（實測 98 種、一萬多張卷軸會回「請求過大」，門檻不明）：
+      // 被拒就把這一批切半重送；只剩一種道具還太大時，把數量切半
+      let done = 0, size = GUILD_MAX, halvings = 0;
+      const queue = rows.slice();
+      while (queue.length) {
+        const chunk = queue.slice(0, size);
+        setBadge(null, `公會倉庫${label} ${done + chunk.length}/${done + queue.length}…`);
         try {
           const j = await gameRetry({ type: 'guildWarehouseBatch', op, items: chunk.map(({ name, ...x }) => x), characterId: c.id });
           postGuild(j, c);
         } catch (e) {
-          if (done) await report(job, { event: 'log', msg: `已${label} ${done} 項` });
-          return report(job, { event: 'error', msg: `${label}失敗（第 ${done + 1} 項起）：${e.message}` });
+          if (/過大|too large/i.test(e.message) && halvings < 40) {
+            halvings++;
+            if (chunk.length > 1) { size = Math.max(1, Math.floor(chunk.length / 2)); continue; }
+            const r = chunk[0];
+            if (r.kind === 'item' && r.qty > 1) { const half = Math.floor(r.qty / 2); queue.splice(0, 1, { ...r, qty: half }, { ...r, qty: r.qty - half }); continue; }
+          }
+          if (done) await report(job, { event: 'log', msg: `已${label} ${done} 批` });
+          return report(job, { event: 'error', msg: `${label}失敗：${e.message}` });
         }
-        done += chunk.length;
-        if (i + GUILD_MAX < rows.length) await sleepP(1200);
+        queue.splice(0, chunk.length); done += chunk.length;
+        if (queue.length) await sleepP(1200);
       }
+      if (halvings) await report(job, { event: 'log', msg: `遊戲限制單次請求大小，分成較小的批次送出（每批最多 ${size} 項）` });
       const names = rows.map(r => r.name + (r.kind === 'item' ? ' ×' + r.qty : ''));
       await report(job, { event: 'log', msg: `已${label} ${rows.length} 項：${names.slice(0, 30).join('、')}${names.length > 30 ? '…' : ''}` });
       return report(job, { event: 'batchDone' });

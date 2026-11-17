@@ -104,7 +104,14 @@ async def main():
         check(any(g['uid'] == first[2:] for g in st['accounts']['A3']['chars']['c4']['equipmentBag']), '倉庫分身領到指定的那件裝備')
         check(st['guild']['items'].get('i2040801') == want_scroll - 3, '公倉卷軸數量扣掉 3')
 
-        print('4. 防呆')
+        print('4. 請求過大自動切小')
+        r = hub_json('POST', '/api/jobs', {'kind': 'guildDeposit', 'fromCharId': 'c1', 'batches': [{'items': [{'key': 'i2044501', 'name': '弓攻擊卷軸 60%', 'qty': 5200}, {'key': 'i2040805', 'name': '手套攻擊卷軸 10%', 'qty': 5}], 'gear': []}]})
+        hub_json('POST', '/api/jobs/approve-all')
+        js = await wait_jobs('guildDeposit', 90)
+        st = mock_state()
+        check(js[-1]['status'] == 'done' and st['guild']['items'].get('i2044501') == 5200, '5200 張一次送不過，自動切小後全部存入：' + js[-1]['lastMsg'])
+
+        print('5. 防呆')
         r = hub_json('POST', '/api/jobs', {'kind': 'guildDeposit', 'fromCharId': 'c1', 'batches': [{'items': [{'key': 'i2040801', 'name': '手套攻擊卷軸 60%', 'qty': 999}], 'gear': []}]})
         hub_json('POST', '/api/jobs/approve-all')
         js = await wait_jobs('guildDeposit')
