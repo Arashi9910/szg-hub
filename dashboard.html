@@ -153,6 +153,21 @@
       <div class="bar"><span style="width:70px">顯示欄位</span><div class="chips" id="fCols"></div></div>
     </div>
 
+    <div class="card" id="asCard">
+      <h3>撿到裝備自動處理</h3>
+      <div class="bar">
+        <span>模式</span>
+        <select id="asMode"><option value="off">關閉</option><option value="preview">試跑（只記錄會賣哪些，不賣）</option><option value="sell">自動賣出</option></select>
+        <span style="margin-left:12px">套用的角色</span><div class="chips" id="asChars"></div>
+      </div>
+      <div class="dim">運作方式：角色背包「新出現」的裝備，符合某條規則的對象（部位／名稱），卻不符合該規則的「保留條件」，就會被賣掉。有多條規則套到同一件時，只要符合其中一條的保留條件就保留。
+        一律不動：已鎖定、強化過、衝過卷的裝備；剛交易進來的裝備（交易工作結束 1 分鐘內出現的）。開啟前已經在背包的裝備不會被處理。<span class="warn">你自己在遊戲裡從倉庫拿出來、或手動交易收到的裝備，腳本分不出來，可能被當成新撿到的，重要的請先鎖定。</span></div>
+      <div id="asRules"></div>
+      <div class="bar"><button class="btn" id="asAdd">＋ 新增規則</button><span class="dim" id="asMsg"></span></div>
+      <details><summary>用這些規則檢查「目前背包」裡的裝備</summary><div id="asPreview"></div></details>
+      <details><summary>自動處理紀錄</summary><div id="asLog"></div></details>
+    </div>
+
     <div id="gearOut"></div>
   </section>
 
@@ -272,6 +287,7 @@ const ui = {
   itemSort: { key: 'total', dir: -1 },
   gearLimit: 300,
   filter: emptyFilter(),
+  gearSel: new Set(),
 };
 function emptyFilter() {
   return { slots: [], locs: [...LOCS], jobs: [], char: '', name: '', lvMin: '', lvMax: '', plus: '', slotsLeft: '', wearable: false, conds: [], cols: ['incPAD','incMAD','incSTR','incDEX','incINT','incLUK'] };
@@ -490,7 +506,7 @@ function readFilterFromUI() {
   f.char = $('#fChar').value; f.name = $('#fName').value.trim();
   f.lvMin = $('#fLvMin').value; f.lvMax = $('#fLvMax').value; f.plus = $('#fPlus').value; f.slotsLeft = $('#fSlotsLeft').value;
   f.wearable = $('#fWearable').checked;
-  f.conds = [...document.querySelectorAll('#fConds .cond')].map(row => ({ stat: row.querySelector('.cs').value, op: row.querySelector('.co').value, val: row.querySelector('.cv').value }));
+  f.conds = readConds($('#fConds'));
 }
 
 function renderFilterUI() {
@@ -503,13 +519,45 @@ function renderFilterUI() {
   const chars = snaps().slice().sort((a, b) => cmp(a.char.name, b.char.name));
   $('#fChar').innerHTML = '<option value="">全部角色</option>' + chars.map(s => `<option value="${s.char.id}" ${f.char === s.char.id ? 'selected' : ''}>${esc(s.char.name)}</option>`).join('');
   $('#fName').value = f.name; $('#fLvMin').value = f.lvMin; $('#fLvMax').value = f.lvMax; $('#fPlus').value = f.plus; $('#fSlotsLeft').value = f.slotsLeft; $('#fWearable').checked = f.wearable;
-  $('#fConds').innerHTML = f.conds.map(condRow).join('');
+  $('#fConds').innerHTML = f.conds.map(condRow).join('') + (f.conds.length > 1 ? '<div class="dim">「且」優先：A 且 B 或 C ＝（A 且 B）或 C</div>' : '');
   $('#presetSel').innerHTML = '<option value="">（未選擇）</option>' + (S.presets || []).map((p, i) => `<option value="${i}">${esc(p.name)}</option>`).join('');
 }
-function condRow(c) {
-  return `<div class="cond"><select class="cs">${STAT_ORDER.map(k => `<option value="${k}" ${c.stat === k ? 'selected' : ''}>${statNames[k] || k}</option>`).join('')}</select>
-    <select class="co">${['>=','<=','='].map(o => `<option ${c.op === o ? 'selected' : ''}>${o}</option>`).join('')}</select>
+// 條件可用的欄位：各素質＋幾個裝備本身的數值
+const COND_EXTRA = { _sum4: '四屬總和', _plus: '強化次數', _slotsLeft: '剩餘可衝', _maxSlots: '總可衝次數', _reqLevel: '需求等級' };
+const COND_OPS = ['>', '>=', '<', '<=', '=', '≠'];
+function condLabel(k) { return COND_EXTRA[k] || statNames[k] || k; }
+function condRow(c, i) {
+  const keys = [...STAT_ORDER, ...Object.keys(COND_EXTRA)];
+  const join = i > 0 ? `<select class="cj"><option value="and" ${c.join !== 'or' ? 'selected' : ''}>且</option><option value="or" ${c.join === 'or' ? 'selected' : ''}>或</option></select>` : '<span class="cj0" style="display:inline-block;width:46px"></span>';
+  return `<div class="cond">${join}<select class="cs">${keys.map(k => `<option value="${k}" ${c.stat === k ? 'selected' : ''}>${condLabel(k)}</option>`).join('')}</select>
+    <select class="co">${COND_OPS.map(o => `<option ${c.op === o ? 'selected' : ''}>${o}</option>`).join('')}</select>
     <input type="number" class="cv" value="${esc(c.val)}"><button class="btn" data-delcond>✕</button></div>`;
+}
+function readConds(box) {
+  return [...box.querySelectorAll('.cond')].map(row => ({ join: row.querySelector('.cj') ? row.querySelector('.cj').value : 'and', stat: row.querySelector('.cs').value, op: row.querySelector('.co').value, val: row.querySelector('.cv').value }));
+}
+function condVal(g, k, mode) {
+  const st = g[mode || 'stats'] || {};
+  if (k === '_sum4') return (st.incSTR || 0) + (st.incDEX || 0) + (st.incINT || 0) + (st.incLUK || 0);
+  if (k === '_plus') return g.plus || 0;
+  if (k === '_slotsLeft') return g.slotsLeft || 0;
+  if (k === '_maxSlots') return g.maxSlots || 0;
+  if (k === '_reqLevel') return g.reqLevel || 0;
+  return st[k] || 0;
+}
+function condOk(v, op, t) {
+  return op === '>' ? v > t : op === '>=' ? v >= t : op === '<' ? v < t : op === '<=' ? v <= t : op === '=' ? v === t : op === '≠' ? v !== t : true;
+}
+// 「且」優先於「或」：A 且 B 或 C 且 D ＝ (A 且 B) 或 (C 且 D)。沒有有效條件時回傳 null
+function condsPass(g, conds, mode) {
+  const valid = (conds || []).filter(c => c.val !== '' && c.val != null);
+  if (!valid.length) return null;
+  const groups = [[]];
+  valid.forEach((c, i) => { if (i > 0 && c.join === 'or') groups.push([]); groups[groups.length - 1].push(c); });
+  return groups.some(gr => gr.every(c => condOk(condVal(g, c.stat, mode), c.op, Number(c.val))));
+}
+function condsText(conds) {
+  return (conds || []).filter(c => c.val !== '' && c.val != null).map((c, i) => `${i ? (c.join === 'or' ? ' 或 ' : ' 且 ') : ''}${condLabel(c.stat)} ${c.op} ${c.val}`).join('');
 }
 
 // 單件裝備是否符合篩選條件；onlyItself=true 時忽略「位置、角色」（給交易／背包用）
@@ -524,13 +572,7 @@ function gearMatch(g, f, mode, onlyItself) {
     if (f.lvMax !== '' && g.reqLevel > Number(f.lvMax)) return false;
     if (f.plus !== '' && g.plus < Number(f.plus)) return false;
     if (f.slotsLeft !== '' && g.slotsLeft < Number(f.slotsLeft)) return false;
-    for (const c of f.conds || []) {
-      if (c.val === '') continue;
-      const v = (g[mode] || {})[c.stat] || 0, t = Number(c.val);
-      if (c.op === '>=' && !(v >= t)) return false;
-      if (c.op === '<=' && !(v <= t)) return false;
-      if (c.op === '=' && v !== t) return false;
-    }
+    if (condsPass(g, f.conds, mode) === false) return false;
     if (f.wearable && !wearers(g).length) return false;
     return true;
   }
@@ -547,14 +589,20 @@ function renderList() {
   const val = g => k.startsWith('inc') ? ((g[mode] || {})[k] || 0) : k === 'wear' ? g._w.length : k === 'slot' ? SLOT_ORDER.indexOf(g.slot) : g[k];
   rows.sort((a, b) => cmp(val(a), val(b)) * d || cmp(a.name, b.name));
   const th = (key, label, cls = '') => `<th data-gsort="${key}" class="${cls}">${label}${ui.gearSort.key === key ? (ui.gearSort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
-  let h = `<div class="bar dim">共 ${rows.length} 件${rows.length > ui.gearLimit ? `，先顯示 ${ui.gearLimit} 件` : ''}</div>
-    <table><thead><tr>${th('charName','持有者')}${th('loc','位置')}${th('slot','部位')}${th('name','名稱')}${th('plus','強化','num')}${th('slotsLeft','可衝','num')}${f.cols.map(c => th(c, statNames[c] || c, 'num')).join('')}${th('reqLevel','需求Lv','num')}<th class="nosort">需求</th>${th('wear','可穿的角色')}</tr></thead><tbody>`;
+  const bagRowsN = rows.filter(g => g.loc === '背包');
+  for (const id of [...ui.gearSel]) if (!rows.some(g => g.uid === id)) ui.gearSel.delete(id);
+  let h = `<div class="bar"><span class="dim">共 ${rows.length} 件（背包 ${bagRowsN.length} 件）${rows.length > ui.gearLimit ? `，先顯示 ${ui.gearLimit} 件` : ''}</span>
+      <span style="margin-left:12px">已勾選 <b>${ui.gearSel.size}</b> 件</span>
+      <button class="btn" id="gSelAll">勾選篩選結果中背包的裝備</button><button class="btn" id="gSelNone">清除</button>
+      <button class="btn" data-gact="lock">🔒 鎖定</button><button class="btn" data-gact="unlock">解鎖</button><button class="btn warn" data-gact="sell">賣出</button>
+      <span class="dim" id="gActMsg">${esc(ui.gearMsg || '只有「背包」裡的裝備可以勾選；會依角色建立工作，到「背包」分頁的佇列核對後確認執行。')}</span></div>
+    <table><thead><tr><th class="nosort"></th>${th('charName','持有者')}${th('loc','位置')}${th('slot','部位')}${th('name','名稱')}${th('plus','強化','num')}${th('slotsLeft','可衝','num')}${f.cols.map(c => th(c, statNames[c] || c, 'num')).join('')}${th('reqLevel','需求Lv','num')}<th class="nosort">需求</th>${th('wear','可穿的角色')}</tr></thead><tbody>`;
   for (const g of rows.slice(0, ui.gearLimit)) {
     const st = g[mode] || {};
     const req = [g.reqSTR && `力${g.reqSTR}`, g.reqDEX && `敏${g.reqDEX}`, g.reqINT && `智${g.reqINT}`, g.reqLUK && `幸${g.reqLUK}`].filter(Boolean).join(' ');
     const jobs = g.reqJob === 0 ? '全職' : JOBS.filter(([, b]) => b && (g.reqJob & b)).map(([n]) => n).join('/');
     const w = g._w.map(s => s.char.name);
-    h += `<tr><td>${esc(g.charName)}</td><td class="dim">${g.loc}</td><td>${slotLabel(g.slot)}</td><td>${esc(g.name)}${g.locked ? ' 🔒' : ''}</td>
+    h += `<tr><td>${g.loc === '背包' ? `<input type="checkbox" data-gsel="${esc(g.uid)}" ${ui.gearSel.has(g.uid) ? 'checked' : ''}>` : ''}</td><td>${esc(g.charName)}</td><td class="dim">${g.loc}</td><td>${slotLabel(g.slot)}</td><td>${esc(g.name)}${g.locked ? ' 🔒' : ''}</td>
       <td class="num">${g.plus ? `<span class="plus">+${g.plus}</span>` : '0'}</td><td class="num">${g.slotsLeft}/${g.maxSlots}</td>
       ${f.cols.map(c => `<td class="num">${st[c] || '<span class="dim">·</span>'}</td>`).join('')}
       <td class="num">${g.reqLevel}</td><td class="dim">${jobs} ${req}</td>
@@ -1120,11 +1168,140 @@ document.addEventListener('change', async e => {
   await loadQuiz(); renderQuiz();
 });
 
+
+// ================= 裝備：勾選鎖定／賣出 =================
+function gearJobs(kind) {
+  const all = filteredGear().filter(g => ui.gearSel.has(g.uid) && g.loc === '背包');
+  const byChar = {};
+  for (const g of all) {
+    if (kind === 'unlock' ? !g.locked : g.locked) continue;
+    (byChar[g.charId] || (byChar[g.charId] = [])).push({ uid: g.uid, name: gearLabel(g) });
+  }
+  return Object.entries(byChar).map(([cid, gear]) => ({ kind, fromCharId: cid, toCharId: cid, estimate: 0, batches: [{ items: [], gear, money: 0 }] }));
+}
+document.addEventListener('click', async e => {
+  const t = e.target;
+  if (t.id === 'gSelAll') { filteredGear().filter(g => g.loc === '背包').forEach(g => ui.gearSel.add(g.uid)); renderList(); }
+  if (t.id === 'gSelNone') { ui.gearSel.clear(); renderList(); }
+  if (t.dataset && t.dataset.gact) {
+    const kind = t.dataset.gact;
+    const reqs = gearJobs(kind);
+    const n = reqs.reduce((a, r) => a + r.batches[0].gear.length, 0);
+    if (!n) { ui.gearMsg = $('#gActMsg').textContent = '勾選的裝備裡沒有可以' + JOB_KIND[kind] + '的（賣出／鎖定會略過已鎖定的）'; return; }
+    if (kind === 'sell' && !confirm(`建立賣出工作：${n} 件裝備（${reqs.length} 隻角色）。\n確認執行後賣出無法復原。`)) return;
+    try { await api('/api/jobs', reqs); ui.gearSel.clear(); ui.gearMsg = $('#gActMsg').textContent = `已建立 ${reqs.length} 個「${JOB_KIND[kind]}」工作（${n} 件），請到「背包」分頁的佇列確認執行。`; await poll(true); }
+    catch (err) { ui.gearMsg = $('#gActMsg').textContent = '建立失敗：' + err.message; }
+  }
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.dataset && t.dataset.gsel) { if (t.checked) ui.gearSel.add(t.dataset.gsel); else ui.gearSel.delete(t.dataset.gsel); const b = document.querySelector('#gearOut b'); if (b) b.textContent = ui.gearSel.size; }
+});
+
+// ================= 裝備：撿到自動處理 =================
+function asCfg() { return { mode: 'off', rules: [], chars: {}, ...(S.autoSell || {}) }; }
+function ruleTargets(r, g) {
+  if (r.slots && r.slots.length && !r.slots.includes(g.slot)) return false;
+  if (r.nameInc && !g.name.includes(r.nameInc)) return false;
+  if (r.jobs && r.jobs.length && !r.jobs.some(b => b === 0 ? g.reqJob === 0 : (g.reqJob & b))) return false;
+  return true;
+}
+// 回傳會讓這件被賣掉的規則（null＝保留）
+function sellRuleFor(g, rules) {
+  const hits = (rules || []).filter(r => r.on !== false && ruleTargets(r, g) && (r.sellAll || condsPass(g, r.conds, 'stats') !== null));
+  if (!hits.length) return null;
+  if (hits.some(r => !r.sellAll && condsPass(g, r.conds, 'stats'))) return null;
+  return hits[0];
+}
+function ruleHTML(r, i) {
+  const slots = SLOT_ORDER;
+  const valid = r.sellAll || (r.conds || []).some(c => c.val !== '' && c.val != null);
+  return `<div class="card asrule" data-ri="${i}" style="margin:8px 0">
+    <div class="bar"><label><input type="checkbox" class="r-on" ${r.on !== false ? 'checked' : ''}> 啟用</label>
+      <input class="r-name" value="${esc(r.name || '')}" placeholder="規則名稱" style="width:140px">
+      <span>名稱含</span><input class="r-inc" value="${esc(r.nameInc || '')}" placeholder="不填＝不限" style="width:110px">
+      <button class="btn" data-rdel="${i}">刪除規則</button>
+      ${valid ? '' : '<span class="warn">還沒設定保留條件，這條規則不會生效</span>'}</div>
+    <div class="bar"><span style="width:56px">部位</span><div class="chips">${slots.map(sl => `<label><input type="checkbox" class="r-slot" value="${sl}" ${(r.slots || []).includes(sl) ? 'checked' : ''}>${slotLabel(sl)}</label>`).join('')}<span class="dim">（都不勾＝全部部位）</span></div></div>
+    <div class="bar"><span style="width:56px">職業</span><div class="chips">${JOBS.map(([n, b]) => `<label><input type="checkbox" class="r-job" value="${b}" ${(r.jobs || []).includes(b) ? 'checked' : ''}>${n}</label>`).join('')}<span class="dim">（都不勾＝全部）</span></div></div>
+    <div class="bar" style="align-items:flex-start"><span style="width:56px">保留條件</span>
+      <div><label><input type="checkbox" class="r-all" ${r.sellAll ? 'checked' : ''}> 不保留，這類全部賣掉</label>
+        <div class="rconds" ${r.sellAll ? 'style="display:none"' : ''}>${(r.conds || []).map(condRow).join('')}<button class="btn" data-raddc="${i}">＋ 條件</button>
+        <span class="dim">符合就保留，不符合就賣。「且」優先於「或」。</span></div></div></div>
+  </div>`;
+}
+function readRules() {
+  return [...document.querySelectorAll('#asRules .asrule')].map(el => ({
+    on: el.querySelector('.r-on').checked,
+    name: el.querySelector('.r-name').value.trim(),
+    nameInc: el.querySelector('.r-inc').value.trim(),
+    slots: [...el.querySelectorAll('.r-slot:checked')].map(i => i.value),
+    jobs: [...el.querySelectorAll('.r-job:checked')].map(i => Number(i.value)),
+    sellAll: el.querySelector('.r-all').checked,
+    conds: readConds(el.querySelector('.rconds')),
+  }));
+}
+function saveAS(patch) { return saveSettings({ autoSell: { ...asCfg(), ...patch } }); }
+function asPreviewRows() {
+  const cfg = asCfg();
+  return allGear().filter(g => g.loc === '背包' && !g.locked && !g.plus && g.slotsLeft >= g.maxSlots).map(g => ({ g, r: sellRuleFor(g, cfg.rules) })).filter(x => x.r);
+}
+function renderASPreview() {
+  const pv = asPreviewRows();
+  $('#asPreview').innerHTML = pv.length ? `<div class="bar">目前背包裡有 ${pv.length} 件不符合保留條件（只列未鎖定、未強化、未衝卷的）<button class="btn warn" id="asSellNow">把這些建立成賣出工作</button></div>
+    <table><thead><tr><th class="nosort">角色</th><th class="nosort">部位</th><th class="nosort">名稱</th><th class="nosort">素質</th><th class="nosort">規則</th></tr></thead><tbody>${pv.map(({ g, r }) =>
+      `<tr><td>${esc(g.charName)}</td><td>${slotLabel(g.slot)}</td><td>${esc(g.name)}</td><td class="dim">${esc(statLine(g.stats || {}, STAT_ORDER))}</td><td class="dim">${esc(r.name || '未命名')}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="dim">目前背包裡沒有會被賣掉的裝備。</div>';
+}
+function renderAS(force) {
+  const cfg = asCfg();
+  const card = $('#asCard'); if (!card) return;
+  const logs = (DATA.gearLog || []).slice().reverse().slice(0, 50);
+  $('#asLog').innerHTML = logs.length ? logs.map(l => `<div><span class="dim">${clock(l.at)}</span> ${esc(l.name)}：${esc(l.msg)}</div>`).join('') : '<span class="dim">還沒有紀錄</span>';
+  if (!$('#asPreview').contains(document.activeElement)) renderASPreview();
+  if (!force && card.contains(document.activeElement) && document.activeElement.tagName !== 'BUTTON') return;
+  $('#asMode').value = cfg.mode;
+  $('#asChars').innerHTML = snaps().slice().sort((a, b) => cmp(a.char.name, b.char.name)).map(s => `<label><input type="checkbox" class="as-char" value="${s.char.id}" ${cfg.chars[s.char.id] ? 'checked' : ''}>${esc(s.char.name)}${s.char.id === S.mainCharId ? '★' : ''}</label>`).join('')
+    + '<button class="btn" id="asCharAll">全選</button><button class="btn" id="asCharNoMain">全選（不含本尊）</button><button class="btn" id="asCharNone">清除</button>';
+  $('#asRules').innerHTML = cfg.rules.length ? cfg.rules.map(ruleHTML).join('') : '<div class="dim" style="margin:8px 0">還沒有規則。</div>';
+}
+document.addEventListener('click', async e => {
+  const t = e.target;
+  if (!t.closest || !t.closest('#asCard')) return;
+  const cfg = asCfg();
+  if (t.id === 'asAdd') { await saveAS({ rules: [...readRules(), { on: true, name: '規則 ' + (cfg.rules.length + 1), slots: [], jobs: [], nameInc: '', sellAll: false, conds: [{ join: 'and', stat: 'incSTR', op: '>=', val: '' }] }] }); renderAS(true); }
+  if (t.dataset.rdel !== undefined) { if (!confirm('刪除這條規則？')) return; const rs = readRules(); rs.splice(Number(t.dataset.rdel), 1); await saveAS({ rules: rs }); renderAS(true); }
+  if (t.dataset.raddc !== undefined) { const rs = readRules(); rs[Number(t.dataset.raddc)].conds.push({ join: 'and', stat: 'incSTR', op: '>=', val: '' }); await saveAS({ rules: rs }); renderAS(true); }
+  if (t.hasAttribute('data-delcond')) { e.stopImmediatePropagation(); t.closest('.cond').remove(); await saveAS({ rules: readRules() }); renderAS(true); }
+  if (t.id === 'asCharAll' || t.id === 'asCharNoMain' || t.id === 'asCharNone') {
+    const chars = {};
+    if (t.id !== 'asCharNone') snaps().forEach(s => { if (t.id === 'asCharAll' || s.char.id !== S.mainCharId) chars[s.char.id] = true; });
+    await saveAS({ chars }); renderAS(true);
+  }
+  if (t.id === 'asSellNow') {
+    const pv = asPreviewRows(); const byChar = {};
+    pv.forEach(({ g }) => (byChar[g.charId] || (byChar[g.charId] = [])).push({ uid: g.uid, name: gearLabel(g) }));
+    const reqs = Object.entries(byChar).map(([cid, gear]) => ({ kind: 'sell', fromCharId: cid, toCharId: cid, estimate: 0, batches: [{ items: [], gear, money: 0 }] }));
+    if (!confirm(`建立 ${reqs.length} 個賣出工作，共 ${pv.length} 件。確認執行後無法復原。`)) return;
+    await api('/api/jobs', reqs); $('#asMsg').textContent = '已建立賣出工作，請到「背包」分頁的佇列確認執行。'; await poll(true);
+  }
+}, true);
+document.addEventListener('change', async e => {
+  const t = e.target;
+  if (!t.closest || !t.closest('#asCard')) return;
+  if (t.id === 'asMode') {
+    if (t.value === 'sell' && !confirm('開啟自動賣出後，新撿到不符合規則的裝備會直接賣掉，無法復原。建議先用「試跑」看紀錄確認規則沒問題。確定開啟？')) { t.value = asCfg().mode; return; }
+    await saveAS({ mode: t.value }); $('#asMsg').textContent = '已儲存'; return;
+  }
+  if (t.classList.contains('as-char')) { const chars = { ...asCfg().chars }; if (t.checked) chars[t.value] = true; else delete chars[t.value]; await saveAS({ chars }); return; }
+  if (t.closest('#asRules')) { await saveAS({ rules: readRules() }); $('#asMsg').textContent = '規則已儲存'; if (t.classList.contains('r-all')) renderAS(true); else renderASPreview(); }
+});
+
 // ================= 主流程 =================
 function renderAll() {
   const active = document.querySelector('nav button.on').dataset.tab;
   if (active === 'overview') { renderOverview(); renderIdleCard(); }
-  if (active === 'gear') renderGear();
+  if (active === 'gear') { renderGear(); renderAS(); }
   if (active === 'res') renderRes();
   if (active === 'trade') renderTrade();
   if (active === 'bag') renderBag();
@@ -1174,7 +1351,7 @@ document.addEventListener('click', e => {
   if (t.dataset.isort) { const k = t.dataset.isort; ui.itemSort = { key: k, dir: ui.itemSort.key === k ? -ui.itemSort.dir : (k === 'total' ? -1 : 1) }; renderRes(); }
   if (t.dataset.main) { saveSettings({ mainCharId: S.mainCharId === t.dataset.main ? null : t.dataset.main }).then(renderOverview); }
   if (t.id === 'gearMore') { ui.gearLimit += 300; renderList(); }
-  if (t.id === 'addCond') { readFilterFromUI(); ui.filter.conds.push({ stat: 'incPAD', op: '>=', val: '' }); renderFilterUI(); renderList(); }
+  if (t.id === 'addCond') { readFilterFromUI(); ui.filter.conds.push({ join: 'and', stat: 'incPAD', op: '>=', val: '' }); renderFilterUI(); renderList(); }
   if (t.hasAttribute && t.hasAttribute('data-delcond')) { t.closest('.cond').remove(); readFilterFromUI(); renderList(); }
   if (t.id === 'filterReset') { ui.filter = emptyFilter(); renderFilterUI(); renderList(); }
   if (t.id === 'presetSave') {

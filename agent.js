@@ -322,6 +322,7 @@ function agentMain(ctx) {
     // 交易執行（只做你在面板上按過「確認執行」的工作）
     // =====================================================================
     let agentBusy = false;
+    let lastJobAt = 0; // 交易／背包工作最後一次結束的時間（之後 1 分鐘內出現的裝備不自動處理）
     let agentRunning = false;
     const local = {}; // jobId -> { batchIndex, tradeId, stepAt, invites }
 
@@ -476,6 +477,90 @@ function agentMain(ctx) {
           if (prev === true && !sib.auto && !panelStopped(sib.id)) await act(sib.id, sib.name, 'start', '掛機已停止（可能到期）');
         }
       } catch (e) { console.warn('[szg-hub idle]', e); }
+    }
+
+    // ---------- 撿到裝備自動處理 ----------
+    // 背包「新出現」的裝備：符合規則對象卻不符合保留條件 → 試跑只記錄／自動賣出
+    // 一律不動：已鎖定、強化過、衝過卷；交易／背包工作進行中或剛結束 1 分鐘內出現的
+    const COND_OPS_FN = { '>': (v, t) => v > t, '>=': (v, t) => v >= t, '<': (v, t) => v < t, '<=': (v, t) => v <= t, '=': (v, t) => v === t, '≠': (v, t) => v !== t };
+    function condVal(g, k) {
+      const st = g.stats || {};
+      if (k === '_sum4') return (st.incSTR || 0) + (st.incDEX || 0) + (st.incINT || 0) + (st.incLUK || 0);
+      if (k === '_plus') return g.plus || 0;
+      if (k === '_slotsLeft') return g.slotsLeft || 0;
+      if (k === '_maxSlots') return g.maxSlots || 0;
+      if (k === '_reqLevel') return g.reqLevel || 0;
+      return st[k] || 0;
+    }
+    function condsPass(g, conds) {
+      const valid = (conds || []).filter(c => c.val !== '' && c.val != null && COND_OPS_FN[c.op]);
+      if (!valid.length) return null;
+      const groups = [[]];
+      valid.forEach((c, i) => { if (i > 0 && c.join === 'or') groups.push([]); groups[groups.length - 1].push(c); });
+      return groups.some(gr => gr.every(c => COND_OPS_FN[c.op](condVal(g, c.stat), Number(c.val))));
+    }
+    function ruleTargets(r, g) {
+      if (r.slots && r.slots.length && !r.slots.includes(g.slot)) return false;
+      if (r.nameInc && !String(g.name).includes(r.nameInc)) return false;
+      if (r.jobs && r.jobs.length && !r.jobs.some(b => b === 0 ? g.reqJob === 0 : (g.reqJob & b))) return false;
+      return true;
+    }
+    function sellRuleFor(g, rules) {
+      const hits = (rules || []).filter(r => r.on !== false && ruleTargets(r, g) && (r.sellAll || condsPass(g, r.conds) !== null));
+      if (!hits.length) return null;
+      if (hits.some(r => !r.sellAll && condsPass(g, r.conds))) return null;
+      return hits[0];
+    }
+    const STAT_SHORT = { incPAD: '物攻', incMAD: '魔攻', incSTR: '力', incDEX: '敏', incINT: '智', incLUK: '幸', incPDD: '物防', incMDD: '魔防', incACC: '命中', incEVA: '迴避', incMHP: 'HP', incMMP: 'MP', incSpeed: '速度', incJump: '跳躍' };
+    const statText = g => Object.entries(g.stats || {}).filter(([, v]) => v).map(([k, v]) => (STAT_SHORT[k] || k) + v).join(' ');
+    let asRunning = false;
+    async function autoSellTick() {
+      if (asRunning) return;
+      asRunning = true;
+      try {
+        const state = readState();
+        if (!state || !state.character || !catalog) return;
+        const c = state.character;
+        const key = 'gearSeen:' + c.id;
+        const bag = c.equipmentBag || [];
+        const cur = bag.map(g => g.uid);
+        const seen = GM_getValue(key, null);
+        if (!Array.isArray(seen)) { GM_setValue(key, cur); return; } // 第一次：現有的全部當作看過
+        const seenSet = new Set(seen);
+        const fresh = bag.filter(g => !seenSet.has(g.uid));
+        if (!fresh.length) { if (seen.length > cur.length + 100) GM_setValue(key, cur); return; }
+        if (agentBusy) return; // 交易／背包工作中先不處理，等結束
+        const markAll = () => GM_setValue(key, [...new Set([...cur])]);
+        if (Date.now() - lastJobAt < 60 * 1000) { markAll(); return; }
+        const cfg = await hub('GET', '/api/autosell');
+        if (cfg.mode === 'off' || !cfg.chars || !cfg.chars[c.id]) { markAll(); return; }
+        const log = msg => hub('POST', '/api/gear-log', { charId: c.id, msg }).catch(() => {});
+        const pick = [];
+        for (const raw of fresh) {
+          const g = gearRow(raw, '背包');
+          if (g.locked || g.plus > 0 || (raw.slots || 0) < (raw.maxSlots || 0)) continue;
+          const r = sellRuleFor(g, cfg.rules);
+          if (r) pick.push({ raw, g, r });
+        }
+        markAll(); // 不論成功與否，同一件只判斷一次
+        if (!pick.length) return;
+        const desc = pick.map(x => `${x.g.name}（${statText(x.g) || '無素質'}｜${x.r.name || '規則'}）`).join('、');
+        if (cfg.mode !== 'sell') { await log(`試跑：會賣掉 ${pick.length} 件：${desc}`); return; }
+        // 賣之前再確認一次：還在背包、沒被鎖
+        const now = readState(); const nowBag = new Map(((now && now.character && now.character.equipmentBag) || []).map(g => [g.uid, g]));
+        const ids = pick.map(x => x.raw.uid).filter(u => nowBag.has(u) && !nowBag.get(u).locked);
+        if (!ids.length) return;
+        setBadge(null, `自動賣出 ${ids.length} 件裝備…`);
+        const qr = await game({ type: 'inventoryQuote', category: 'equip', ids });
+        const q = findQuote(qr);
+        if (!q) { await log('自動賣出失敗：取得報價失敗'); return; }
+        if (q.rows.length > ids.length) { await log(`自動賣出取消：報價單 ${q.rows.length} 項比要賣的 ${ids.length} 項多`); return; }
+        await game({ type: 'inventorySell', quoteId: q.id });
+        await log(`自動賣出 ${q.rows.length} 件，共 ${(Number(q.total) || 0).toLocaleString()} 楓幣：${desc}`);
+      } catch (e) {
+        console.warn('[szg-hub autosell]', e);
+        hub('POST', '/api/gear-log', { msg: '自動處理出錯：' + e.message }).catch(() => {});
+      } finally { asRunning = false; setTimeout(() => setBadge('ok'), 3000); }
     }
 
     // ---------- 知識王 ----------
@@ -639,7 +724,7 @@ function agentMain(ctx) {
         const charId = sessionStorage.getItem('mapleCharacter');
         const res = await hub('GET', `/api/agent?code=${encodeURIComponent(account.playerCode)}&charId=${encodeURIComponent(charId)}`);
         const job = res && res.job;
-        if (!job) { if (agentBusy) { agentBusy = false; setBadge('ok'); } return; }
+        if (!job) { if (agentBusy) { agentBusy = false; lastJobAt = Date.now(); setBadge('ok'); } return; }
         agentBusy = true;
         if (res.role === 'owner') return await runBagJob(job, state, charId);
         const role = res.role; // 'giver' | 'receiver'
@@ -786,6 +871,8 @@ function agentMain(ctx) {
       setInterval(agentTick, AGENT_MS);
       setTimeout(idleTick, 15000);
       setInterval(idleTick, 30000);
+      setTimeout(autoSellTick, 20000);
+      setInterval(autoSellTick, 20000);
       setTimeout(quizTick, 25000);
       setInterval(quizTick, 45000);
     }

@@ -316,7 +316,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/data') {
-      return send(res, 200, { now: Date.now(), chars: db.chars, settings: db.settings, jobs: db.jobs.slice(-100), idleLog: (db.idleLog || []).slice(-50), scriptVersion: scriptVersion(), update: updateInfo });
+      return send(res, 200, { now: Date.now(), chars: db.chars, settings: db.settings, jobs: db.jobs.slice(-100), idleLog: (db.idleLog || []).slice(-50), gearLog: (db.gearLog || []).slice(-80), scriptVersion: scriptVersion(), update: updateInfo });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/push') {
@@ -390,6 +390,22 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/jobs/approve-all') {
       for (const j of db.jobs) if (j.status === 'pending') { j.status = 'approved'; j.approvedAt = Date.now(); jobLog(j, '已確認，排隊等待執行'); }
       save();
+      return send(res, 200, { ok: true });
+    }
+
+    // ---- 撿到裝備自動處理 ----
+    if (req.method === 'GET' && url.pathname === '/api/autosell') {
+      const a = db.settings.autoSell || {};
+      return send(res, 200, { mode: a.mode || 'off', rules: a.rules || [], chars: a.chars || {} });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/gear-log') {
+      const e = JSON.parse(await readBody(req));
+      if (e && e.msg) {
+        db.gearLog = db.gearLog || [];
+        db.gearLog.push({ at: Date.now(), charId: e.charId, name: e.charId ? charName(e.charId) : '', msg: String(e.msg).slice(0, 600) });
+        if (db.gearLog.length > 300) db.gearLog.splice(0, db.gearLog.length - 300);
+        save();
+      }
       return send(res, 200, { ok: true });
     }
 
