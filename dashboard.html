@@ -29,6 +29,8 @@
   th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; white-space: nowrap; }
   th { background: var(--panel2); color: var(--dim); font-weight: 600; cursor: pointer; user-select: none; }
   th.nosort { cursor: default; }
+  /* 表頭凍結：捲動時停在頁面頂端的導覽列下方（--hdr 由程式依導覽列實際高度設定） */
+  table.sticky thead th { position: sticky; top: var(--hdr, 52px); z-index: 4; box-shadow: inset 0 -1px 0 var(--line), 0 2px 4px rgba(0,0,0,.35); }
   tr:hover td { background: #1b2638; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .dim { color: var(--dim); } .good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
@@ -418,7 +420,7 @@ function renderOverview() {
     <div class="stat"><b>${short(totalMoney)}</b><span>楓幣總和（含倉庫）</span></div>`;
 
   const th = (key, label, cls = '') => `<th data-ovsort="${key}" class="${cls}">${label}${ui.ovSort.key === key ? (ui.ovSort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
-  let h = `<table><thead><tr><th class="nosort"><input type="checkbox" id="ovAll" title="全選"></th><th class="nosort"></th>${th('account','帳號')}${th('name','角色')}${th('job','職業')}${th('lv','Lv','num')}${th('exp','EXP%','num')}${th('hourly','每小時經驗','num')}${th('map','地圖')}${th('idle','掛機')}${th('money','楓幣','num')}${th('hp','HP藥','num')}${th('mp','MP藥','num')}<th class="nosort num">裝備欄</th><th class="nosort num">道具</th><th class="nosort">交易ID</th>${th('upd','更新')}</tr></thead><tbody>`;
+  let h = `<table class="sticky"><thead><tr><th class="nosort"><input type="checkbox" id="ovAll" title="全選"></th><th class="nosort"></th>${th('account','帳號')}${th('name','角色')}${th('job','職業')}${th('lv','Lv','num')}${th('exp','EXP%','num')}${th('hourly','每小時經驗','num')}${th('map','地圖')}${th('idle','掛機')}${th('money','楓幣','num')}${th('hp','HP藥','num')}${th('mp','MP藥','num')}<th class="nosort num">裝備欄</th><th class="nosort num">道具</th><th class="nosort">交易ID</th>${th('upd','更新')}</tr></thead><tbody>`;
   if (!rows.length) h += `<tr><td colspan="17" class="empty">還沒有資料。打開任一個設定檔的遊戲分頁，右下角出現「中控：已連線」就代表在回報了。</td></tr>`;
   for (const r of rows) {
     const c = r.c;
@@ -481,7 +483,7 @@ function renderMatrix() {
   const worn = ss.flatMap(s => (s.gear || []).filter(g => g.loc === '穿戴'));
   const cols = [...new Set(worn.map(g => g.slot === 'overall' ? 'top' : g.slot))].sort((a, b) => SLOT_ORDER.indexOf(a) - SLOT_ORDER.indexOf(b));
   if (!ss.length) { $('#gearOut').innerHTML = '<div class="empty">還沒有資料。</div>'; return; }
-  let h = `<table><thead><tr><th class="nosort">角色</th>${cols.map(c => `<th class="nosort">${c === 'top' ? '上衣／套服' : slotLabel(c)}</th>`).join('')}</tr></thead><tbody>`;
+  let h = `<table class="sticky"><thead><tr><th class="nosort">角色</th>${cols.map(c => `<th class="nosort">${c === 'top' ? '上衣／套服' : slotLabel(c)}</th>`).join('')}</tr></thead><tbody>`;
   for (const s of ss) {
     const bySlot = {};
     for (const g of (s.gear || []).filter(g => g.loc === '穿戴')) bySlot[g.slot === 'overall' ? 'top' : g.slot] = g;
@@ -596,7 +598,7 @@ function renderList() {
       <button class="btn" id="gSelAll">勾選篩選結果中背包的裝備</button><button class="btn" id="gSelNone">清除</button>
       <button class="btn" data-gact="lock">🔒 鎖定</button><button class="btn" data-gact="unlock">解鎖</button><button class="btn warn" data-gact="sell">賣出</button>
       <span class="dim" id="gActMsg">${esc(ui.gearMsg || '只有「背包」裡的裝備可以勾選；會依角色建立工作，到「背包」分頁的佇列核對後確認執行。')}</span></div>
-    <table><thead><tr><th class="nosort"></th>${th('charName','持有者')}${th('loc','位置')}${th('slot','部位')}${th('name','名稱')}${th('plus','強化','num')}${th('slotsLeft','可衝','num')}${f.cols.map(c => th(c, statNames[c] || c, 'num')).join('')}${th('reqLevel','需求Lv','num')}<th class="nosort">需求</th>${th('wear','可穿的角色')}</tr></thead><tbody>`;
+    <table class="sticky"><thead><tr><th class="nosort"></th>${th('charName','持有者')}${th('loc','位置')}${th('slot','部位')}${th('name','名稱')}${th('plus','強化','num')}${th('slotsLeft','可衝','num')}${f.cols.map(c => th(c, statNames[c] || c, 'num')).join('')}${th('reqLevel','需求Lv','num')}<th class="nosort">需求</th>${th('wear','可穿的角色')}</tr></thead><tbody>`;
   for (const g of rows.slice(0, ui.gearLimit)) {
     const st = g[mode] || {};
     const req = [g.reqSTR && `力${g.reqSTR}`, g.reqDEX && `敏${g.reqDEX}`, g.reqINT && `智${g.reqINT}`, g.reqLUK && `幸${g.reqLUK}`].filter(Boolean).join(' ');
@@ -676,7 +678,7 @@ function renderRes() {
   const k = ui.itemSort.key, d = ui.itemSort.dir;
   rows.sort((a, b) => cmp(a[k], b[k]) * d || cmp(a.name, b.name));
   const th = (key, label, cls = '') => `<th data-isort="${key}" class="${cls}">${label}${ui.itemSort.key === key ? (ui.itemSort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
-  let h = `<table><thead><tr>${th('name','道具')}${th('kind','類別')}${th('total','總數','num')}<th class="nosort">分布（由多到少）</th></tr></thead><tbody>`;
+  let h = `<table class="sticky"><thead><tr>${th('name','道具')}${th('kind','類別')}${th('total','總數','num')}<th class="nosort">分布（由多到少）</th></tr></thead><tbody>`;
   for (const a of rows) {
     a.holders.sort((x, y) => y.qty - x.qty);
     h += `<tr><td>${esc(a.name)}</td><td class="dim">${esc(a.kind)}</td><td class="num">${fmt(a.total)}</td><td class="wrap">${a.holders.map(x => `<span class="tag ${x.main ? 'main' : ''}">${esc(x.who)} ${fmt(x.qty)}</span>`).join('')}</td></tr>`;
@@ -1398,6 +1400,11 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.classList.contains('label-edit')) e.target.blur(); });
 
+// 表頭凍結的位置＝導覽列高度（視窗變窄時導覽列會換行變高）
+function setHdr() { const h = document.querySelector('header'); if (h) document.documentElement.style.setProperty('--hdr', h.offsetHeight + 'px'); }
+window.addEventListener('resize', setHdr);
+new ResizeObserver(setHdr).observe(document.querySelector('header'));
+setHdr();
 poll();
 setInterval(poll, 10000);
 </script>
