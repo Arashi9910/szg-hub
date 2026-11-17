@@ -72,11 +72,11 @@ v['files'] = [f for f in v['files'] if f != 'start-remote.bat']
 # 私人版的更新說明可能提到私人功能：有 notesPublic 就用它當公開版的說明
 if 'notesPublic' in v: v['notes'] = v.pop('notesPublic')
 
+json.dump(v, open(os.path.join(dst, 'version.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 # 私人功能不能漏到公開版
 for f in FILES:
     if not f.endswith(('.js', '.html', '.json')): continue
     t = open(os.path.join(dst, f), encoding='utf-8').read()
     for bad in ['guildWarehouse', 'guildDeposit', 'guildWithdraw', '公會倉庫', '公倉']:
         if bad in t and f != 'quiz-bank.json': sys.exit(f'[中止] 公開版 {f} 還有私人功能字樣：{bad}')
-json.dump(v, open(os.path.join(dst, 'version.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 print('公開版已產生：', v['version'])
