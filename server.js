@@ -181,6 +181,26 @@ function jobLog(job, msg) {
 function publicJob(j) { return j; }
 
 const BAG_KINDS = new Set(['sell', 'lock', 'unlock', 'idle']);
+// <private:guild>
+// 公會倉庫（只在私人版）：存入、領取、查看都是「某隻角色在自己頁面執行」的背包工作
+for (const k of ['guildDeposit', 'guildWithdraw', 'guildView']) BAG_KINDS.add(k);
+// 查看公倉：找一隻在線而且是目前角色的（優先本尊），建立後直接排隊（只讀，不用確認）
+function createGuildView(charId) {
+  const live = Object.values(db.chars).filter(s => s.playerCode && Date.now() - (s.receivedAt || 0) < ONLINE_MS && (!s.activeCharId || s.activeCharId === s.char.id));
+  const owner = (charId && db.chars[charId]) || live.find(s => s.char.id === db.settings.mainCharId) || live[0];
+  if (!owner) throw new Error('沒有在線的遊戲分頁可以讀取公會倉庫');
+  const old = db.jobs.find(j => j.kind === 'guildView' && ['pending', 'approved', 'running'].includes(j.status));
+  if (old) return old;
+  const job = {
+    id: crypto.randomBytes(6).toString('hex'), kind: 'guildView', status: 'approved', createdAt: Date.now(), approvedAt: Date.now(),
+    fromCharId: owner.char.id, fromName: owner.char.name, fromCode: owner.playerCode,
+    toCharId: owner.char.id, toName: owner.char.name, toCode: owner.playerCode,
+    batches: [{ items: [], gear: [], money: 0 }], batchIndex: 0, log: [], lastMsg: '',
+  };
+  db.jobs.push(job); save();
+  return job;
+}
+// </private:guild>
 
 // ================= 掛機控制 =================
 // 指令（開始／暫停／重新開始）依帳號分組，交給那個帳號目前在線的遊戲頁面執行；
@@ -284,6 +304,9 @@ function createBagJob(body) {
 
 function createJob(body) {
   if (body.kind === 'idle') throw new Error('掛機指令請用 /api/idle');
+  // <private:guild>
+  if (body.kind === 'guildView') return createGuildView(body.fromCharId);
+  // </private:guild>
   if (BAG_KINDS.has(body.kind)) return createBagJob(body);
   const from = db.chars[body.fromCharId], to = db.chars[body.toCharId];
   if (!from || !to) throw new Error('找不到角色資料');
@@ -430,6 +453,21 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- 交易工作 ----
+    // <private:guild>
+    // 公會倉庫內容：遊戲不會在同步時送，只在查看／存取後回傳，所以存最後一次看到的
+    if (req.method === 'GET' && url.pathname === '/api/guild') return send(res, 200, db.guild || { data: null });
+    if (req.method === 'POST' && url.pathname === '/api/guild') {
+      const b = JSON.parse(await readBody(req));
+      if (!b || !b.data || typeof b.data !== 'object') return send(res, 400, { error: 'bad guild data' });
+      db.guild = { at: Date.now(), charId: b.charId || null, charName: b.charName || '', data: b.data };
+      save();
+      return send(res, 200, { ok: true });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/guild/refresh') {
+      try { const b = JSON.parse((await readBody(req)) || '{}'); return send(res, 200, { ok: true, job: createGuildView(b.charId) }); }
+      catch (e) { return send(res, 400, { error: e.message }); }
+    }
+    // </private:guild>
     if (req.method === 'GET' && url.pathname === '/api/jobs') {
       return send(res, 200, { jobs: db.jobs.slice(-100).map(publicJob) });
     }

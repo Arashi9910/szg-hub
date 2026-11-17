@@ -23,6 +23,16 @@ def cut(text, start, end, name, keep_end=True):
 for f in FILES:
     shutil.copyfile(os.path.join(src, f), os.path.join(dst, f))
 
+# 只在私人版的功能：程式裡用 <private:名稱> … </private:名稱> 包起來（整行標記，JS 用 // 、HTML 用 <!-- -->），公開版整段拿掉
+import re
+PRIV = re.compile(r'^[^\n]*<private:(\w+)>[^\n]*\n[\s\S]*?^[^\n]*</private:\1>[^\n]*\n', re.M)
+for f in FILES:
+    if not f.endswith(('.js', '.html')): continue
+    p = os.path.join(dst, f); s = open(p, encoding='utf-8').read()
+    s2 = PRIV.sub('', s)
+    if '<private:' in s2 or '</private:' in s2: sys.exit(f'[中止] {f} 的私人區塊標記沒有成對')
+    if s2 != s: open(p, 'w', encoding='utf-8').write(s2)
+
 p = os.path.join(dst, 'server.js'); s = open(p, encoding='utf-8').read()
 s = cut(s, "function isLocal(req) {", "let db = { chars:", 'server.js')
 s = edit(s, [
@@ -59,5 +69,14 @@ open(p, 'w', encoding='utf-8').write(s)
 
 v = json.load(open(os.path.join(dst, 'version.json'), encoding='utf-8'))
 v['files'] = [f for f in v['files'] if f != 'start-remote.bat']
+# 私人版的更新說明可能提到私人功能：有 notesPublic 就用它當公開版的說明
+if 'notesPublic' in v: v['notes'] = v.pop('notesPublic')
+
+# 私人功能不能漏到公開版
+for f in FILES:
+    if not f.endswith(('.js', '.html', '.json')): continue
+    t = open(os.path.join(dst, f), encoding='utf-8').read()
+    for bad in ['guildWarehouse', 'guildDeposit', 'guildWithdraw', '公會倉庫', '公倉']:
+        if bad in t and f != 'quiz-bank.json': sys.exit(f'[中止] 公開版 {f} 還有私人功能字樣：{bad}')
 json.dump(v, open(os.path.join(dst, 'version.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 print('公開版已產生：', v['version'])

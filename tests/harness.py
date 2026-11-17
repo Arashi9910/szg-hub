@@ -50,16 +50,24 @@ def prepare_hub(fresh=True):
 
 
 class Env:
-    def __init__(self, fresh=True, headless=True, busy_rate=0):
-        self.fresh, self.headless, self.busy_rate = fresh, headless, busy_rate
+    def __init__(self, fresh=True, headless=True, busy_rate=0, extdb=None):
+        self.fresh, self.headless, self.busy_rate, self.extdb = fresh, headless, busy_rate, extdb
         self.procs, self.contexts, self.logs = [], [], []
 
     async def __aenter__(self):
         prepare_hub(self.fresh)
+        if self.extdb is not None:  # 預先放一份冒險資料庫（測試環境連不到外網）
+            os.makedirs(os.path.join(HUB_DIR, 'data'), exist_ok=True)
+            json.dump({'source': 'test', 'fetchedAt': int(time.time() * 1000), 'meta': {}, 'items': self.extdb, 'mobs': {}, 'quiz': []},
+                      open(os.path.join(HUB_DIR, 'data', 'extdb.json'), 'w', encoding='utf-8'), ensure_ascii=False)
         env = {**os.environ, 'BUSY_RATE': str(self.busy_rate)}
         self.procs.append(subprocess.Popen(['node', os.path.join(HERE, 'mockgame.js'), '9900'], env=env, stdout=open('/tmp/mockgame.log', 'w'), stderr=subprocess.STDOUT))
         self.procs.append(subprocess.Popen(['node', 'server.js'], cwd=HUB_DIR, env={**os.environ, 'PORT': '8787'}, stdout=open('/tmp/hub.log', 'w'), stderr=subprocess.STDOUT))
-        wait_url(MOCK + '/api/account'); wait_url(HUB + '/api/settings')
+        try:
+            wait_url(MOCK + '/api/account'); wait_url(HUB + '/api/settings')
+        except Exception:
+            for p in self.procs: p.terminate()
+            raise RuntimeError('啟動失敗，請看 /tmp/mockgame.log、/tmp/hub.log')
         hub_json('POST', '/api/settings', {'autoUpdate': False})  # 不然會被 GitHub 版本蓋掉
         self.pw = await async_playwright().start()
         self.browser = await self.pw.chromium.launch(headless=self.headless)

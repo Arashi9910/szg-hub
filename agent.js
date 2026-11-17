@@ -252,7 +252,7 @@ function agentMain(ctx) {
         weaponType: /Weapon/.test(category) ? (g.type || e.equipmentType) : '',
         itemId: g.itemId, name: g.name, plus: g.successes || 0, slotsLeft: g.slots || 0, maxSlots: g.maxSlots || 0,
         locked: !!g.locked, tradable: loc === '背包' ? gearTradable(g) : false,
-        stats: g.stats || {}, cleanStats: g.cleanStats || g.baseStats || {},
+        stats: g.stats || {}, cleanStats: g.cleanStats || g.baseStats || {}, baseStats: g.rollVersion && g.baseStats ? g.baseStats : null,
         reqLevel: meta.reqLevel || 0, reqJob: meta.reqJob || 0,
         reqSTR: meta.reqSTR || 0, reqDEX: meta.reqDEX || 0, reqINT: meta.reqINT || 0, reqLUK: meta.reqLUK || 0,
       };
@@ -1094,8 +1094,92 @@ function agentMain(ctx) {
         await report(job, { event: 'log', msg: `已賣出 ${count} 項，共 ${total.toLocaleString()} 楓幣` });
         return report(job, { event: 'batchDone' });
       }
+      // <private:guild>
+      if (job.kind === 'guildDeposit' || job.kind === 'guildWithdraw' || job.kind === 'guildView') return runGuildJob(job, c);
+      // </private:guild>
       return report(job, { event: 'error', msg: '未知的工作類型：' + job.kind });
     }
+    // <private:guild>
+    // ---------- 公會倉庫（只在私人版）：存入、領取、查看 ----------
+    // 遊戲格式：guildWarehouseBatch {op, items:[{kind:'item', item, qty} | {kind:'gear', uid}]}，一次最多 100 項；回應在 summary.guildWarehouse
+    // 楓幣、點數是另外的指令，這裡一律不碰
+    const GUILD_MAX = 100;
+    function postGuild(j, c) {
+      const g = j && j.summary && j.summary.guildWarehouse;
+      if (!g) return;
+      hub('POST', '/api/guild', { charId: c && c.id, charName: c && c.name, data: g }).catch(() => {});
+    }
+    async function runGuildJob(job, c) {
+      const b = job.batches[0] || {};
+      if (job.kind === 'guildView') {
+        setBadge(null, '讀取公會倉庫…');
+        const j = await gameRetry({ type: 'guildWarehouseView', characterId: c.id });
+        if (!(j && j.summary && j.summary.guildWarehouse)) return report(job, { event: 'error', msg: '遊戲沒有回傳公會倉庫內容（可能還沒加入公會）' });
+        postGuild(j, c);
+        const g = j.summary.guildWarehouse;
+        await report(job, { event: 'log', msg: `${g.guildName || '公會倉庫'}：道具 ${Object.keys(g.items || {}).length} 種、裝備 ${(g.gear || []).length} 件` });
+        return report(job, { event: 'batchDone' });
+      }
+      const rows = [], skipped = [];
+      if (job.kind === 'guildDeposit') {
+        // 第二次檢查：還在背包、沒鎖定、可交易、不是補給中的道具；數量不超過目前可用的
+        const locked = lockedQtyByKey(c), sup = supplyKeys(c);
+        const bag = new Map((c.equipmentBag || []).map(g => [g.uid, g]));
+        for (const it of b.items || []) {
+          if (sup.has(it.key)) { skipped.push(it.name + '（補給中）'); continue; }
+          const can = itemTradableQty(c, it.key, locked);
+          const qty = Math.min(Number(it.qty) || 0, can);
+          if (qty > 0) rows.push({ kind: 'item', item: it.key, qty, name: it.name });
+          else skipped.push(it.name + '（沒有可存的數量）');
+        }
+        for (const g of b.gear || []) {
+          const cur = bag.get(g.uid);
+          if (!cur) skipped.push(g.name + '（不在背包）');
+          else if (!gearTradable(cur)) skipped.push(g.name + '（已鎖定或不可交易）');
+          else rows.push({ kind: 'gear', uid: g.uid, name: g.name });
+        }
+      } else {
+        for (const it of b.items || []) if (Number(it.qty) > 0) rows.push({ kind: 'item', item: it.key, qty: Number(it.qty), name: it.name });
+        for (const g of b.gear || []) rows.push({ kind: 'gear', uid: g.uid, name: g.name });
+      }
+      if (skipped.length) await report(job, { event: 'log', msg: '略過：' + skipped.join('、') });
+      if (!rows.length) { await report(job, { event: 'log', msg: '沒有可以處理的物品' }); return report(job, { event: 'batchDone', skippedEmpty: true }); }
+      const op = job.kind === 'guildDeposit' ? 'deposit' : 'withdraw', label = op === 'deposit' ? '存入' : '領取';
+      let done = 0;
+      for (let i = 0; i < rows.length; i += GUILD_MAX) {
+        const chunk = rows.slice(i, i + GUILD_MAX);
+        setBadge(null, `公會倉庫${label} ${done + chunk.length}/${rows.length}…`);
+        try {
+          const j = await gameRetry({ type: 'guildWarehouseBatch', op, items: chunk.map(({ name, ...x }) => x), characterId: c.id });
+          postGuild(j, c);
+        } catch (e) {
+          if (done) await report(job, { event: 'log', msg: `已${label} ${done} 項` });
+          return report(job, { event: 'error', msg: `${label}失敗（第 ${done + 1} 項起）：${e.message}` });
+        }
+        done += chunk.length;
+        if (i + GUILD_MAX < rows.length) await sleepP(1200);
+      }
+      const names = rows.map(r => r.name + (r.kind === 'item' ? ' ×' + r.qty : ''));
+      await report(job, { event: 'log', msg: `已${label} ${rows.length} 項：${names.slice(0, 30).join('、')}${names.length > 30 ? '…' : ''}` });
+      return report(job, { event: 'batchDone' });
+    }
+    // 你在遊戲裡自己打開或存取公會倉庫時，也把最新內容交給中控
+    (function hookGuild() {
+      try {
+        if (!W || W.__szgGuildHook) return;
+        W.__szgGuildHook = true;
+        const orig = W.fetch;
+        W.fetch = function (input, init) {
+          const p = orig.apply(this, arguments);
+          try {
+            const body = init && typeof init.body === 'string' ? init.body : '';
+            if (body.indexOf('"guildWarehouse') >= 0) p.then(r => r.clone().json()).then(j => { const st = readState(); postGuild(j, st && st.character); }).catch(() => {});
+          } catch (_) {}
+          return p;
+        };
+      } catch (e) { console.warn('[szg-hub] guild hook failed', e); }
+    })();
+    // </private:guild>
 
     async function agentTick() {
       if (agentRunning) return;

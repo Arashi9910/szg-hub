@@ -19,18 +19,18 @@ const items = {
   i4031052: { id: 4031052, name: '任務道具', type: '其他', sellPrice: 0 },
 };
 const scrolls = {
-  i2040801: { id: 2040801, name: '手套攻擊卷軸 60%', type: '卷軸', rate: 60, target: 'glove', stats: { pad: 2 }, sellPrice: 500 },
-  i2040805: { id: 2040805, name: '手套攻擊卷軸 10%', type: '卷軸', rate: 10, target: 'glove', stats: { pad: 3 }, sellPrice: 500 },
-  i2043001: { id: 2043001, name: '單手劍攻擊卷軸 60%', type: '卷軸', rate: 60, target: 'oneHandedSword', stats: { pad: 2, str: 1 }, sellPrice: 500 },
-  i2044501: { id: 2044501, name: '弓攻擊卷軸 60%', type: '卷軸', rate: 60, target: 'bow', stats: { pad: 2, acc: 1 }, sellPrice: 500 },
+  i2040801: { id: 2040801, name: '手套攻擊卷軸 60%', type: '卷軸', rate: 60, target: 'glove', stats: { incPAD: 2 }, sellPrice: 500 },
+  i2040805: { id: 2040805, name: '手套攻擊卷軸 10%', type: '卷軸', rate: 10, target: 'glove', stats: { incPAD: 3 }, sellPrice: 500 },
+  i2043001: { id: 2043001, name: '單手劍攻擊卷軸 60%', type: '卷軸', rate: 60, target: 'oneHandedSword', stats: { incPAD: 2, incSTR: 1 }, sellPrice: 500 },
+  i2044501: { id: 2044501, name: '弓攻擊卷軸 60%', type: '卷軸', rate: 60, target: 'bow', stats: { incPAD: 2, incACC: 1 }, sellPrice: 500 },
 };
 for (const [k, s] of Object.entries(scrolls)) items[k] = { id: s.id, name: s.name, type: '卷軸', sellPrice: s.sellPrice };
 const equipment = {
-  e1082002: { itemId: 1082002, name: '工地手套', equipmentType: 'glove', type: { category: 'Armor' }, meta: { reqLevel: 10, reqJob: 0 }, base: { pad: 0, def: 2 }, slots: 5 },
-  e1082149: { itemId: 1082149, name: '褐色工作手套', equipmentType: 'glove', type: { category: 'Armor' }, meta: { reqLevel: 10, reqJob: 0 }, base: { def: 5 }, slots: 7 },
-  e1302000: { itemId: 1302000, name: '劍', equipmentType: 'oneHandedSword', type: { category: 'OneHandedWeapon' }, meta: { reqLevel: 0, reqJob: 1 }, base: { pad: 17 }, slots: 7 },
-  e1452002: { itemId: 1452002, name: '戰鬥弓', equipmentType: 'bow', type: { category: 'TwoHandedWeapon' }, meta: { reqLevel: 10, reqJob: 4, reqDEX: 35 }, base: { pad: 28 }, slots: 7 },
-  e1040002: { itemId: 1040002, name: '白色背心', equipmentType: 'top', type: { category: 'Armor' }, meta: { reqLevel: 0, reqJob: 0 }, base: { def: 3 }, slots: 7 },
+  e1082002: { itemId: 1082002, name: '工地手套', equipmentType: 'glove', type: { category: 'Armor' }, meta: { reqLevel: 10, reqJob: 0 }, base: { incPDD: 2 }, slots: 5 },
+  e1082149: { itemId: 1082149, name: '褐色工作手套', equipmentType: 'glove', type: { category: 'Armor' }, meta: { reqLevel: 10, reqJob: 0 }, base: { incPDD: 5 }, slots: 7 },
+  e1302000: { itemId: 1302000, name: '劍', equipmentType: 'oneHandedSword', type: { category: 'OneHandedWeapon' }, meta: { reqLevel: 0, reqJob: 1 }, base: { incPAD: 17 }, slots: 7 },
+  e1452002: { itemId: 1452002, name: '戰鬥弓', equipmentType: 'bow', type: { category: 'TwoHandedWeapon' }, meta: { reqLevel: 10, reqJob: 4, reqDEX: 35 }, base: { incPAD: 28 }, slots: 7 },
+  e1040002: { itemId: 1040002, name: '白色背心', equipmentType: 'top', type: { category: 'Armor' }, meta: { reqLevel: 0, reqJob: 0 }, base: { incPDD: 3 }, slots: 7 },
 };
 const jobs = {
   beginner: { name: '初心者', tier: 0 }, swordman: { name: '劍士', tier: 1 }, fighter: { name: '狂戰士', tier: 2, parent: 'swordman' },
@@ -67,23 +67,32 @@ function autoSellDropsFor(map) {
 }
 const catalog = {
   version: 'mock-1', dropScale: 1000000, items, scrolls, equipment, jobs, mobs, maps, drops, mapDrops: {},
-  statNames: { pad: '物攻', mad: '魔攻', str: '力量', dex: '敏捷', int: '智力', luk: '幸運', def: '物防', acc: '命中' },
+  statNames: { incPAD: '物攻', incMAD: '魔攻', incSTR: '力量', incDEX: '敏捷', incINT: '智力', incLUK: '幸運', incPDD: '物防', incACC: '命中' },
   skills: [{ msId: 1001004, name: '強力攻擊', job: 'swordman', tier: 1, levels: [{ damage: 260 }] }],
   autoSellDrops: Object.fromEntries(Object.values(maps).map(m => [m.id, autoSellDropsFor(m)])),
   fourth: {},
 };
 
 // ---------------- 世界狀態 ----------------
+const rnd = n => Math.floor(Math.random() * n);
 let uidSeq = 1000;
 const newUid = p => p + (++uidSeq);
+// 掉落浮動：每個素質在標準值上下浮動（約 ±10%，至少 ±1），跟真實遊戲一樣記在 baseStats（標準）／cleanStats（掉落時）
+function rollStats(base) {
+  const out = {};
+  for (const [k, v] of Object.entries(base)) { const r = Math.max(1, Math.round(v * 0.1)); out[k] = Math.max(0, v + rnd(2 * r + 1) - r); }
+  return out;
+}
 function makeGear(key, extra = {}) {
   const e = equipment[key];
-  return { uid: newUid('g'), key, itemId: e.itemId, name: e.name, type: e.equipmentType, successes: 0, slots: e.slots, maxSlots: e.slots, locked: false, stats: { ...e.base }, cleanStats: { ...e.base }, ...extra };
+  const clean = rollStats(e.base);
+  return { uid: newUid('g'), key, itemId: e.itemId, name: e.name, type: e.equipmentType, successes: 0, slots: e.slots, maxSlots: e.slots, locked: false,
+    stats: { ...clean }, baseStats: { ...e.base }, cleanStats: clean, rollVersion: 1, ...extra };
 }
 function makeChar(id, name, job, lv, map, extra = {}) {
   return {
     id, name, job, lv, xp: 0, money: 500000, map, auto: false, until: null, hp: 500, maxhp: 500, mp: 300, maxmp: 300, kills: 0,
-    stats: { str: 40, dex: 40, int: 4, luk: 4 }, gear: {}, equipmentBag: [], warehouseGear: [], inventory: { i2000000: 200, i2000003: 100 },
+    stats: { incSTR: 40, incDEX: 40, incINT: 4, incLUK: 4 }, gear: {}, equipmentBag: [], warehouseGear: [], inventory: { i2000000: 200, i2000003: 100 },
     inventoryStacks: [], warehouse: {}, warehouseMesos: 0, supply: { hpItem: 'i2000000', mpItem: 'i2000003' }, autoSell: { maps: {} }, log: [], ...extra,
   };
 }
@@ -100,7 +109,7 @@ addAccount('A2', 'B2C3D4E5F6A1', [makeChar('c3', '弓箭分身', 'hunter', 32, '
 addAccount('A3', 'C3D4E5F6A1B2', [makeChar('c4', '倉庫分身', 'swordman', 20, 'gms100010000', { auto: true, until: Date.now() + 8 * 3600e3 })]);
 // 每隻角色背包放幾件裝備、幾疊道具
 for (const a of Object.values(accounts)) for (const c of Object.values(a.chars)) {
-  c.equipmentBag.push(makeGear('e1082002'), makeGear('e1082149'), makeGear('e1040002'));
+  c.equipmentBag.push(makeGear('e1082002'), makeGear('e1082002'), makeGear('e1082002'), makeGear('e1082149'), makeGear('e1082149'), makeGear('e1040002'));
   rebuildStacks(c);
 }
 const guild = { guildName: '測試公會', mesos: 0, cashPoints: 0, items: {}, gear: [], capacity: { gear: 500, items: 500 }, taxPercent: 5 };
@@ -113,7 +122,6 @@ function rebuildStacks(c) {
   });
 }
 function addLog(c, t) { c.log.push({ time: Date.now() + c.log.length % 7, t }); if (c.log.length > 60) c.log.splice(0, c.log.length - 60); }
-const rnd = n => Math.floor(Math.random() * n);
 
 // 掛機模擬：每次同步依經過時間打怪、撿東西、自動販售
 const events = {}; // charId → 最近一次的戰鬥事件
