@@ -64,7 +64,12 @@ async def main():
         bag1 = {g['uid']: g for g in st1['equipmentBag']}
         check(all(bag1[r['uid']]['successes'] == r['plus'] and r['pass'] == (r['plus'] >= 3) for r in log['results']), '每件的強化次數、及格判定跟遊戲一致')
         await d.wait_for_timeout(5500)
-        check('及格' in await d.inner_text('#fgLog'), '面板顯示強化結果')
+        txt = await d.inner_text('#fgLog')
+        dist = {}
+        for r in log['results']: dist[r['plus']] = dist.get(r['plus'], 0) + 1
+        check(all(f"+{p} ×{n}" in txt for p, n in dist.items()), '結果標題直接顯示 +幾 的分布：' + '、'.join(f'+{p}×{n}' for p, n in sorted(dist.items(), reverse=True)))
+        check(await d.locator('#fgLog details[open] tbody tr').count() == 2 and '物攻 +' in txt, '最新一筆預設展開，列出每件 +幾 與增加的素質')
+        check('+' in job['lastMsg'] or any('×' in l['msg'] for l in job['log']), '工作紀錄也寫出分布')
 
         print('3. 公倉（私人版）：裝備和卷軸放在公倉，執行時先領出')
         browns = [g for g in st1['equipmentBag'] if g['name'] == '褐色工作手套'][:2]
