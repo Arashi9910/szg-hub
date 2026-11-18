@@ -1490,6 +1490,9 @@ function bagCharView(vis) {
   }
   return blocks.join('') || `<div class="card empty">${bagChars().length ? '沒有符合條件的物品' : '還沒有背包資料：打開遊戲分頁，約 10 秒後會出現。'}</div>`;
 }
+// 擴充點：其他版本可以在背包動作列加按鈕（data-bact）並接手處理
+let bagExtraActions = () => '';
+const bagActHooks = {};
 function renderBagBar() {
   if (document.activeElement && document.activeElement.id === 'bGiveTo') return; // 正在選目標角色時不要重畫
   const sel = bagSelected(), bar = $('#bagBar');
@@ -1506,7 +1509,7 @@ function renderBagBar() {
   bar.style.display = '';
   bar.innerHTML = `<span class="sum">已選 <b>${sel.length}</b> 項・<b>${chars.size}</b> 隻角色${est ? `・賣出約 <b class="good">${short(est)}</b> 楓幣` : ''}</span>
     ${notReady.length ? `<span class="warn" title="${esc(notReady.map(s => s.char.name).join('、'))}">⚠ ${notReady.length} 隻離線或不是目前角色，工作會等到它上線</span>` : ''}
-    <button class="btn primary" data-bact="sell" ${nSell ? '' : 'disabled'}>賣出${nSell < sel.length ? `（${nSell} 項可賣）` : ''}</button><button class="btn" data-bact="lock">鎖定</button><button class="btn" data-bact="unlock">解鎖</button>
+    <button class="btn primary" data-bact="sell" ${nSell ? '' : 'disabled'}>賣出${nSell < sel.length ? `（${nSell} 項可賣）` : ''}</button><button class="btn" data-bact="lock">鎖定</button><button class="btn" data-bact="unlock">解鎖</button>${bagExtraActions(sel)}
     <span class="give-grp"><span class="dim">給</span><select id="bGiveTo">${charOpt(ui.bag.giveTo || S.mainCharId || '', true).replace('（選擇角色）', '（選角色）')}</select><button class="btn" data-bact="give" title="把選取的東西交易給這隻角色（數量＝全部可交易的）">送出 ▸</button></span>
     <button class="btn" data-bquick="clear">清除選擇</button><span class="dim" id="bMsg"></span>`;
 }
@@ -1583,6 +1586,7 @@ document.addEventListener('click', async e => {
       else for (const s of bagVisibleChars()) for (const r of bagRows(s)) if (d.bquick === 'all' || r.sellable) ui.bagSel.add(bagSid(s.char.id, r.id));
       renderBagList(); return;
     }
+    if (d.bact && bagActHooks[d.bact]) { await bagActHooks[d.bact](); return; }
     if (d.bact === 'give') {
       const to = $('#bGiveTo').value; ui.bag.giveTo = to;
       const { reqs, skipped } = bagGiveJobs(to);
@@ -3470,6 +3474,34 @@ document.addEventListener('input', e => {
   if (e.target.id === 'gwQ') { ui.gw.q = e.target.value; renderGuildOut(); }
   if (e.target.id === 'gdQ') { gdState().q = e.target.value; renderGuildDeposit(); }
 });
+// ---- 背包分頁：選取的東西直接存進公倉 ----
+function bagGuildPlan() {
+  const by = {}, skipped = [];
+  for (const x of bagSelected()) {
+    const r = x.r, list = by[x.s.char.id] || (by[x.s.char.id] = { items: [], gear: [] });
+    if (r.t === 'i') {
+      const q = Math.min(r.i.tradableQty ?? r.free, r.free);
+      if (r.i.supply || !(q > 0)) { skipped.push(r.name + (r.i.supply ? '（補給中）' : '（鎖定／不可交易）')); continue; }
+      list.items.push({ key: r.i.key, name: r.i.name, qty: q });
+    } else {
+      if (r.g.locked || r.g.tradable === false) { skipped.push(r.name + '（鎖定／不可交易）'); continue; }
+      list.gear.push({ uid: r.g.uid, name: r.g.name });
+    }
+  }
+  return { reqs: Object.entries(by).filter(([, v]) => v.items.length || v.gear.length).map(([from, v]) => ({ kind: 'guildDeposit', fromCharId: from, batches: [{ items: v.items, gear: v.gear }] })), skipped };
+}
+bagExtraActions = sel => `<button class="btn" data-bact="guild" title="把選取的東西存進公會倉庫（可以再領回來）">🏦 存進公倉</button>`;
+bagActHooks.guild = async () => {
+  const { reqs, skipped } = bagGuildPlan();
+  if (!reqs.length) { alert('選取的東西都不能存（已鎖定、補給使用中或不可交易）'); return; }
+  const nI = reqs.reduce((t, r) => t + r.batches[0].items.length, 0), nG = reqs.reduce((t, r) => t + r.batches[0].gear.length, 0);
+  if (!confirm(`把 ${reqs.length} 隻角色的 ${nI ? nI + ' 種道具' : ''}${nI && nG ? '、' : ''}${nG ? nG + ' 件裝備' : ''} 存進公倉？存入後可以在「公倉」分頁領回。${skipped.length ? `\n\n略過：${[...new Set(skipped)].slice(0, 8).join('、')}${skipped.length > 8 ? '…' : ''}` : ''}`)) return;
+  const r = await api('/api/jobs', reqs);
+  for (const j of r.jobs) await api(`/api/jobs/${j.id}/approve`); // 存入可以再領回，直接執行
+  ui.bagSel.clear();
+  const m = $('#bMsg'); if (m) m.textContent = `已開始存入（${r.jobs.length} 個工作）`;
+  await poll(true); openJobs();
+};
 // ---- 強化工坊：公倉裡的裝備／卷軸也可以拿來衝（執行時先領出） ----
 Object.assign(forgeExtra, {
   label: '包含公倉裡的（執行時先領出）', short: '公倉', take: '從公倉領出',
