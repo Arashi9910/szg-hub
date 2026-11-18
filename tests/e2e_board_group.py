@@ -40,11 +40,20 @@ async def main():
         await d.select_option('#facAddMap', 'gms100010000'); await d.wait_for_timeout(1200)
         check(await d.locator('.fnode[data-fn="m:gms100010000"]').count() == 1, '放大畫布時用底部的「＋ 加入地圖」加上地圖')
         await d.click('[data-fzoom="max"]'); await d.wait_for_timeout(300)
+        # 在 B 組新加的地圖設定販售，儲存後要留得住
+        await d.click('.fnode[data-fn="m:gms100010000"] [data-bdsell]'); await d.wait_for_timeout(500)
+        await d.check('#bdSellOn'); await d.click('[data-bdsi="4000000"]'); await d.wait_for_timeout(200)
+        await d.click('#bdSellSave'); await d.wait_for_timeout(2500)
+        sell = (hub_json('GET', '/api/data')['settings'].get('boards', {}).get('B', {}).get('sell') or {}).get('gms100010000')
+        check(sell and sell['enabled'] and 4000000 in sell['itemIds'], '販售設定存進 B 組：' + str(sell))
+        await d.reload(); await d.wait_for_timeout(1500); await d.click('nav button[data-tab=board]'); await d.wait_for_timeout(1500)
+        btn = await d.inner_text('.fnode[data-fn="m:gms100010000"] [data-bdsell]')
+        check('1' in btn, f'重新整理後節點顯示販售設定：{btn}')
         st = hub_json('GET', '/api/data')['settings']
         check(st['boards']['B']['lanes']['train'] == ['gms100010000'] and st['boards']['A']['lanes']['train'] == ['gms104040000'], 'A、B 兩組的地圖分開存')
 
         print('3. 背景掛機的先排、套用時略過')
-        bd = st['boards']; bd['B']['assign'] = {'c2': 'gms104040000'}; bd['B']['lanes']['train'].append('gms104040000')
+        bd = st['boards']; bd['B']['assign'] = {'c2': 'gms104040000'}; bd['B']['lanes']['train'].append('gms104040000'); bd['B'].setdefault('sell', {})
         hub_json('POST', '/api/settings', {'boards': bd}); await d.reload(); await d.wait_for_timeout(1500)
         await d.click('nav button[data-tab=board]'); await d.wait_for_timeout(1200)
         mode['accept'] = False; msgs.clear()
