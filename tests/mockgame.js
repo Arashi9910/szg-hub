@@ -340,7 +340,7 @@ http.createServer((req, res) => {
   const a = acctOf(req);
   if (!a) return send(res, 404, { error: '沒有這個帳號' });
   if (url.pathname.startsWith('/game')) return send(res, 200, PAGE, 'text/html; charset=utf-8');
-  if (url.pathname === '/api/account') return send(res, 200, { playerCode: a.code, activeCharacterId: a.active, status: 'ok' });
+  if (url.pathname === '/api/account') return send(res, 200, { playerCode: a.code, activeCharacterId: a.active, characterIds: Object.keys(a.chars), status: 'ok' });
   if (url.pathname === '/api/catalog') return send(res, 200, catalog);
   // 測試控制：查看／重設狀態
   if (url.pathname === '/__mock/state') return send(res, 200, { accounts, guild });

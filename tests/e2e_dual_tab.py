@@ -101,6 +101,26 @@ async def main():
         # 伺服器 90 秒內還記得（背景分頁會被瀏覽器放慢），按鈕在下一輪就回來
         await asyncio.sleep(6)
         check(await p1.locator('#szg-hub-open [data-szgopen="c2"]').count() == 1, '本尊劍士的分頁重新顯示「＋ 開 本尊小號 的分頁」')
+        print('6b. 本尊劍士的分頁按 F5（模擬離開時標記沒來得及清掉）')
+        await p1.evaluate("""window.addEventListener('pagehide', () => localStorage.setItem('__gm:charTab:c1', JSON.stringify({ page: 'old', tab: sessionStorage.getItem('szgTabId'), at: Date.now(), hidden: false })))""")
+        await p1.reload(); await asyncio.sleep(8)
+        check(await p1.evaluate("sessionStorage.getItem('mapleCharacter')") == 'c1' and '另一個分頁' not in await p1.inner_text('#szg-hub-badge'), '重新整理後還是本尊劍士，不會被當成重複或自動換成本尊小號')
+        print('7. 直接開新分頁（沒有用按鈕）')
+        await asyncio.sleep(3)
+        p4 = await env.open_account('A1')
+        became = await wait(lambda: None, 0)
+        for _ in range(25):
+            await asyncio.sleep(1)
+            try:
+                if await p4.evaluate("sessionStorage.getItem('mapleCharacter')") == 'c2': became = True; break
+            except Exception: pass
+        check(became, '新分頁載入的是已經有分頁的本尊劍士 → 自動換成本尊小號')
+        check(await wait(lambda: 'c2' in hub_json('GET', '/api/data')['tabs'] and fresh('c2', 20000), 20), '中控收到本尊小號的分頁')
+        check('另一個分頁' not in (await p4.inner_text('#szg-hub-badge')), '換過去之後沒有重複警告')
+        p5 = await env.open_account('A1')
+        await asyncio.sleep(6)
+        check(await p5.evaluate("sessionStorage.getItem('szgAutoOther')") is None and '另一個分頁' in await p5.inner_text('#szg-hub-badge'), '兩隻都有分頁時再開一個：不換、維持暫停提示')
+        await p5.close()
         pe = [l for l in env.logs if 'pageerror' in l]
         check(not pe, '遊戲分頁沒有 JS 錯誤' + ('：' + pe[0] if pe else ''))
     print('\n全部通過' if ok else '\n有失敗項目'); sys.exit(0 if ok else 1)

@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-18（v0.33.1）
+最後更新：2026-11-18（v0.33.2）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -80,3 +80,4 @@
 - 待實機確認：非伺服器 activeCharacterId 的那隻用 characterId 換圖／衝卷是否被遊戲拒絕；知識王是每隻角色還是整個帳號一份（目前用鎖保守處理）。
 - v0.33.1：實機發現頁面的 mapleSessionView 不一定會更新背包（鎖定後一直顯示沒鎖，分頁是看得到的）。agent `refreshOwnState()`：每 45 秒、工作前、工作後直接 `sync`，`readState()` 的背包相關欄位（OWN_KEYS）用這份。
 - 實機確認（嵐思／嵐司雙分頁）：同一隻開兩個分頁會被擋；`?szgChar=` 免重整就生效；兩隻的鎖定／解鎖工作各自在自己的分頁完成（伺服器 activeCharacterId 不是那隻也可以）。
+- v0.33.2：`becomeOther()`——剛開的分頁（90 秒內）發現這隻已有分頁、同帳號另一隻沒有 → 自動換過去（sessionStorage szgAutoOther 防重複，帳號 characterIds 來自 /api/account）。`TAB_ID`（sessionStorage szgTabId，只有 navigation type=reload 才沿用）讓 F5 認得自己。
