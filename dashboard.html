@@ -179,6 +179,10 @@
   main { padding: 14px 18px 40px; }
   section { display: none; } section.on { display: block; }
   .bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 0 0 10px; }
+  tr.pickrow { cursor: pointer; user-select: none; }
+  tr.pickrow:hover td { background: rgba(255,255,255,.04); }
+  tr.pickrow.picked td { background: rgba(91,141,239,.16); }
+  tr.pickrow.picked:hover td { background: rgba(91,141,239,.24); }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
   .card h3 { margin: 0 0 8px; font-size: 13px; color: var(--dim); font-weight: 600; }
   .stats-row { display: flex; gap: 24px; flex-wrap: wrap; }
@@ -536,7 +540,7 @@
       <div class="bar">
         <div class="seg" id="gwTabs"><button data-gwtab="item">道具</button><button data-gwtab="gear">裝備</button></div>
         <input id="gwQ" placeholder="搜尋名稱" style="width:160px" autocomplete="off">
-        <span class="dim">勾選要領的東西，選好給哪隻角色。裝備會依職業、等級先建議一隻（等級剛好夠穿的），可以改。</span>
+        <span class="dim">點一下整列就能選取（再點一次取消；Shift＋點可以一次選一段），選好給哪隻角色。裝備會依職業、等級先建議一隻（等級剛好夠穿的），可以改。</span>
       </div>
       <div id="gwFilter"></div>
       <div id="gwOut"></div>
@@ -2954,6 +2958,32 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#jobDrawer').style.display = 'none'; });
 
+// ================= 點整列選取（勾選框仍然可以點；Shift＋點一次選一段） =================
+const PICK_ATTRS = ['data-gwpick', 'data-gdpick', 'data-fgpick'];
+let pickLast = null; // { attr, key }
+function pickBox(tr) { for (const a of PICK_ATTRS) { const b = tr.querySelector(`input[type=checkbox][${a}]`); if (b) return [b, a]; } return [null, null]; }
+function pickSet(attr, key, want) {
+  const b = document.querySelector(`input[type=checkbox][${attr}="${CSS.escape(key)}"]`);
+  if (!b || b.disabled || b.checked === want) return;
+  b.checked = want; b.dispatchEvent(new Event('change', { bubbles: true }));
+}
+document.addEventListener('click', e => {
+  const tr = e.target.closest && e.target.closest('tr.pickrow'); if (!tr) return;
+  if (e.target.closest('input, select, button, a, label, textarea, summary')) {
+    // 直接點勾選框：記住位置，給 Shift 選一段用
+    const [b, a] = pickBox(tr); if (b && e.target === b) pickLast = { attr: a, key: b.getAttribute(a) };
+    return;
+  }
+  const [box, attr] = pickBox(tr); if (!box || box.disabled) return;
+  const key = box.getAttribute(attr), want = !box.checked;
+  if (e.shiftKey && pickLast && pickLast.attr === attr) {
+    const keys = [...tr.parentElement.querySelectorAll(`input[type=checkbox][${attr}]`)].map(b => b.getAttribute(attr));
+    const i = keys.indexOf(pickLast.key), j = keys.indexOf(key);
+    if (i >= 0 && j >= 0) { for (const k of keys.slice(Math.min(i, j), Math.max(i, j) + 1)) pickSet(attr, k, want); pickLast = { attr, key }; return; }
+  }
+  pickSet(attr, key, want);
+  pickLast = { attr, key };
+});
 // ================= 強化工坊 =================
 // 擴充點：私人版會補上其他來源的裝備／卷軸
 const forgeExtra = { label: '', gear: () => [], scrollQty: () => 0 };
@@ -3072,7 +3102,7 @@ function renderForge() {
     h += `<table style="margin-top:6px"><thead><tr><th class="nosort"></th><th class="nosort">裝備</th><th class="nosort">在哪</th><th class="nosort num">已衝／剩</th><th class="nosort num">這次最多</th><th class="nosort num">預估次數</th><th class="nosort num">及格機率</th>${sc[3] ? '<th class="nosort num">消失機率</th>' : ''}</tr></thead><tbody>`;
     for (const r of pl.pieces) {
       const x = (pl.rows || []).find(y => y.uid === r.uid), on = !f.off.has(r.uid);
-      h += `<tr class="${on ? '' : 'dim'}"><td><input type="checkbox" data-fgpick="${esc(r.uid)}" ${on ? 'checked' : ''}></td><td>${esc(r.name)}${r.plus ? ' +' + r.plus : ''}</td><td>${esc(r.src)}</td><td class="num">${r.plus} / ${r.slots}</td>
+      h += `<tr class="pickrow ${on ? 'picked' : 'dim'}"><td><input type="checkbox" data-fgpick="${esc(r.uid)}" ${on ? 'checked' : ''}></td><td>${esc(r.name)}${r.plus ? ' +' + r.plus : ''}</td><td>${esc(r.src)}</td><td class="num">${r.plus} / ${r.slots}</td>
         <td class="num">${x ? x.n : '—'}</td><td class="num">${x ? x.expAtt.toFixed(1) : '—'}</td><td class="num">${x ? Math.round(x.pPass * 100) + '%' : '—'}</td>${sc[3] ? `<td class="num bad">${x ? Math.round(x.pLost * 100) + '%' : '—'}</td>` : ''}</tr>`;
     }
     h += '</tbody></table>';
@@ -3232,14 +3262,14 @@ function renderGuildOut() {
     const img = itemImg(r.id);
     const name = `${img ? `<img src="${esc(img)}" style="width:20px;height:20px;vertical-align:middle;margin-right:4px" loading="lazy">` : ''}${esc(r.name)}`;
     if (r.key) {
-      h += `<tr><td><input type="checkbox" data-gwpick="${esc(r.rk)}" ${sel ? 'checked' : ''}></td><td title="${esc(itemTip(r.id))}">${name}</td><td class="num">${fmt(r.qty)}</td>
+      h += `<tr class="pickrow ${sel ? 'picked' : ''}"><td><input type="checkbox" data-gwpick="${esc(r.rk)}" ${sel ? 'checked' : ''}></td><td title="${esc(itemTip(r.id))}">${name}</td><td class="num">${fmt(r.qty)}</td>
         <td><input type="number" data-gwqty="${esc(r.rk)}" min="1" max="${r.qty}" value="${sel ? sel.qty : r.qty}" style="width:80px"></td>
         <td><select data-gwto="${esc(r.rk)}">${opt(sel ? sel.target : '')}</select></td></tr>`;
     } else {
       const fits = gearFits(r.g);
       const x = EXT.items[r.id] || {};
       const req = [(x.req && x.req.Level) || x.lv ? 'Lv' + ((x.req && x.req.Level) || x.lv) : '', x.job || '全職業'].filter(Boolean).join(' ');
-      h += `<tr><td><input type="checkbox" data-gwpick="${esc(r.rk)}" ${sel ? 'checked' : ''}></td><td title="${esc(itemTip(r.id))}">${name}</td>
+      h += `<tr class="pickrow ${sel ? 'picked' : ''}"><td><input type="checkbox" data-gwpick="${esc(r.rk)}" ${sel ? 'checked' : ''}></td><td title="${esc(itemTip(r.id))}">${name}</td>
         <td>${r.g.successes ? '+' + r.g.successes : '—'} / ${r.g.slots ?? '?'}</td><td>${rollText(rollDelta(r.g))}</td><td class="dim">${esc(req)}</td>
         <td><select data-gwto="${esc(r.rk)}" data-fits="${esc(fits.join(','))}">${opt(sel ? sel.target : (fits[0] || ''), fits)}</select></td></tr>`;
     }
@@ -3314,7 +3344,7 @@ function renderGuildDeposit() {
   $('#gdList').innerHTML = `<table><thead><tr><th class="nosort" style="width:24px"></th><th class="nosort">名稱</th><th class="nosort">類型</th><th class="nosort num">數量</th><th class="nosort">在誰身上</th></tr></thead><tbody>${shown.map(x => {
     const img = itemImg(x.id);
     const who = [...x.chars].map(id => charNameOf(id));
-    return `<tr><td><input type="checkbox" data-gdpick="${esc(x.k)}" ${gdPicked(d, x) ? 'checked' : ''} ${gdCovered(d, x) ? 'disabled title="已由整類勾選包含"' : ''}></td><td title="${esc(itemTip(x.id))}">${img ? `<img src="${esc(img)}" style="width:20px;height:20px;vertical-align:middle;margin-right:4px" loading="lazy">` : ''}${esc(x.name)}</td><td class="dim">${esc(x.type === 'gear' ? '裝備・' + x.kind : x.kind)}</td><td class="num">${fmt(x.n)}${x.type === 'gear' ? ' 件' : ''}</td><td class="dim">${esc(who.slice(0, 6).join('、'))}${who.length > 6 ? ` 等 ${who.length} 隻` : ''}</td></tr>`;
+    return `<tr class="pickrow ${gdPicked(d, x) ? 'picked' : ''}"><td><input type="checkbox" data-gdpick="${esc(x.k)}" ${gdPicked(d, x) ? 'checked' : ''} ${gdCovered(d, x) ? 'disabled title="已由整類勾選包含"' : ''}></td><td title="${esc(itemTip(x.id))}">${img ? `<img src="${esc(img)}" style="width:20px;height:20px;vertical-align:middle;margin-right:4px" loading="lazy">` : ''}${esc(x.name)}</td><td class="dim">${esc(x.type === 'gear' ? '裝備・' + x.kind : x.kind)}</td><td class="num">${fmt(x.n)}${x.type === 'gear' ? ' 件' : ''}</td><td class="dim">${esc(who.slice(0, 6).join('、'))}${who.length > 6 ? ` 等 ${who.length} 隻` : ''}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="empty">沒有可以存的東西</td></tr>'}</tbody></table>`;
   $('#gdPickInfo').textContent = `已勾 ${all.filter(x => gdPicked(d, x)).length} 種`;
   document.querySelectorAll('[data-gdcat]').forEach(b => { b.checked = d.cats.has(b.dataset.gdcat); });

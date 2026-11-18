@@ -48,8 +48,22 @@ async def main():
         await d.fill('[data-gwcv="0"]', '-1'); await d.press('[data-gwcv="0"]', 'Tab'); await d.wait_for_timeout(400)
         n = await d.locator('[data-gwpick^="g:"]').count()
         check(n == len(bad), f'列出 {n} 件（應為 {len(bad)}）')
+        rows = d.locator('#gwOut tr.pickrow')
+        await rows.nth(0).locator('td').nth(1).click(); await d.wait_for_timeout(300)
+        check('賣掉勾選的 1 件' in await d.inner_text('#gwBar') and 'picked' in (await d.locator('#gwOut tr.pickrow').nth(0).get_attribute('class')), '點整列（不是點勾選框）就選起來，整列亮起')
+        await d.locator('#gwOut tr.pickrow').nth(0).locator('td').nth(2).click(); await d.wait_for_timeout(300)
+        check('賣掉勾選的 0 件' in await d.inner_text('#gwBar'), '再點一次取消')
+        await d.locator('#gwOut tr.pickrow').nth(0).locator('td').nth(1).click(); await d.wait_for_timeout(200)
+        await d.locator('#gwOut tr.pickrow').nth(n - 1).locator('td').nth(1).click(modifiers=['Shift']); await d.wait_for_timeout(400)
+        check(f'賣掉勾選的 {len(bad)} 件' in await d.inner_text('#gwBar'), f'Shift＋點最後一列，一次選起 {len(bad)} 件')
+        await d.click('#gwNone'); await d.wait_for_timeout(200)
         await d.click('#gwPickShown'); await d.wait_for_timeout(300)
         check(f'賣掉勾選的 {len(bad)} 件' in await d.inner_text('#gwBar'), '勾選目前列出的全部')
+        # 列上的「給誰」選單照常可以操作，不會切換選取
+        await d.click('#gwNone'); await d.wait_for_timeout(200)
+        await d.locator('#gwOut tr.pickrow').nth(0).locator('select').click(); await d.wait_for_timeout(200)
+        check('賣掉勾選的 0 件' in await d.inner_text('#gwBar'), '點列上的「給誰」選單不會選取整列')
+        await d.click('#gwPickShown'); await d.wait_for_timeout(300)
 
         print('2. 賣掉（由本尊領出後賣）')
         money0 = mock_state()['accounts']['A1']['chars']['c1']['money']
