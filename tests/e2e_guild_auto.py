@@ -11,7 +11,7 @@ def scrolls_on_bag():
     st = mock_state(); n = 0
     for a in st['accounts'].values():
         c = a['chars'][a['active']]
-        n += sum(q for k, q in c['inventory'].items() if k in ('i2040801', 'i2040805', 'i2043001', 'i2044501'))
+        n += sum(q for k, q in c['inventory'].items() if k in ('i2040801', 'i2040805', 'i2043001', 'i2044501', 'i2040899'))
     return n
 
 async def main():
@@ -56,7 +56,7 @@ async def main():
         await fac.click('[data-fzoom=fit]'); await fac.wait_for_timeout(600)
         await fac.screenshot(path='/tmp/fac_guild.png')
         await fac.wait_for_timeout(3000); txt = await fac.inner_text('.fnode[data-fn="guild"]')
-        check('5,221' in txt or '5221' in txt, '公倉節點的數字跟著更新')
+        check(f'{before:,}' in txt or str(before) in txt, f'公倉節點的數字跟著更新（{before:,}）')
         check('自動存入：開' in txt and await fac.locator('#facWires path[data-w="bag>guild"]').count() == 1, '公倉節點顯示自動存入狀態、有背包→公倉的線')
         check(not ferrs, '工廠圖沒有 JS 錯誤' + ('：' + ferrs[0] if ferrs else ''))
         gw = mock_state()['guild']['items']

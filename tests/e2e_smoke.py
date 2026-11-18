@@ -45,8 +45,8 @@ async def main():
         check(not r.get('summary', {}).get('guildWarehouse', {}).get('gear'), '裝備領回')
         money0 = r['character']['money']
         r = await game(pages[0], {'type': 'artisanScroll', 'uid': glove['uid'], 'item': 'i2040801', 'count': 5, 'stopAfterSuccesses': 3, 'expectedSlots': glove['slots']})
-        res = (r.get('summary', {}).get('artisan', {}).get('results') or [{}])[0]
-        n = res.get('attempts', 0)
+        res = r.get('character', {}).get('lastArtisan') or {}
+        n = len(res.get('attempts') or [])
         check(n >= 1 and money0 - r['character']['money'] == n * 100000, f"神匠之魂：衝 {n} 次、成功 {res.get('successes')} 次，每次扣 10 萬")
         r = await game(pages[0], {'type': 'autoSell', 'map': 'gms100010000', 'config': {'enabled': True, 'itemIds': [4000000]}})
         check('所在地圖' in (r.get('error') or ''), '自動販售只接受目前地圖')

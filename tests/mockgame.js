@@ -19,15 +19,16 @@ const items = {
   i4031052: { id: 4031052, name: '任務道具', type: '其他', sellPrice: 0 },
 };
 const scrolls = {
-  i2040801: { id: 2040801, name: '手套攻擊卷軸 60%', type: '卷軸', rate: 60, target: 'glove', stats: { incPAD: 2 }, sellPrice: 500 },
-  i2040805: { id: 2040805, name: '手套攻擊卷軸 10%', type: '卷軸', rate: 10, target: 'glove', stats: { incPAD: 3 }, sellPrice: 500 },
+  i2040801: { id: 2040801, name: '手套攻擊卷軸 60%', type: '卷軸', rate: 60, target: 'gloves', stats: { incPAD: 2 }, sellPrice: 500 },
+  i2040805: { id: 2040805, name: '手套攻擊卷軸 10%', type: '卷軸', rate: 10, target: 'gloves', stats: { incPAD: 3 }, sellPrice: 500 },
   i2043001: { id: 2043001, name: '單手劍攻擊卷軸 60%', type: '卷軸', rate: 60, target: 'oneHandedSword', stats: { incPAD: 2, incSTR: 1 }, sellPrice: 500 },
   i2044501: { id: 2044501, name: '弓攻擊卷軸 60%', type: '卷軸', rate: 60, target: 'bow', stats: { incPAD: 2, incACC: 1 }, sellPrice: 500 },
+  i2040899: { id: 2040899, name: '手套攻擊詛咒卷軸 30%', type: '卷軸', rate: 30, cursed: 50, target: 'gloves', stats: { incPAD: 3 }, sellPrice: 1 },
 };
 for (const [k, s] of Object.entries(scrolls)) items[k] = { id: s.id, name: s.name, type: '卷軸', sellPrice: s.sellPrice };
 const equipment = {
-  e1082002: { itemId: 1082002, name: '工地手套', equipmentType: 'glove', type: { category: 'Armor' }, meta: { reqLevel: 10, reqJob: 0 }, base: { incPDD: 2 }, slots: 5 },
-  e1082149: { itemId: 1082149, name: '褐色工作手套', equipmentType: 'glove', type: { category: 'Armor' }, meta: { reqLevel: 10, reqJob: 0 }, base: { incPDD: 5 }, slots: 7 },
+  e1082002: { itemId: 1082002, name: '工地手套', equipmentType: 'gloves', type: { category: 'Armor' }, meta: { reqLevel: 10, reqJob: 0 }, base: { incPDD: 2 }, slots: 5 },
+  e1082149: { itemId: 1082149, name: '褐色工作手套', equipmentType: 'gloves', type: { category: 'Armor' }, meta: { reqLevel: 10, reqJob: 0 }, base: { incPDD: 5 }, slots: 7 },
   e1302000: { itemId: 1302000, name: '劍', equipmentType: 'oneHandedSword', type: { category: 'OneHandedWeapon' }, meta: { reqLevel: 0, reqJob: 1 }, base: { incPAD: 17 }, slots: 7 },
   e1452002: { itemId: 1452002, name: '戰鬥弓', equipmentType: 'bow', type: { category: 'TwoHandedWeapon' }, meta: { reqLevel: 10, reqJob: 4, reqDEX: 35 }, base: { incPAD: 28 }, slots: 7 },
   e1040002: { itemId: 1040002, name: '白色背心', equipmentType: 'top', type: { category: 'Armor' }, meta: { reqLevel: 0, reqJob: 0 }, base: { incPDD: 3 }, slots: 7 },
@@ -102,7 +103,7 @@ function addAccount(acct, code, chars) {
 }
 addAccount('A1', 'A1B2C3D4E5F6', [
   makeChar('c1', '本尊劍士', 'fighter', 45, 'gms104040000', { money: 30000000, gear: { weapon: makeGear('e1302000') },
-    inventory: { i2000000: 300, i2000003: 200, i2040801: 12, i2040805: 5, i2043001: 4, i2044501: 5200 } }),
+    inventory: { i2000000: 300, i2000003: 200, i2040801: 12, i2040805: 5, i2043001: 4, i2044501: 5200, i2040899: 30 } }),
   makeChar('c2', '本尊小號', 'beginner', 8, 'gms100010000'),
 ]);
 addAccount('A2', 'B2C3D4E5F6A1', [makeChar('c3', '弓箭分身', 'hunter', 32, 'gms104040000', { auto: true, until: Date.now() + 8 * 3600e3, gear: { weapon: makeGear('e1452002') } })]);
@@ -173,6 +174,11 @@ function scrollOnce(c, g, key) {
   c.inventory[key]--; g.slots--;
   const ok = rnd(100) < sc.rate;
   if (ok) { g.successes++; for (const [s, v] of Object.entries(sc.stats)) g.stats[s] = (g.stats[s] || 0) + v; }
+  else if (sc.cursed && rnd(100) < sc.cursed) {  // 詛咒卷軸：失敗時有機率裝備消失
+    c.equipmentBag = c.equipmentBag.filter(x => x !== g);
+    for (const [k, x] of Object.entries(c.gear)) if (x === g) delete c.gear[k];
+    g.destroyed = true;
+  }
   return ok;
 }
 function guildView() { return JSON.parse(JSON.stringify(guild)); }
@@ -228,30 +234,43 @@ function handle(a, body) {
       return { ...sessionView(a), summary: { events: [], scroll: { success: ok, uid: g.uid } } };
     }
     case 'artisanScroll': {
-      // 真實遊戲：每衝 1 次扣 1 張卷軸＋10 萬楓幣；單件 {uid}，多件 {uids: 2～10}；expectedSlots = 選裝時的剩餘格數
-      // 回應格式未確認（沒有實際衝過），這裡把結果放在 summary.artisan
+      // 真實遊戲：每衝 1 次扣 1 張卷軸＋10 萬楓幣；單件 {uid}，多件 {uids: 2～10，名稱與剩餘次數要相同}；expectedSlots = 選裝時的剩餘格數
+      // 結果寫在 character.lastArtisan（多件：{multi, gear, selected, scroll, rate, items:[{attempts:[], successes, destroyed, slots, stop}], attempts, successes, lost, fee, stop}）
       const FEE = 100000;
+      const multi = !!body.uids;
       const uids = body.uids || (body.uid ? [body.uid] : []);
-      if (!uids.length || uids.length > 10 || (body.uids && uids.length < 2)) fail('單件用 uid，多選 2～10 件用 uids');
+      if (!uids.length || uids.length > 10 || (multi && uids.length < 2)) fail('單件用 uid，多選 2～10 件用 uids');
       const count = Math.min(10, Math.max(1, Number(body.count) || 1));
-      if (!scrolls[body.item]) fail('不是卷軸');
-      const results = [];
-      for (const uid of uids) {
-        const g = gearList(c).find(x => x.uid === uid);
-        if (!g) { results.push({ uid, error: '找不到裝備' }); continue; }
-        if (scrolls[body.item].target !== g.type) { results.push({ uid, error: '卷軸不適用這件裝備' }); continue; }
-        if (body.expectedSlots != null && body.expectedSlots !== g.slots) { results.push({ uid, error: '可衝次數和選裝時不同' }); continue; }
-        let tries = 0, ok = 0;
-        while (tries < count && g.slots > 0 && (c.inventory[body.item] || 0) > 0 && c.money >= FEE) {
-          tries++; c.money -= FEE; const r = scrollOnce(c, g, body.item); if (r) ok++;
-          if (body.stopAfterSuccesses && ok >= body.stopAfterSuccesses) break;
-          if (body.stopOnFail && !r) break;
+      const sc = scrolls[body.item]; if (!sc) fail('不是卷軸');
+      const gs = uids.map(u => gearList(c).find(x => x.uid === u));
+      if (gs.some(g => !g)) fail('找不到裝備');
+      if (multi && gs.some(g => g.name !== gs[0].name || g.slots !== gs[0].slots || g.locked)) fail('多選的裝備要名稱、剩餘次數相同而且沒鎖定');
+      if (gs.some(g => sc.target !== g.type)) fail('卷軸不適用這件裝備');
+      if (body.expectedSlots != null && gs.some(g => g.slots !== body.expectedSlots)) fail('裝備狀態已變更，請重新開啟');
+      if (c.money < FEE) fail('楓幣不足');
+      const items = []; let stop = '';
+      for (const g of gs) {
+        const att = []; let ok = 0, st = '';
+        while (true) {
+          if (att.length >= count) { st = '次數到了'; break; }
+          if (g.slots <= 0) { st = '格數用完'; break; }
+          if ((c.inventory[body.item] || 0) <= 0) { st = stop = '卷軸用完'; break; }
+          if (c.money < FEE) { st = stop = '楓幣不足'; break; }
+          c.money -= FEE; const r = scrollOnce(c, g, body.item); att.push(r); if (r) ok++;
+          if (g.destroyed) { st = '裝備消失'; break; }
+          if (body.stopAfterSuccesses && ok >= body.stopAfterSuccesses) { st = '達到成功次數'; break; }
+          if (body.stopOnFail && !r) { st = '失敗停止'; break; }
         }
-        results.push({ uid, name: g.name, attempts: tries, successes: ok, slotsLeft: g.slots, stats: { ...g.stats } });
+        items.push({ uid: g.uid, attempts: att, successes: ok, destroyed: !!g.destroyed, slots: g.slots, stop: st });
+        if (stop) break;
       }
+      const all = items.flatMap(x => x.attempts);
+      c.lastArtisan = multi
+        ? { multi: true, gear: gs[0].name, selected: gs.length, scroll: sc.name, rate: sc.rate, items, attempts: all, successes: all.filter(Boolean).length, lost: items.filter(x => x.destroyed).length, fee: all.length * FEE, stop }
+        : { uid: gs[0].uid, gear: gs[0].name, scroll: sc.name, rate: sc.rate, attempts: items[0].attempts, successes: items[0].successes, destroyed: items[0].destroyed, slots: items[0].slots, fee: all.length * FEE, stop: items[0].stop };
       rebuildStacks(c);
-      addLog(c, `神匠之魂：衝了 ${results.reduce((t, r) => t + (r.attempts || 0), 0)} 次`);
-      return { ...sessionView(a), summary: { events: [], artisan: { results } } };
+      addLog(c, `神匠之魂：衝了 ${all.length} 次`);
+      return { ...sessionView(a), summary: { events: [] } };
     }
     case 'guildWarehouseView': return { ...sessionView(a), summary: { events: [], guildWarehouse: guildView() } };
     case 'guildWarehouseMesos': case 'guildWarehouseCash': fail('測試不碰楓幣／點數');
