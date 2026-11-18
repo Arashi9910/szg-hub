@@ -91,9 +91,11 @@ async def main():
         first = await dash.get_attribute('[data-gwpick^="g:"]', 'data-gwpick')
         sugg = await dash.eval_on_selector(f'[data-gwto="{first}"]', 'e => e.value')
         check(sugg != '', f'裝備有預設建議的角色（{sugg}）')
+        label = await dash.eval_on_selector(f'[data-gwto="{first}"]', 'e => e.selectedOptions[0].text')
+        check('Lv' in label and any(j in label for j in ('劍士', '狂戰士', '獵人', '弓箭手', '初心者')), f'「給誰」顯示名字、等級、職業：{label}')
         await dash.check(f'[data-gwpick="{first}"]'); await dash.wait_for_timeout(200)
         await dash.select_option(f'[data-gwto="{first}"]', 'c4'); await dash.wait_for_timeout(200)
-        await dash.click('#gwCreate'); await dash.wait_for_timeout(800)
+        await dash.keyboard.press('Escape'); await dash.click('#gwCreate'); await dash.wait_for_timeout(800)
         jobs = [j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'guildWithdraw']
         check(sorted(j['fromCharId'] for j in jobs) == ['c3', 'c4'], '建立 2 個領取工作（弓箭分身、倉庫分身）')
         before3 = mock_state()['accounts']['A2']['chars']['c3']['inventory'].get('i2040801', 0)
