@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-18（v0.28.5）
+最後更新：2026-11-18（v0.29.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -10,7 +10,7 @@
   3. `python3 tools/make-public.py <私人repo路徑> <公開repo路徑>` 產生公開版（會拿掉 REMOTE／TOKEN／Tailscale，新增的程式檔要加進 `tools/make-public.py` 的 FILES）
   4. 更新公開 repo 的 README（公開版 README 獨立維護），commit 後 `git -c push.negotiate=true push`
   5. 在使用者面板分頁（http://127.0.0.1:8787/）執行 `/api/update/check` → `/api/update/apply` 套用；遊戲分頁約 2 分鐘內自動換新腳本
-- 測試：`tests/`（e2e_smoke、e2e_guild、e2e_guild_auto、e2e_switch、e2e_forge、e2e_guild_sell、e2e_agent_gate、e2e_bag_guild）；原本寫在 `/home/claude/test`（mockgame.js 模擬遊戲、harness.py 共用工具、e2e_smoke.py 冒煙測試，`python3 e2e_smoke.py`）。harness 會把私人 repo 複製到 /tmp/hub 當測試中控，並先 `POST /api/settings {"autoUpdate":false}`，否則會被 GitHub 版本蓋掉。2026-11-18 舊測試檔隨舊工作階段消失，已重寫；**之後要放進 repo 才不會再不見**。
+- 測試：`tests/`（e2e_smoke、e2e_guild、e2e_guild_auto、e2e_switch、e2e_forge、e2e_guild_sell、e2e_agent_gate、e2e_bag_guild、e2e_board_group）；原本寫在 `/home/claude/test`（mockgame.js 模擬遊戲、harness.py 共用工具、e2e_smoke.py 冒煙測試，`python3 e2e_smoke.py`）。harness 會把私人 repo 複製到 /tmp/hub 當測試中控，並先 `POST /api/settings {"autoUpdate":false}`，否則會被 GitHub 版本蓋掉。2026-11-18 舊測試檔隨舊工作階段消失，已重寫；**之後要放進 repo 才不會再不見**。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定；**公會倉庫相關功能只做私人版**（公開版其他人做法可能不同），之後用程式標記讓 make-public 移除。
 
 - **新增工作種類時**：在 server.js 的 `KIND_MIN_AGENT` 登記最低腳本版本（私人種類寫在私人區塊裡），否則舊腳本的分頁會拿到工作然後「未知的工作類型」失敗。遊戲分頁有時會卡在舊腳本好幾版（Tampermonkey 快取），只能請使用者手動重新整理那個分頁。
@@ -38,6 +38,8 @@
 - **公倉（v0.25，僅私人版）**：存入選單（全部角色背包可存的東西→勾選→裝備用掉落浮動條件篩選→每隻角色一個 `guildDeposit` 工作）；公倉內容（`/api/guild` 存最後一次看到的內容；↻ 重新整理建立 `guildView` 工作，只讀所以自動排隊）→勾選＋給誰→`guildWithdraw`。裝備的建議對象＝冒險資料庫的職業＋等級，等級剛好夠的排最前面（使用者選「只建議，自己選」）。存入設定記在 settings.guildDep（names＝個別勾選、cats＝整類「卷軸」「裝備」）。
 - **公倉自動存入（v0.26）**：settings.guildAuto `{mode:'off'|'preview'|'deposit', everyMin}`，server 每分鐘檢查、到時間就照 guildDep 替在線的目前角色建 `guildDeposit`（auto:true、直接 approved）；剛做完公倉工作、還沒回報新資料的角色跳過；公倉快滿就停。紀錄在 db.guildLog，`POST /api/guild/auto-run` 立即執行。
 - 私人功能用 `<private:名稱>` … `</private:名稱>` 整行標記包起來（JS `//`、HTML `<!-- -->`），make-public 會整段移除並檢查公倉字樣沒有外漏；version.json 的 `notesPublic` 會變成公開版的 notes。
+
+- **派工分組（v0.29）**：settings.boards = {A, B}（舊的 settings.board 當 A），settings.charGroup 覆寫分組（預設帳號角色清單第 1 隻＝A）；`boardGroup()` 自動＝有兩隻角色的帳號中目前角色多的那組。看板只顯示該組角色（含沒同步過的，用 accountChars 補），非目前角色＝背景掛機，套用時略過。使用者玩法：切換角色後另一隻在背景掛機，偶爾收菜。
 
 ## 待辦（使用者已同意的方向）
 1. 派工工廠圖持續依使用者回饋調整（操作手感、動畫）

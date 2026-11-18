@@ -104,7 +104,7 @@ function addAccount(acct, code, chars) {
 addAccount('A1', 'A1B2C3D4E5F6', [
   makeChar('c1', '本尊劍士', 'fighter', 45, 'gms104040000', { money: 30000000, gear: { weapon: makeGear('e1302000') },
     inventory: { i2000000: 300, i2000003: 200, i2040801: 12, i2040805: 5, i2043001: 4, i2044501: 5200, i2040899: 30 } }),
-  makeChar('c2', '本尊小號', 'beginner', 8, 'gms100010000'),
+  makeChar('c2', '本尊小號', 'beginner', 12, 'gms100010000'),
 ]);
 addAccount('A2', 'B2C3D4E5F6A1', [makeChar('c3', '弓箭分身', 'hunter', 32, 'gms104040000', { auto: true, until: Date.now() + 8 * 3600e3, gear: { weapon: makeGear('e1452002') } })]);
 addAccount('A3', 'C3D4E5F6A1B2', [makeChar('c4', '倉庫分身', 'swordman', 20, 'gms100010000', { auto: true, until: Date.now() + 8 * 3600e3 })]);
