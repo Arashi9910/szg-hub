@@ -183,7 +183,7 @@ function publicJob(j) { return j; }
 const BAG_KINDS = new Set(['sell', 'lock', 'unlock', 'idle', 'forge']);
 // <private:guild>
 // 公會倉庫（只在私人版）：存入、領取、查看都是「某隻角色在自己頁面執行」的背包工作
-for (const k of ['guildDeposit', 'guildWithdraw', 'guildView']) BAG_KINDS.add(k);
+for (const k of ['guildDeposit', 'guildWithdraw', 'guildView', 'guildSell']) BAG_KINDS.add(k);
 // 查看公倉：找一隻在線而且是目前角色的（優先本尊），建立後直接排隊（只讀，不用確認）
 function createGuildView(charId) {
   const live = Object.values(db.chars).filter(s => s.playerCode && Date.now() - (s.receivedAt || 0) < ONLINE_MS && (!s.activeCharId || s.activeCharId === s.char.id));

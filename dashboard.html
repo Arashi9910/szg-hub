@@ -538,6 +538,7 @@
         <input id="gwQ" placeholder="搜尋名稱" style="width:160px" autocomplete="off">
         <span class="dim">勾選要領的東西，選好給哪隻角色。裝備會依職業、等級先建議一隻（等級剛好夠穿的），可以改。</span>
       </div>
+      <div id="gwFilter"></div>
       <div id="gwOut"></div>
       <div class="bar" id="gwBar" style="margin-top:8px"></div>
     </div>
@@ -1124,8 +1125,8 @@ const JOB_KIND = { collect: '收集', give: '分發', sell: '賣出', lock: '鎖
 const BAG_KINDS = ['sell', 'lock', 'unlock', 'forge'];
 JOB_KIND.forge = '強化';
 // <private:guild>
-Object.assign(JOB_KIND, { guildDeposit: '存入公倉', guildWithdraw: '公倉領取', guildView: '查看公倉' });
-BAG_KINDS.push('guildDeposit', 'guildWithdraw', 'guildView');
+Object.assign(JOB_KIND, { guildDeposit: '存入公倉', guildWithdraw: '公倉領取', guildView: '查看公倉', guildSell: '公倉賣出' });
+BAG_KINDS.push('guildDeposit', 'guildWithdraw', 'guildView', 'guildSell');
 // </private:guild>
 const giveDraft = { items: {}, gear: new Set() };
 const emptyFF = () => ({ kinds: [], incKeys: [], excKeys: [], gear: 'all', lock: 'all' });
@@ -1281,7 +1282,7 @@ function renderJobs(sel, filterFn) {
       !bag && toS && toS.activeCharId && toS.activeCharId !== j.toCharId && `${j.toName} 不是目前角色`].filter(Boolean) : [];
     const detail = j.batches.map((b, i) => `<div>${bag ? '' : `<b>第 ${i + 1} 批</b>：`}${[...(b.items || []).map(x => esc(x.name) + (x.qty === 'ALL' ? '（全部，最多 9999）' : ' ×' + fmt(x.qty))), ...(b.gear || []).map(g => esc(g.name))].join('、') || '—'}${b.money ? '　＋' + (b.money === 'ALL' ? `楓幣（保留 ${b.keepPct || 0}%，其餘轉出）` : '楓幣 ' + fmt(b.money)) : ''}</div>`).join('');
     const logs = (j.log || []).slice(-30).reverse().map(l => `<div><span class="dim">${new Date(l.at).toLocaleTimeString('zh-TW')}</span> ${esc(l.msg)}${l.n > 1 ? ` <span class="dim">×${l.n}</span>` : ''}</div>`).join('');
-    h += `<tr><td class="dim">${clock(j.createdAt)}</td><td class="${j.kind === 'sell' ? 'warn' : ''}">${JOB_KIND[j.kind] || j.kind}</td><td>${bag ? esc(j.fromName) : `${esc(j.fromName)} → ${esc(j.toName)}`}</td>
+    h += `<tr><td class="dim">${clock(j.createdAt)}</td><td class="${/sell/i.test(j.kind) || j.kind === 'forge' ? 'warn' : ''}">${JOB_KIND[j.kind] || j.kind}</td><td>${bag ? esc(j.fromName) : `${esc(j.fromName)} → ${esc(j.toName)}`}</td>
       <td class="wrap">${[nItems && nItems + ' 種道具', nGear && nGear + ' 件裝備', money].filter(Boolean).join('、')}${j.estimate ? `<div class="${j.kind === 'forge' ? 'warn' : 'dim'}">${j.kind === 'forge' ? '最多花費' : '估計'} ${short(j.estimate)} 楓幣</div>` : ''}<details><summary class="dim">明細</summary>${detail}</details></td>
       <td class="num">${Math.min(j.batchIndex, j.batches.length)}/${j.batches.length}</td>
       <td class="${cls}">${st}</td>
@@ -1629,7 +1630,7 @@ document.addEventListener('click', async e => {
     }
     if (t.hasAttribute && t.hasAttribute('data-approve-all')) {
       const n = (DATA.jobs || []).filter(j => j.status === 'pending').length;
-      const sells = (DATA.jobs || []).filter(j => j.status === 'pending' && j.kind === 'sell').length;
+      const sells = (DATA.jobs || []).filter(j => j.status === 'pending' && /sell/i.test(j.kind)).length;
       if (sells && !confirm(`其中有 ${sells} 個「賣出」工作，賣出後無法復原。確定全部（${n} 個）確認執行？`)) return;
       const forges = (DATA.jobs || []).filter(j => j.status === 'pending' && j.kind === 'forge');
       if (forges.length && !confirm(`其中有 ${forges.length} 個「強化」工作，最多花費 ${short(forges.reduce((t, j) => t + (j.estimate || 0), 0))} 楓幣，衝卷無法復原。確定執行？`)) return;
@@ -2705,6 +2706,7 @@ function drawWires(tmp) {
   wire(pt('forge', 'r'), pt('out', 'l'), 'soon', 'var(--dim)', '');
   // <private:guild>
   { const a = S.guildAuto || {}, on = a.mode === 'deposit'; wire(pt('bag', 'r'), pt('guild', 'l'), on ? 'flow' : 'idle', '#5fb3d9', on ? `自動存入・每 ${Math.max(10, a.everyMin || 30)} 分` : a.mode === 'preview' ? '試跑中' : '', on ? 1.5 : 0, 'bag>guild'); }
+  { const sell = (DATA.jobs || []).some(j => j.kind === 'guildSell' && ['approved', 'running'].includes(j.status)); wire(pt('guild', 'r'), pt('shop', 'l'), sell ? 'flow' : 'none', '#e0b341', sell ? '賣出中' : '', sell ? 1.4 : 0, 'guild>shop'); }
   // </private:guild>
   if (tmp && tmp.a) s += `<path d="${curve(tmp.a, tmp.b)}" class="w tmp" stroke="var(--accent)"/>`;
   svg.innerHTML = s;
@@ -3129,7 +3131,18 @@ document.addEventListener('click', async e => {
 // <private:guild>
 // ================= 公會倉庫（只在私人版） =================
 let GUILD = { data: null }, guildLoadAt = 0;
-ui.gw = { tab: 'item', q: '', sel: new Map(), all: '' };
+ui.gw = { tab: 'item', q: '', sel: new Map(), all: '', conds: [], mode: 'all', fresh: false, seller: '' };
+const rollSum = d => d ? Object.values(d).reduce((t, v) => t + v, 0) : null;
+// 公倉裝備的篩選：浮動條件（≥ / ≤）、只看沒衝過的
+function gwGearPass(g) {
+  if (ui.gw.fresh && (g.successes || 0) > 0) return false;
+  const cs = ui.gw.conds.filter(c => c.k && c.v !== '' && c.v != null);
+  if (!cs.length) return true;
+  const d = rollDelta(g); if (d == null) return false;
+  const val = k => k === '_sum' ? rollSum(d) : (d[k] || 0);
+  const ok = cs.map(c => c.op === 'le' ? val(c.k) <= Number(c.v) : val(c.k) >= Number(c.v));
+  return ui.gw.mode === 'any' ? ok.some(Boolean) : ok.every(Boolean);
+}
 ui.gd = null;
 function gdState() {
   if (!ui.gd) { const sv = S.guildDep || {}; ui.gd = { open: false, chars: null, kind: 'all', q: '', names: new Set(sv.names || []), cats: new Set(sv.cats || []), conds: sv.conds || [], mode: sv.mode || 'all', unknown: !!sv.unknown, keep: sv.keep || 0 }; }
@@ -3201,9 +3214,16 @@ function renderGuildOut() {
   if (ui.gw.tab === 'item') {
     rows = Object.entries(g.items || {}).filter(([, n]) => n > 0).map(([key, qty]) => ({ rk: 'i:' + key, key, qty, name: keyName(key), id: keyId(key) }));
   } else {
-    rows = (g.gear || []).map(x => ({ rk: 'g:' + x.uid, g: x, name: x.name, id: x.itemId }));
+    rows = (g.gear || []).filter(gwGearPass).map(x => ({ rk: 'g:' + x.uid, g: x, name: x.name, id: x.itemId, sum: rollSum(rollDelta(x)) }));
   }
-  rows = rows.filter(r => !q || String(r.name).toLowerCase().includes(q)).sort((a, b) => cmp(a.name, b.name));
+  rows = rows.filter(r => !q || String(r.name).toLowerCase().includes(q)).sort((a, b) => cmp(a.name, b.name) || ((b.sum ?? -99) - (a.sum ?? -99)));
+  ui.gw.shown = rows.map(r => r.rk);
+  // 裝備頁的篩選列
+  $('#gwFilter').innerHTML = ui.gw.tab !== 'gear' ? '' : `<div class="bar" style="align-items:flex-start"><span style="width:70px">篩選</span><div>
+    ${ui.gw.conds.map((c, i) => `<div class="bar" style="margin:2px 0"><select data-gwck="${i}"><option value="_sum" ${c.k === '_sum' ? 'selected' : ''}>浮動總和</option>${STAT_ORDER.map(k => `<option value="${k}" ${c.k === k ? 'selected' : ''}>${esc(statNames[k] || k)} 浮動</option>`).join('')}</select><select data-gwcop="${i}"><option value="ge" ${c.op !== 'le' ? 'selected' : ''}>≥</option><option value="le" ${c.op === 'le' ? 'selected' : ''}>≤</option></select><input type="number" data-gwcv="${i}" value="${esc(c.v)}" style="width:64px"><button class="btn sm" data-gwcdel="${i}">✕</button></div>`).join('')}
+    <div class="bar" style="margin:2px 0"><button class="btn sm" id="gwAddCond">＋ 浮動條件</button>${ui.gw.conds.length > 1 ? `<select id="gwMode"><option value="all" ${ui.gw.mode === 'all' ? 'selected' : ''}>全部符合</option><option value="any" ${ui.gw.mode === 'any' ? 'selected' : ''}>符合任一</option></select>` : ''}
+      <label><input type="checkbox" id="gwFresh" ${ui.gw.fresh ? 'checked' : ''}> 只看沒衝過卷的</label>
+      <span class="dim">列出 ${rows.length} 件</span><button class="btn sm" id="gwPickShown">勾選目前列出的</button></div></div></div>`;
   const opt = (sel, fits) => '<option value="">（不領）</option>' + snaps().slice().sort((a, b) => cmp(a.char.name, b.char.name)).map(s => `<option value="${s.char.id}" ${sel === s.char.id ? 'selected' : ''}>${fits && fits[0] === s.char.id ? '★ ' : ''}${esc(s.char.name)} Lv${s.char.lv}${fits && !fits.includes(s.char.id) ? '（不能穿）' : ''}${isOnline(s) ? '' : '（離線）'}</option>`).join('');
   let h = `<table><thead><tr><th class="nosort" style="width:24px"></th><th class="nosort">名稱</th>${ui.gw.tab === 'item' ? '<th class="nosort num">公倉數量</th><th class="nosort">領幾個</th>' : '<th class="nosort">強化／剩餘</th><th class="nosort">掉落浮動</th><th class="nosort">需求</th>'}<th class="nosort">給誰</th></tr></thead><tbody>`;
   if (!rows.length) h += `<tr><td colspan="6" class="empty">${ui.gw.tab === 'item' ? '沒有道具' : '沒有裝備'}</td></tr>`;
@@ -3227,8 +3247,12 @@ function renderGuildOut() {
   if (rows.length > 400) h += `<tr><td colspan="6" class="dim">只顯示前 400 筆，請用搜尋縮小範圍</td></tr>`;
   $('#gwOut').innerHTML = h + '</tbody></table>';
   const n = ui.gw.sel.size;
+  const nSellGear = [...ui.gw.sel.keys()].filter(k => k.startsWith('g:')).length;
+  if (!ui.gw.seller) ui.gw.seller = S.mainCharId || '';
   $('#gwBar').innerHTML = `<span>已勾 <b>${n}</b> 項</span><span class="dim">勾選的道具全部給</span><select id="gwAll">${opt(ui.gw.all)}</select>
-    <button class="btn primary" id="gwCreate" ${n ? '' : 'disabled'}>建立領取工作</button><button class="btn" id="gwNone">清除勾選</button><span class="dim" id="gwMsg"></span>`;
+    <button class="btn primary" id="gwCreate" ${n ? '' : 'disabled'}>建立領取工作</button>
+    <span style="margin-left:14px" class="dim">或</span><button class="btn" id="gwSell" ${nSellGear ? '' : 'disabled'} style="border-color:var(--bad)">💰 賣掉勾選的 ${nSellGear} 件裝備</button><span class="dim">由</span><select id="gwSeller">${charOpt(ui.gw.seller, true)}</select><span class="dim">領出後賣給商店</span>
+    <button class="btn" id="gwNone">清除勾選</button><span class="dim" id="gwMsg"></span>`;
 }
 // ---- 存入選單 ----
 function gdCandidates() {
@@ -3320,6 +3344,21 @@ document.addEventListener('click', async e => {
     if (t.dataset.gwtab) { ui.gw.tab = t.dataset.gwtab; renderGuildOut(); return; }
     if (t.id === 'gwRefresh') { t.disabled = true; await api('/api/guild/refresh', {}); await poll(true); setTimeout(() => { t.disabled = false; loadGuild(true).then(renderGuildOut); }, 4000); return; }
     if (t.id === 'gwNone') { ui.gw.sel.clear(); renderGuildOut(); return; }
+    if (t.id === 'gwAddCond') { ui.gw.conds.push({ k: '_sum', op: 'le', v: 0 }); renderGuildOut(); return; }
+    if (t.dataset.gwcdel != null) { ui.gw.conds.splice(Number(t.dataset.gwcdel), 1); renderGuildOut(); return; }
+    if (t.id === 'gwPickShown') { const g = GUILD.data || {}; for (const rk of ui.gw.shown || []) if (!ui.gw.sel.has(rk)) { const x = rk.startsWith('g:') ? (g.gear || []).find(y => y.uid === rk.slice(2)) : null; ui.gw.sel.set(rk, { qty: rk.startsWith('i:') ? (g.items || {})[rk.slice(2)] : 1, target: x ? (gearFits(x)[0] || '') : '' }); } renderGuildOut(); return; }
+    if (t.id === 'gwSell') {
+      const g = GUILD.data || {}, seller = ui.gw.seller, sn = DATA.chars[seller];
+      if (!sn) { $('#gwMsg').textContent = '先選要由哪隻角色領出來賣'; return; }
+      const gear = [...ui.gw.sel.keys()].filter(k => k.startsWith('g:')).map(k => (g.gear || []).find(x => x.uid === k.slice(2))).filter(Boolean);
+      if (!gear.length) return;
+      const plus = gear.filter(x => (x.successes || 0) > 0).length;
+      if (!confirm(`要賣掉 ${gear.length} 件裝備${plus ? `（其中 ${plus} 件衝過卷）` : ''}，由 ${sn.char.name} 從公倉領出後賣給商店。賣掉無法復原，建立後還要在「工作」確認。`)) return;
+      await api('/api/jobs', { kind: 'guildSell', fromCharId: seller, batches: [{ items: [], gear: gear.map(x => ({ uid: x.uid, name: x.name + (x.successes ? ' +' + x.successes : ''), itemId: x.itemId })) }] });
+      for (const x of gear) ui.gw.sel.delete('g:' + x.uid);
+      $('#gwMsg').textContent = `已建立賣出工作（${gear.length} 件），請在右上角「工作」確認執行。`;
+      await poll(true); openJobs(); return;
+    }
     if (t.id === 'gwCreate') {
       const g = GUILD.data || {}, by = new Map(), skipped = [];
       for (const [rk, v] of ui.gw.sel) {
@@ -3362,6 +3401,12 @@ document.addEventListener('change', e => {
   if (t.dataset.gwqty) { const v = ui.gw.sel.get(t.dataset.gwqty); if (v) v.qty = Number(t.value); return; }
   if (t.dataset.gwto) { const rk = t.dataset.gwto; const v = ui.gw.sel.get(rk) || { qty: Number((t.closest('tr').querySelector('[data-gwqty]') || {}).value) || 1 }; v.target = t.value; ui.gw.sel.set(rk, v); renderGuildOut(); return; }
   if (t.id === 'gwAll') { ui.gw.all = t.value; return; }
+  if (t.id === 'gwSeller') { ui.gw.seller = t.value; return; }
+  if (t.dataset.gwck) { ui.gw.conds[Number(t.dataset.gwck)].k = t.value; renderGuildOut(); return; }
+  if (t.dataset.gwcop) { ui.gw.conds[Number(t.dataset.gwcop)].op = t.value; renderGuildOut(); return; }
+  if (t.dataset.gwcv) { ui.gw.conds[Number(t.dataset.gwcv)].v = t.value === '' ? '' : Number(t.value); renderGuildOut(); return; }
+  if (t.id === 'gwMode') { ui.gw.mode = t.value; renderGuildOut(); return; }
+  if (t.id === 'gwFresh') { ui.gw.fresh = t.checked; renderGuildOut(); return; }
   if (t.dataset.gdchar) { if (!d.chars) d.chars = new Set(snaps().map(s => s.char.id)); if (t.checked) d.chars.add(t.dataset.gdchar); else d.chars.delete(t.dataset.gdchar); renderGuildDeposit(); return; }
   if (t.dataset.gdpick) { if (t.checked) d.names.add(t.dataset.gdpick); else d.names.delete(t.dataset.gdpick); gdSave(); renderGuildDeposit(); return; }
   if (t.dataset.gdck) { d.conds[Number(t.dataset.gdck)].k = t.value; gdSave(); renderGuildDeposit(); return; }
@@ -3407,14 +3452,17 @@ function facGuildNode(node) {
 let facGuildSeen = null, facGuildLoadAt = 0;
 function facGuildTick() {
   if (Date.now() - facGuildLoadAt > 15000) { facGuildLoadAt = Date.now(); loadGuild(true).then(() => { if (document.querySelector('nav button.on').dataset.tab === 'board' && ui.board.view === 'factory') renderFactory(); }); }
-  const done = (DATA.jobs || []).filter(j => j.kind === 'guildDeposit' && j.status === 'done');
+  const done = (DATA.jobs || []).filter(j => (j.kind === 'guildDeposit' || j.kind === 'guildSell') && j.status === 'done');
   if (!facGuildSeen) { facGuildSeen = new Set(done.map(j => j.id)); return; }
   const fresh = done.filter(j => !facGuildSeen.has(j.id));
   fresh.forEach(j => facGuildSeen.add(j.id));
   if (fresh.length) setTimeout(() => { facGuildLoadAt = 0; facGuildTick(); }, 2500); // 動畫飛到之後更新公倉數字
   if (!fresh.length || ui.fac.fx === 'off' || !$('#facWorld')) return;
-  const rows = fresh.flatMap(j => [...(j.batches[0].items || []).map(x => ({ id: keyId(x.key), name: x.name, qty: x.qty })), ...(j.batches[0].gear || []).map(x => ({ id: 0, name: x.name, qty: 1 }))]);
-  rows.sort((x, y) => y.qty - x.qty).slice(0, 12).forEach((o, i) => setTimeout(() => flyIcon('bag>guild', 'guild', { ...o, cls: 'sold', dur: 1700 }), i * 260));
+  for (const kind of ['guildDeposit', 'guildSell']) {
+    const rows = fresh.filter(j => j.kind === kind).flatMap(j => [...(j.batches[0].items || []).map(x => ({ id: keyId(x.key), name: x.name, qty: x.qty })), ...(j.batches[0].gear || []).map(x => ({ id: x.itemId || 0, name: x.name, qty: 1 }))]);
+    const [wk, sink] = kind === 'guildSell' ? ['guild>shop', 'shop'] : ['bag>guild', 'guild'];
+    rows.sort((x, y) => y.qty - x.qty).slice(0, 12).forEach((o, i) => setTimeout(() => flyIcon(wk, sink, { ...o, cls: 'sold', dur: 1700 }), i * 260));
+  }
 }
 // </private:guild>
 function renderAll() {

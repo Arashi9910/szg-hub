@@ -1107,6 +1107,7 @@ function agentMain(ctx) {
       if (job.kind === 'forge') return runForgeJob(job, c);
       // <private:guild>
       if (job.kind === 'guildDeposit' || job.kind === 'guildWithdraw' || job.kind === 'guildView') return runGuildJob(job, c);
+      if (job.kind === 'guildSell') return runGuildSell(job, c);
       // </private:guild>
       return report(job, { event: 'error', msg: '未知的工作類型：' + job.kind });
     }
@@ -1247,6 +1248,34 @@ function agentMain(ctx) {
       if (halvings) await report(job, { event: 'log', msg: `遊戲限制單次請求大小，分成較小的批次送出（每批最多 ${size} 項）` });
       const names = rows.map(r => r.name + (r.kind === 'item' ? ' ×' + r.qty : ''));
       await report(job, { event: 'log', msg: `已${label} ${rows.length} 項：${names.slice(0, 30).join('、')}${names.length > 30 ? '…' : ''}` });
+      return report(job, { event: 'batchDone' });
+    }
+    // 公倉的裝備賣給商店：遊戲不能直接從公倉賣，所以由這隻角色每次領出一批、馬上賣掉（避免背包塞滿）
+    async function runGuildSell(job, c) {
+      const gear = (job.batches[0] || {}).gear || [];
+      const rid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+      let sold = 0, total = 0;
+      for (let i = 0; i < gear.length; i += 50) {
+        const chunk = gear.slice(i, i + 50);
+        setBadge(null, `公倉賣出：領出 ${i + chunk.length}/${gear.length}…`);
+        let j;
+        try { j = await gameRetry({ type: 'guildWarehouseBatch', op: 'withdraw', items: chunk.map(g => ({ kind: 'gear', uid: g.uid })), characterId: c.id, requestId: rid() }); postGuild(j, c); }
+        catch (e) { if (sold) await report(job, { event: 'log', msg: `已賣出 ${sold} 件，共 ${total.toLocaleString()} 楓幣` }); return report(job, { event: 'error', msg: '從公倉領出失敗：' + e.message }); }
+        const bag = new Map((((j && j.character) || {}).equipmentBag || []).map(g => [g.uid, g]));
+        const ids = chunk.map(g => g.uid).filter(u => bag.has(u) && !bag.get(u).locked);
+        if (!ids.length) continue;
+        setBadge(null, `公倉賣出：賣出 ${ids.length} 件…`);
+        try {
+          const qr = await gameRetry({ type: 'inventoryQuote', category: 'equip', ids, characterId: c.id });
+          const q = findQuote(qr);
+          if (!q) return report(job, { event: 'error', msg: `取得報價失敗（已領出 ${ids.length} 件在 ${c.name} 背包，沒有賣）` });
+          if (q.rows.length > ids.length) return report(job, { event: 'error', msg: `報價單有 ${q.rows.length} 項，比要賣的 ${ids.length} 項多，已停止（裝備在 ${c.name} 背包）` });
+          await gameRetry({ type: 'inventorySell', quoteId: q.id, characterId: c.id, requestId: rid() });
+          sold += q.rows.length; total += Number(q.total) || 0;
+        } catch (e) { return report(job, { event: 'error', msg: `賣出失敗：${e.message}（已領出的裝備在 ${c.name} 背包）` }); }
+        await sleepP(1000);
+      }
+      await report(job, { event: 'log', msg: `已賣出 ${sold} 件，共 ${total.toLocaleString()} 楓幣` });
       return report(job, { event: 'batchDone' });
     }
     // 你在遊戲裡自己打開或存取公會倉庫時，也把最新內容交給中控
