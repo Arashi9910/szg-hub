@@ -2780,7 +2780,7 @@ async function pollLoot() {
   } catch (_) {}
 }
 setInterval(pollLoot, 2500);
-// 沿著指定的線飛一個圖示（掉落動畫、公倉存入共用）
+// 沿著指定的線飛一個圖示（掉落動畫等共用）
 function flyIcon(wireKey, sink, o) {
   const path = document.querySelector(`#facWires path[data-w="${CSS.escape(wireKey)}"]`);
   const world = $('#facWorld'); if (!path || !world || ui.fac.flying > 30) return;
