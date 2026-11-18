@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-18（v0.33.0）
+最後更新：2026-11-18（v0.33.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -78,3 +78,5 @@
 - dashboard：`tabOf/hasTab/accTabs/charState/stateHtml/stateSuffix/tabTag`；activeCharOf 改成「有分頁的」；所有「目前角色」文字與判斷改成分頁模式；需要處理多「工作在等角色的分頁」、帳號層級的「沒回報」。
 - 測試：`e2e_dual_tab.py`（瀏覽器兩個分頁）、`e2e_tab_routing.py`（伺服器派工，直接模擬輪詢含交易）。harness `open_account(acct, char)` 同 context 開第二個分頁；init script 只在 play.szg08.com 跑。mock 的回應依請求的 characterId 給角色。
 - 待實機確認：非伺服器 activeCharacterId 的那隻用 characterId 換圖／衝卷是否被遊戲拒絕；知識王是每隻角色還是整個帳號一份（目前用鎖保守處理）。
+- v0.33.1：實機發現頁面的 mapleSessionView 不一定會更新背包（鎖定後一直顯示沒鎖，分頁是看得到的）。agent `refreshOwnState()`：每 45 秒、工作前、工作後直接 `sync`，`readState()` 的背包相關欄位（OWN_KEYS）用這份。
+- 實機確認（嵐思／嵐司雙分頁）：同一隻開兩個分頁會被擋；`?szgChar=` 免重整就生效；兩隻的鎖定／解鎖工作各自在自己的分頁完成（伺服器 activeCharacterId 不是那隻也可以）。
