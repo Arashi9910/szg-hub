@@ -45,6 +45,20 @@ async def main():
         plan = await d.inner_text('#fgPlan')
         check('裝備 3 件' in plan and '最多 15' in plan, '3 件、最多衝 15 次')
         check('不夠全部衝滿' in plan, '卷軸只有 12 張，提示不夠全部衝滿')
+        check('保證衝完 2 件' in plan and '最多能衝 12 次' in plan, '依卷軸 12 張算出：保證能衝完 2 件（每件 5 次）')
+        check(plan.count('可能輪不到') >= 2, '第 3 件標「可能輪不到」')
+        sel = lambda: d.inner_text('.fg-pickbar')
+        await d.click('[data-fgsel="none"]'); await d.wait_for_timeout(300)
+        check('已選 0 / 3' in await sel(), '全不選 → 已選 0 件')
+        await d.locator('tr.pickrow').nth(1).click(); await d.wait_for_timeout(300)
+        check('已選 1 / 3' in await sel(), '點一列 → 個別勾選 1 件')
+        await d.fill('#fgTopN', '2'); await d.click('[data-fgsel="top"]'); await d.wait_for_timeout(300)
+        check('已選 2 / 3' in await sel(), '只選前 2 件')
+        await d.click('[data-fgsel="all"]'); await d.wait_for_timeout(300)
+        await d.click('[data-fgsel="sure"]'); await d.wait_for_timeout(300)
+        plan = await d.inner_text('#fgPlan')
+        check('已選 2 / 3' in plan and '不夠全部衝滿' not in plan, '「只選保證的 2 件」→ 卷軸夠用，不再警告')
+        await d.click('[data-fgsel="all"]'); await d.wait_for_timeout(300)
         boxes = d.locator('[data-fgpick]')
         await boxes.nth(2).uncheck(); await d.wait_for_timeout(300)
         plan = await d.inner_text('#fgPlan')
@@ -63,8 +77,10 @@ async def main():
         check(len(log['results']) == 2 and money0 - st1['money'] == att * 100000 == log['fee'], f'衝 2 件共 {att} 次，扣 {att * 10} 萬楓幣，結果記錄正確')
         bag1 = {g['uid']: g for g in st1['equipmentBag']}
         check(all(bag1[r['uid']]['successes'] == r['plus'] and r['pass'] == (r['plus'] >= 3) for r in log['results']), '每件的強化次數、及格判定跟遊戲一致')
-        await d.wait_for_timeout(5500)
-        txt = await d.inner_text('#fgLog')
+        for _ in range(15):
+            await d.wait_for_timeout(1000)
+            txt = await d.inner_text('#fgLog')
+            if '×' in txt: break
         dist = {}
         for r in log['results']: dist[r['plus']] = dist.get(r['plus'], 0) + 1
         check(all(f"+{p} ×{n}" in txt for p, n in dist.items()), '結果標題直接顯示 +幾 的分布：' + '、'.join(f'+{p}×{n}' for p, n in sorted(dist.items(), reverse=True)))

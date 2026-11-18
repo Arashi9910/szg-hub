@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-18（v0.33.3）
+最後更新：2026-11-18（v0.33.4）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -82,3 +82,4 @@
 - 實機確認（嵐思／嵐司雙分頁）：同一隻開兩個分頁會被擋；`?szgChar=` 免重整就生效；兩隻的鎖定／解鎖工作各自在自己的分頁完成（伺服器 activeCharacterId 不是那隻也可以）。
 - v0.33.2：`becomeOther()`——剛開的分頁（90 秒內）發現這隻已有分頁、同帳號另一隻沒有 → 自動換過去（sessionStorage szgAutoOther 防重複，帳號 characterIds 來自 /api/account）。`TAB_ID`（sessionStorage szgTabId，只有 navigation type=reload 才沿用）讓 F5 認得自己。
 - v0.33.3：窄螢幕 CSS（</style> 前那段）：header flex-wrap；≤1280px 時 `main :has(> table)` 左右捲、9 欄以上 min-width 980／13 欄以上 1200、`table.sticky` 的外框自己上下捲（表頭 top:0）；.fac-hud 換行。測試 `tests/e2e_narrow.py`（1080／864／720 每個分頁不撐破）。
+- v0.33.4：強化試跑 `fgPlan()` 多 `cap`（budget＝min(卷軸, 楓幣/10萬)、canSure／canExp）、`rows[].maybeShort`、`expPassAvail`；pieces 依（已衝少、剩餘多）排序；`.fg-pickbar` data-fgsel=all/none/top/sure/exp、#fgTopN、#fgAllBox。面板有 approved/running 工作時每 3 秒 poll；forge 工作剛結束強制重抓 /api/forge。
