@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-18（v0.32.1）
+最後更新：2026-11-18（v0.33.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -71,3 +71,10 @@
 - 但：遊戲伺服器的 `activeCharacterId` 只在頁面載入（或 switch）時改，之後兩個分頁同步都不會改它 → 關掉第二個分頁後伺服器還記著嵐司，中控把嵐思當成背景角色。v0.32.1 讓 switch 也比對伺服器的 activeCharacterId。
 - 分頁被藏到背景（同視窗另一個分頁在前面）時遊戲會進「離線掛機」、畫面暫停同步，切回來會跳「本輪掛機報告」，經驗照算。所以兩隻都要即時資料＝兩個分頁都要可見（兩個視窗）。
 - 若要正式支援：中控「能不能操作」要改用「這隻有沒有自己的新快照」判斷，不能再用 activeCharId（guildAutoTick、看板、總覽切換、ovGroupBtns 都用到）。
+
+## v0.33.0 雙分頁模式（正式）
+- agent：`PAGE_ID`（每次載入）、`?szgChar=` 在 document-start 設 sessionStorage 後拿掉；`ck()` 讓 GM 鍵依角色分開（gameUpdateReloadAt、offlineSince、reloadForJob、reloadForUpdate）；`charTab:<角色>` 心跳＋`passive()` 防同一隻開兩個分頁；`lead:<code>`（amLeader）讓市場只由一個分頁做；`quizLock:<code>` 一次一個分頁作答；idleTick 不替有自己分頁的同帳號角色處理；`#szg-hub-open` 按鈕（window.open popup + noopener）；切換前 POST `/api/agent/leave`；背景分頁做工作前 `game({type:'sync'})` 取新資料。輪詢帶 page/hidden/off。
+- server：`tabs[code][charId]`（/api/agent 輪詢更新，90 秒內算有分頁）、`routeOf`／`headFor`／`tradeHead`（每個分頁各自的工作頭；交易同帳號仍一次一個，peerReady＝對方要交易的那隻分頁的頭也是這個）、idle 依「交給哪個分頁」分組（`needChar`）、有分頁的角色 switch 擋下、wake 每個分頁各自；guild 自動存入／查看改用 tabOf；/api/data 回 `tabs`；push 不再用大廳資料蓋掉有分頁的同帳號角色。
+- dashboard：`tabOf/hasTab/accTabs/charState/stateHtml/stateSuffix/tabTag`；activeCharOf 改成「有分頁的」；所有「目前角色」文字與判斷改成分頁模式；需要處理多「工作在等角色的分頁」、帳號層級的「沒回報」。
+- 測試：`e2e_dual_tab.py`（瀏覽器兩個分頁）、`e2e_tab_routing.py`（伺服器派工，直接模擬輪詢含交易）。harness `open_account(acct, char)` 同 context 開第二個分頁；init script 只在 play.szg08.com 跑。mock 的回應依請求的 characterId 給角色。
+- 待實機確認：非伺服器 activeCharacterId 的那隻用 characterId 換圖／衝卷是否被遊戲拒絕；知識王是每隻角色還是整個帳號一份（目前用鎖保守處理）。

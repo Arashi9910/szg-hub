@@ -1,4 +1,4 @@
-"""總覽切換：勾到目前角色不會白送；一鍵整組切換；同帳號兩隻都勾切到另一隻"""
+"""總覽切換：勾到已經有分頁的角色不會白送；一鍵整組切換；同帳號兩隻都勾切到另一隻"""
 import asyncio, json, sys, time
 from harness import Env, hub_json, http, HUB, MOCK
 
@@ -24,11 +24,11 @@ async def main():
         d.on('dialog', lambda dl: asyncio.ensure_future(dl.accept()))
         await d.goto(HUB + '/'); await d.wait_for_timeout(2000)
 
-        print('1. 勾到已經是目前角色的')
+        print('1. 勾到已經有分頁的')
         await d.check('[data-isel="c1"]'); await d.wait_for_timeout(300)
         n0 = len(hub_json('GET', '/api/data')['jobs'])
         await d.click('[data-idle="switch"]'); await d.wait_for_timeout(800)
-        check('都已經是目前角色' in await d.inner_text('#idleMsg') and len(hub_json('GET', '/api/data')['jobs']) == n0, '提示「都已經是目前角色」，沒有送出指令')
+        check('都已經有自己的遊戲分頁' in await d.inner_text('#idleMsg') and len(hub_json('GET', '/api/data')['jobs']) == n0, '提示「都已經有自己的遊戲分頁」，沒有送出指令')
         await d.click('#idleSelNone'); await d.wait_for_timeout(300)
 
         print('2. 一鍵切到 B 組')
@@ -37,12 +37,12 @@ async def main():
         await btn.click(); await d.wait_for_timeout(500)
         check(await wait_active('c2'), '本尊小號切成目前角色')
 
-        print('3. 同帳號兩隻都勾 → 切到不是目前的那隻')
+        print('3. 同帳號兩隻都勾 → 切到沒有分頁的那隻')
         await d.reload(); await d.wait_for_timeout(2000)
         await d.check('[data-isel="c1"]'); await d.check('[data-isel="c2"]'); await d.wait_for_timeout(300)
         await d.click('[data-idle="switch"]'); await d.wait_for_timeout(800)
         msg = await d.inner_text('#idleMsg')
-        check('已送出切換' in msg and '本來就是目前角色' in msg, '提示：' + msg)
+        check('已送出切換' in msg and '本來就有分頁' in msg, '提示：' + msg)
         check(await wait_active('c1'), '切回本尊劍士')
         check(not errs, '面板沒有 JS 錯誤' + ('：' + errs[0] if errs else ''))
     print('\n全部通過' if ok else '\n有失敗項目'); sys.exit(0 if ok else 1)

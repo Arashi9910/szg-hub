@@ -157,12 +157,13 @@ function simulate(c, now) {
 
 // ---------------- 遊戲 API ----------------
 const strip = c => { const { _simAt, ...rest } = c; return rest; };
-function sessionView(a) {
-  const c = a.chars[a.active];
+// 回應裡的 character：請求指定的角色（同一個帳號開兩個分頁時，每個分頁拿到自己的角色）
+function sessionView(a, cid) {
+  const c = a.chars[cid] || a.chars[a.active];
   return { serverTime: Date.now(), character: strip(c), characters: Object.values(a.chars).map(x => ({ id: x.id, name: x.name, lv: x.lv, job: x.job, auto: x.auto })), party: null, knowledge: { ready: false, remaining: 0 } };
 }
-function tradeEligible(a) {
-  const c = a.chars[a.active];
+function tradeEligible(a, cid) {
+  const c = a.chars[cid] || a.chars[a.active];
   return { items: Object.keys(c.inventory).filter(k => !k.startsWith('i4031')), gear: c.equipmentBag.map(g => g.uid) };
 }
 const fail = msg => { const e = new Error(msg); e.game = true; throw e; };
@@ -196,7 +197,7 @@ function handle(a, body) {
       if (body.characterId && a.chars[body.characterId]) a.active = body.characterId;
       let evs = [];
       for (const x of Object.values(a.chars)) evs = evs.concat(simulate(x, now));
-      const res = { ...sessionView(a), summary: { events: evs }, tradeEligible: tradeEligible(a) };
+      const res = { ...sessionView(a, c.id), summary: { events: evs }, tradeEligible: tradeEligible(a, c.id) };
       if (body.tradeOnly) res.trade = null;
       if (body.includeMarket) res.market = { products: [], hasMore: false, stall: { products: [], pending: 0, history: [] } };
       return res;
@@ -220,7 +221,7 @@ function handle(a, body) {
       if (body.category === 'equip') for (const g of c.equipmentBag) { if (ids.has(g.uid) && !g.locked) rows.push({ uid: g.uid, name: g.name, qty: 1, price: 100 }); }
       else for (const s of c.inventoryStacks) if (ids.has(s.uid) && !s.locked) rows.push({ uid: s.uid, key: s.key, name: items[s.key].name, qty: s.qty, price: items[s.key].sellPrice * s.qty });
       const q = { id: newUid('q'), rows, total: rows.reduce((t, r) => t + r.price, 0), charId: c.id };
-      quotes[q.id] = q; return { ...sessionView(a), quote: q };
+      quotes[q.id] = q; return { ...sessionView(a, c.id), quote: q };
     }
     case 'inventorySell': {
       const q = quotes[body.quoteId]; if (!q || q.charId !== c.id) fail('報價已過期');
@@ -233,7 +234,7 @@ function handle(a, body) {
     case 'scroll': {
       const g = gearList(c).find(x => x.uid === body.uid); if (!g) fail('找不到裝備');
       const ok = scrollOnce(c, g, body.item); rebuildStacks(c);
-      return { ...sessionView(a), summary: { events: [], scroll: { success: ok, uid: g.uid } } };
+      return { ...sessionView(a, c.id), summary: { events: [], scroll: { success: ok, uid: g.uid } } };
     }
     case 'artisanScroll': {
       // 真實遊戲：每衝 1 次扣 1 張卷軸＋10 萬楓幣；單件 {uid}，多件 {uids: 2～10，名稱與剩餘次數要相同}；expectedSlots = 選裝時的剩餘格數
@@ -272,9 +273,9 @@ function handle(a, body) {
         : { uid: gs[0].uid, gear: gs[0].name, scroll: sc.name, rate: sc.rate, attempts: items[0].attempts, successes: items[0].successes, destroyed: items[0].destroyed, slots: items[0].slots, fee: all.length * FEE, stop: items[0].stop };
       rebuildStacks(c);
       addLog(c, `神匠之魂：衝了 ${all.length} 次`);
-      return { ...sessionView(a), summary: { events: [] } };
+      return { ...sessionView(a, c.id), summary: { events: [] } };
     }
-    case 'guildWarehouseView': return { ...sessionView(a), summary: { events: [], guildWarehouse: guildView() } };
+    case 'guildWarehouseView': return { ...sessionView(a, c.id), summary: { events: [], guildWarehouse: guildView() } };
     case 'guildWarehouseMesos': case 'guildWarehouseCash': fail('測試不碰楓幣／點數');
     case 'guildWarehouseBatch': {
       const list = body.items || []; if (list.length > 100) fail('一次最多 100 項');
@@ -290,7 +291,7 @@ function handle(a, body) {
           }
           const have = c.inventory[it.item] || 0; if (have < it.qty) fail('數量不足：' + it.item);
           if (!guild.items[it.item] && Object.keys(guild.items).length >= guild.capacity.items) fail('公會倉庫道具欄已滿');
-          if (!tradeEligible(a).items.includes(it.item)) fail('不可交易的道具不能存入');
+          if (!tradeEligible(a, c.id).items.includes(it.item)) fail('不可交易的道具不能存入');
           c.inventory[it.item] = have - it.qty; guild.items[it.item] = (guild.items[it.item] || 0) + it.qty;
         } else if (body.op === 'withdraw') {
           if (it.kind === 'gear') { const i = guild.gear.findIndex(g => g.uid === it.uid); if (i < 0) fail('公會倉庫沒有這件'); c.equipmentBag.push(guild.gear.splice(i, 1)[0]); continue; }
@@ -300,12 +301,12 @@ function handle(a, body) {
         } else fail('不明的操作');
       }
       rebuildStacks(c);
-      return { ...sessionView(a), summary: { events: [], guildWarehouse: guildView() } };
+      return { ...sessionView(a, c.id), summary: { events: [], guildWarehouse: guildView() } };
     }
     default: fail('模擬遊戲沒有實作：' + body.type);
   }
   rebuildStacks(c);
-  return { ...sessionView(a), summary: { events: [] } };
+  return { ...sessionView(a, c.id), summary: { events: [] } };
 }
 
 // ---------------- 頁面 ----------------

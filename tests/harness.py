@@ -91,11 +91,22 @@ const GM_setValue = (k, v) => localStorage.setItem('__gm:' + k, JSON.stringify(v
 const GM_xmlhttpRequest = o => { window.__gmx({ method: o.method, url: o.url, headers: o.headers || {}, data: o.data || null, timeout: o.timeout || 8000 })
   .then(r => r.error ? (r.error === 'timeout' ? o.ontimeout && o.ontimeout() : o.onerror && o.onerror(r)) : o.onload && o.onload(r)); };
 """
-        return '(function(){\n' + shim + self.agent + '\n' + body + '\n})();'
+        # Tampermonkey 只在 @match 的網址跑；Playwright 的 init script 每個頁面（含 about:blank）都會跑，所以自己擋
+        return '(function(){\nif (location.hostname !== "play.szg08.com") return;\n' + shim + self.agent + '\n' + body + '\n})();'
 
-    async def open_account(self, acct):
+    async def open_account(self, acct, char=None):
+        """開一個帳號的遊戲分頁（每個帳號一個瀏覽器設定檔＝context）。char：用 ?szgChar= 固定顯示那隻（同帳號第二個分頁）"""
+        self.acct_ctx = getattr(self, 'acct_ctx', {})
+        if acct in self.acct_ctx:
+            ctx = self.acct_ctx[acct]
+            page = await ctx.new_page()
+            page.on('console', lambda m: self.logs.append(f'[{acct}/{char}] {m.type}: {m.text}'))
+            page.on('pageerror', lambda e: self.logs.append(f'[{acct}/{char}] pageerror: {e}'))
+            await page.goto('https://play.szg08.com/game/' + (f'?szgChar={char}' if char else ''))
+            return page
         ctx = await self.browser.new_context()
         self.contexts.append(ctx)
+        self.acct_ctx[acct] = ctx
 
         async def gmx(source, o):
             def do():
@@ -124,7 +135,7 @@ const GM_xmlhttpRequest = o => { window.__gmx({ method: o.method, url: o.url, he
         page = await ctx.new_page()
         page.on('console', lambda m: self.logs.append(f'[{acct}] {m.type}: {m.text}'))
         page.on('pageerror', lambda e: self.logs.append(f'[{acct}] pageerror: {e}'))
-        await page.goto('https://play.szg08.com/game/')
+        await page.goto('https://play.szg08.com/game/' + (f'?szgChar={char}' if char else ''))
         return page
 
     async def open_accounts(self, accts):
