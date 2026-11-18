@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-18（v0.29.2）
+最後更新：2026-11-18（v0.30.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -10,7 +10,7 @@
   3. `python3 tools/make-public.py <私人repo路徑> <公開repo路徑>` 產生公開版（會拿掉 REMOTE／TOKEN／Tailscale，新增的程式檔要加進 `tools/make-public.py` 的 FILES）
   4. 更新公開 repo 的 README（公開版 README 獨立維護），commit 後 `git -c push.negotiate=true push`
   5. 在使用者面板分頁（http://127.0.0.1:8787/）執行 `/api/update/check` → `/api/update/apply` 套用；遊戲分頁約 2 分鐘內自動換新腳本
-- 測試：`tests/`（e2e_smoke、e2e_guild、e2e_guild_auto、e2e_switch、e2e_forge、e2e_guild_sell、e2e_agent_gate、e2e_bag_guild、e2e_board_group、e2e_view_group）；原本寫在 `/home/claude/test`（mockgame.js 模擬遊戲、harness.py 共用工具、e2e_smoke.py 冒煙測試，`python3 e2e_smoke.py`）。harness 會把私人 repo 複製到 /tmp/hub 當測試中控，並先 `POST /api/settings {"autoUpdate":false}`，否則會被 GitHub 版本蓋掉。2026-11-18 舊測試檔隨舊工作階段消失，已重寫；**之後要放進 repo 才不會再不見**。
+- 測試：`tests/`（e2e_smoke、e2e_guild、e2e_guild_auto、e2e_switch、e2e_forge、e2e_guild_sell、e2e_agent_gate、e2e_bag_guild、e2e_board_group、e2e_view_group、e2e_split）；原本寫在 `/home/claude/test`（mockgame.js 模擬遊戲、harness.py 共用工具、e2e_smoke.py 冒煙測試，`python3 e2e_smoke.py`）。harness 會把私人 repo 複製到 /tmp/hub 當測試中控，並先 `POST /api/settings {"autoUpdate":false}`，否則會被 GitHub 版本蓋掉。2026-11-18 舊測試檔隨舊工作階段消失，已重寫；**之後要放進 repo 才不會再不見**。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定；**公會倉庫相關功能只做私人版**（公開版其他人做法可能不同），之後用程式標記讓 make-public 移除。
 
 - **新增工作種類時**：在 server.js 的 `KIND_MIN_AGENT` 登記最低腳本版本（私人種類寫在私人區塊裡），否則舊腳本的分頁會拿到工作然後「未知的工作類型」失敗。遊戲分頁有時會卡在舊腳本好幾版（Tampermonkey 快取），只能請使用者手動重新整理那個分頁。
@@ -45,7 +45,7 @@
 1. 派工工廠圖持續依使用者回饋調整（操作手感、動畫）
 2. ~~公會倉庫串接~~（v0.25 完成；v0.26 自動存入）。v0.26.1 工廠圖公倉節點（pos.guild、線 key `bag>guild`、`flyIcon()` 共用飛行動畫）。v0.28 公倉整理：裝備浮動篩選＋`guildSell` 工作（由某角色每批領出 50 件→inventoryQuote/Sell，遊戲不能直接從公倉賣）。2026-11-18 使用者把 11 隻角色背包的 361 件裝備全部存進公倉。v0.28.4 背包分頁「存進公倉」（公開版的擴充點 `bagExtraActions`／`bagActHooks`，私人區塊實作；存入直接 approve）。之後可加：依職業一鍵分配、公倉裝備同名合併檢視、不及格上架市場
 3. ~~強化工坊~~（v0.27：「強化」分頁、`forge` 工作、`/api/forge` 結果；agent 用衝之前／之後的裝備狀態算每件結果，不依賴 lastArtisan 格式；私人版 `forgeExtra` 補上公倉來源，執行時先領出）。2026-11-18 使用者第一次實衝成功（18 件馬爾斯黑拳套、手套攻擊卷軸60%，+5×1 +4×6 +3×8 +2×3，900 萬），結果記錄正確；v0.28.3 結果顯示 +幾分布與增加素質
-4. **分流**：及格→鎖定／給適合的角色；不及格→商店或市場自動上架
+4. ~~分流~~（v0.30：強化結果下的分流區塊，用現有的 lock／sell／give 工作＋私人版 guildDeposit；`POST /api/forge/split` 標已分流；settings.splitRule 記住選擇）。還沒做：不及格上架市場
 5. 之後：打技能書路線（4 轉，使用者進度未到）
 
 ## 使用者偏好
