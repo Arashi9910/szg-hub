@@ -1,4 +1,4 @@
-"""公會倉庫（私人版）：面板開存入選單→用掉落浮動篩選→存入；公倉內容→依職業建議／指定角色→領取"""
+"""公會倉庫：面板存入規則→用掉落浮動篩選→存入；公倉內容→依職業建議／指定角色→領取"""
 import asyncio, json, sys, time
 from harness import Env, hub_json, http, HUB, MOCK
 
@@ -50,7 +50,7 @@ async def main():
         check('測試公會' in await dash.inner_text('#gwInfo'), '面板顯示公會名稱與容量：' + (await dash.inner_text('#gwInfo'))[:60])
 
         print('2. 存入：工地手套（物防浮動 ≥ 0）＋手套攻擊卷軸，每隻保留 2 張')
-        await dash.click('#gdOpen')
+        await dash.click('#gdPickBox summary')
         await dash.fill('#gdQ', '工地手套'); await dash.wait_for_timeout(300)
         await dash.click('#gdPickShown')
         await dash.fill('#gdQ', '手套攻擊卷軸 60%'); await dash.wait_for_timeout(300)

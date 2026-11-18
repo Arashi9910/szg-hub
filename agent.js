@@ -1107,10 +1107,8 @@ function agentMain(ctx) {
         return report(job, { event: 'batchDone' });
       }
       if (job.kind === 'forge') return runForgeJob(job, c);
-      // <private:guild>
       if (job.kind === 'guildDeposit' || job.kind === 'guildWithdraw' || job.kind === 'guildView') return runGuildJob(job, c);
       if (job.kind === 'guildSell') return runGuildSell(job, c);
-      // </private:guild>
       // 不認得的工作：多半是這個分頁的腳本太舊，重新整理一次拿新版（同一個工作只試一次）
       if (GM_getValue('reloadForJob', '') !== job.id) {
         GM_setValue('reloadForJob', job.id);
@@ -1127,7 +1125,6 @@ function agentMain(ctx) {
     async function runForgeJob(job, c) {
       const b = job.batches[0] || {}, f = b.forge || {};
       const rid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
-      // <private:guild>
       if (f.guild && ((f.guild.scrollQty || 0) > 0 || (f.guild.gearUids || []).length)) {
         const rows = [];
         if (f.guild.scrollQty > 0) rows.push({ kind: 'item', item: f.item, qty: f.guild.scrollQty });
@@ -1142,7 +1139,6 @@ function agentMain(ctx) {
           await report(job, { event: 'log', msg: `已從公會倉庫領出：${[f.guild.scrollQty ? (f.itemName || f.item) + ' ×' + f.guild.scrollQty : '', (f.guild.gearUids || []).length ? (f.guild.gearUids.length + ' 件裝備') : ''].filter(Boolean).join('、')}` });
         } catch (e) { return report(job, { event: 'error', msg: '從公會倉庫領取失敗：' + e.message }); }
       }
-      // </private:guild>
       const gearOf = ch => new Map([...Object.values(ch.gear || {}).filter(Boolean), ...(ch.equipmentBag || [])].map(g => [g.uid, g]));
       const results = [], skipped = [];
       let fee = 0, stop = '';
@@ -1189,8 +1185,7 @@ function agentMain(ctx) {
       if (!results.length && stop) return report(job, { event: 'error', msg: stop });
       return report(job, { event: 'batchDone' });
     }
-    // <private:guild>
-    // ---------- 公會倉庫（只在私人版）：存入、領取、查看 ----------
+    // ---------- 公會倉庫：存入、領取、查看 ----------
     // 遊戲格式：guildWarehouseBatch {op, items:[{kind:'item', item, qty} | {kind:'gear', uid}]}，一次最多 100 項；回應在 summary.guildWarehouse
     // 楓幣、點數是另外的指令，這裡一律不碰
     const GUILD_MAX = 100;
@@ -1307,7 +1302,6 @@ function agentMain(ctx) {
         };
       } catch (e) { console.warn('[szg-hub] guild hook failed', e); }
     })();
-    // </private:guild>
 
     async function agentTick() {
       if (agentRunning) return;

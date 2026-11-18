@@ -73,10 +73,11 @@ v['files'] = [f for f in v['files'] if f != 'start-remote.bat']
 if 'notesPublic' in v: v['notes'] = v.pop('notesPublic')
 
 json.dump(v, open(os.path.join(dst, 'version.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
-# 私人功能不能漏到公開版
+# 私人功能不能漏到公開版：私人區塊的關鍵字放這裡（目前沒有私人功能；公會倉庫已在 v0.32.0 公開）
+PRIVATE_WORDS = []
 for f in FILES:
     if not f.endswith(('.js', '.html', '.json')): continue
     t = open(os.path.join(dst, f), encoding='utf-8').read()
-    for bad in ['guildWarehouse', 'guildDeposit', 'guildWithdraw', '公會倉庫', '公倉']:
+    for bad in PRIVATE_WORDS:
         if bad in t and f != 'quiz-bank.json': sys.exit(f'[中止] 公開版 {f} 還有私人功能字樣：{bad}')
 print('公開版已產生：', v['version'])

@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-18（v0.31.0）
+最後更新：2026-11-18（v0.32.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -59,3 +59,9 @@
 - 快照 `char.nextXp`（遊戲 `c.nextXp` 精確值，沒有時退回畫面算的 expNeed）、`nextXpExact`。
 - server 收到精確值時寫 `db.expTable[lv]=nextXp`，`/api/data` 回 `expTable`。
 - dashboard：`ORIG_EXP`（V113 公式）、`expNeed(lv)`（表內精確，否則原版×最接近已知等級倍率，標估計）、`lvTime(c,target)`、`ui.ovTarget`（localStorage ovTarget）、`#ovExpBox` 經驗表。測試 `tests/e2e_lv_time.py`。
+
+## v0.32.0
+- 公會倉庫已公開：程式裡的 `<private:guild>` 標記都拿掉了；make-public 的 `PRIVATE_WORDS` 目前是空的（之後有私人功能再加關鍵字＋區塊標記）。
+- 存入規則 `settings.guildDep` 多 `chars`（null＝全部角色，陣列＝只這些；server `guildAutoTick` 也照它）；條件 `k:'_sum'`＝浮動總和（dashboard rollPass、server guildRollPass 都支援）。UI：#gGuideBox 引導（renderGuideSteps）、#gdSummary、data-gdpreset、data-gdgroup、#gdCats 動態類別。
+- 工作排序：server `currentJobFor(code)` 依 `agentChar[code]`（/api/agent 輪詢帶的 charId）——排頭工作要的是另一隻角色時，先挑目前角色的 BAG_KINDS 工作。測試 `tests/e2e_job_order.py`、`tests/e2e_guild_setup.py`。
+- mock：`/__mock/luck?seq=1,0,…` 控制衝卷成功／失敗順序（e2e_split 用，避免隨機失敗）。

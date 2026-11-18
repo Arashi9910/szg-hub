@@ -74,7 +74,7 @@ async def main():
         d = await ctx.new_page(); errs = []; d.on('pageerror', lambda e: errs.append(str(e)))
         await d.goto(HUB + '/'); await d.wait_for_timeout(1200); await d.click('nav button[data-tab=guild]'); await d.wait_for_timeout(1500)
         check(await d.eval_on_selector('#gaMode', 'e => e.value') == 'deposit', '面板顯示「自動存入」模式')
-        await d.click('#gdOpen'); await d.wait_for_timeout(400)
+        await d.wait_for_timeout(400)
         check(await d.is_checked('[data-gdcat="卷軸"]'), '存入選單的「所有卷軸」是勾的')
         check(not errs, '面板沒有 JS 錯誤' + ('：' + errs[0] if errs else ''))
     print('\n全部通過' if ok else '\n有失敗項目'); sys.exit(0 if ok else 1)

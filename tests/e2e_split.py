@@ -44,6 +44,7 @@ async def main():
         await d.goto(HUB + '/'); await d.wait_for_timeout(1500)
 
         print('1. 及格→鎖定、不及格→賣給商店')
+        http('GET', MOCK + '/__mock/luck?seq=' + ','.join(['1'] * 5 + ['0'] * 40))  # 第一件全成功（及格），其他全失敗
         r = await forge(d, '工地手套', 'i2040801', 'all', 4)
         passed = [x['uid'] for x in r['results'] if x['pass'] and not x['destroyed']]; failed = [x['uid'] for x in r['results'] if not x['pass'] and not x['destroyed']]
         print(f'   衝了 {len(r["results"])} 件：及格 {len(passed)}、不及格 {len(failed)}')
@@ -65,7 +66,8 @@ async def main():
         await d.wait_for_timeout(5500)
         check('已分流' in await d.inner_text('#fgLog'), '結果標成「已分流」')
 
-        print('2. 及格→交給另一個帳號的角色、不及格→存進公倉（私人版）')
+        print('2. 及格→交給另一個帳號的角色、不及格→存進公倉')
+        http('GET', MOCK + '/__mock/luck?seq=' + ','.join(['1'] * 2 + ['0'] * 40))
         r = await forge(d, '褐色工作手套', 'i2040805', '2', 1)
         passed = [x['uid'] for x in r['results'] if x['pass']]; failed = [x['uid'] for x in r['results'] if not x['pass'] and not x['destroyed']]
         print(f'   衝了 {len(r["results"])} 件：及格 {len(passed)}、不及格 {len(failed)}')

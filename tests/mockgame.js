@@ -167,12 +167,14 @@ function tradeEligible(a) {
 }
 const fail = msg => { const e = new Error(msg); e.game = true; throw e; };
 function gearList(c) { return [...Object.values(c.gear).filter(Boolean), ...c.equipmentBag]; }
+// 測試控制：/__mock/luck?seq=1,1,0 之後衝卷依序成功／失敗（用完回到隨機）
+let scrollQueue = [];
 function scrollOnce(c, g, key) {
   const sc = scrolls[key]; if (!sc) fail('不是卷軸');
   if (!(c.inventory[key] > 0)) fail('卷軸不足');
   if (g.slots <= 0) fail('沒有可衝次數');
   c.inventory[key]--; g.slots--;
-  const ok = rnd(100) < sc.rate;
+  const ok = scrollQueue.length ? !!scrollQueue.shift() : rnd(100) < sc.rate;
   if (ok) { g.successes++; for (const [s, v] of Object.entries(sc.stats)) g.stats[s] = (g.stats[s] || 0) + v; }
   else if (sc.cursed && rnd(100) < sc.cursed) {  // 詛咒卷軸：失敗時有機率裝備消失
     c.equipmentBag = c.equipmentBag.filter(x => x !== g);
@@ -341,6 +343,7 @@ http.createServer((req, res) => {
   if (url.pathname === '/api/catalog') return send(res, 200, catalog);
   // 測試控制：查看／重設狀態
   if (url.pathname === '/__mock/state') return send(res, 200, { accounts, guild });
+  if (url.pathname === '/__mock/luck') { scrollQueue = (url.searchParams.get('seq') || '').split(',').filter(x => x !== '').map(Number); return send(res, 200, { ok: true, n: scrollQueue.length }); }
   if (url.pathname === '/api/game' && req.method === 'POST') {
     let buf = ''; req.on('data', d => buf += d); req.on('end', () => {
       if (req.headers['x-game-version'] !== GAME_VERSION) return send(res, 409, { error: '遊戲已更新，請重新整理後再試' });
