@@ -181,9 +181,18 @@ function jobLog(job, msg) {
 function publicJob(j) { return j; }
 
 const BAG_KINDS = new Set(['sell', 'lock', 'unlock', 'idle', 'forge']);
+// 新種類的工作要遊戲分頁的腳本夠新才看得懂：還沒換上新腳本的，工作先排隊等，不交給它（避免「未知的工作類型」直接失敗）
+const KIND_MIN_AGENT = { forge: '0.27.0' };
+const verLt = (a, b) => { const x = String(a || '0').split('.').map(Number), y = String(b || '0').split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
+function agentTooOld(job, code) {
+  const need = KIND_MIN_AGENT[job.kind]; if (!need) return false;
+  const snap = Object.values(db.chars).filter(s => s.playerCode === code).sort((a, b) => (b.receivedAt || 0) - (a.receivedAt || 0))[0];
+  return !snap || verLt(snap.scriptVersion, need) ? (snap ? snap.scriptVersion || '?' : '?') : false;
+}
 // <private:guild>
 // 公會倉庫（只在私人版）：存入、領取、查看都是「某隻角色在自己頁面執行」的背包工作
 for (const k of ['guildDeposit', 'guildWithdraw', 'guildView', 'guildSell']) BAG_KINDS.add(k);
+Object.assign(KIND_MIN_AGENT, { guildDeposit: '0.25.0', guildWithdraw: '0.25.0', guildView: '0.25.0', guildSell: '0.28.0' });
 // 查看公倉：找一隻在線而且是目前角色的（優先本尊），建立後直接排隊（只讀，不用確認）
 function createGuildView(charId) {
   const live = Object.values(db.chars).filter(s => s.playerCode && Date.now() - (s.receivedAt || 0) < ONLINE_MS && (!s.activeCharId || s.activeCharId === s.char.id));
@@ -710,6 +719,12 @@ const server = http.createServer(async (req, res) => {
       if (idleJob) return send(res, 200, { job: idleJob, role: 'owner', peerReady: true });
       const job = currentJobFor(code);
       if (!job) return send(res, 200, { job: null });
+      const old = agentTooOld(job, code);
+      if (old) {
+        const msg = `等待 ${job.fromName} 的遊戲分頁換上新腳本（目前 v${old}，需要 v${KIND_MIN_AGENT[job.kind]} 以上；太久沒換請手動重新整理那個分頁）`;
+        if (job.lastMsg !== msg) { jobLog(job, msg); job.lastMsg = msg; save(); }
+        return send(res, 200, { job: null, needUpdate: KIND_MIN_AGENT[job.kind] });
+      }
       if (BAG_KINDS.has(job.kind)) return send(res, 200, { job, role: 'owner', peerReady: true });
       const role = job.fromCode === code ? 'giver' : 'receiver';
       const peer = role === 'giver' ? job.toCode : job.fromCode;
