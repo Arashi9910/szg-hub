@@ -41,6 +41,9 @@ async def main():
         check(f'符合 {want} 件' in prev, f'預覽符合件數＝浮動總和 ≥ 1 的件數（{want}）：' + prev.split('\n')[0])
 
         print('3. 選角色')
+        check('全部角色' in await d.inner_text('#gdChars') and await d.locator('[data-gdchar]').count() == 0, '全部角色時收起來，不列出一長串勾選框')
+        await d.click('#gdCharsCustom'); await d.wait_for_timeout(300)
+        check('A 組' in await d.inner_text('#gdChars'), '按「自訂角色」後依 A／B 組列出')
         await d.click('[data-gdchar="c3"]'); await d.wait_for_timeout(1200)
         dep = hub_json('GET', '/api/data')['settings']['guildDep']
         check(dep['chars'] is not None and 'c3' not in dep['chars'] and 'c1' in dep['chars'], f"取消弓箭分身後存檔 chars={dep['chars']}")

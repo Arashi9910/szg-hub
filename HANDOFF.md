@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-18（v0.33.5）
+最後更新：2026-11-18（v0.33.6）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -84,3 +84,4 @@
 - v0.33.3：窄螢幕 CSS（</style> 前那段）：header flex-wrap；≤1280px 時 `main :has(> table)` 左右捲、9 欄以上 min-width 980／13 欄以上 1200、`table.sticky` 的外框自己上下捲（表頭 top:0）；.fac-hud 換行。測試 `tests/e2e_narrow.py`（1080／864／720 每個分頁不撐破）。
 - v0.33.4：強化試跑 `fgPlan()` 多 `cap`（budget＝min(卷軸, 楓幣/10萬)、canSure／canExp）、`rows[].maybeShort`、`expPassAvail`；pieces 依（已衝少、剩餘多）排序；`.fg-pickbar` data-fgsel=all/none/top/sure/exp、#fgTopN、#fgAllBox。面板有 approved/running 工作時每 3 秒 poll；forge 工作剛結束強制重抓 /api/forge。
 - v0.33.5：背包「含公倉」（#bGuild，localStorage bagGuild）：`bagGuildRows()`，選取鍵 `G|g:uid`／`G|i:key` 放在 ui.bagSel（bagSelected 只看角色，賣出／鎖定不受影響）；動作列 `#bGuildTo` + data-bact=guildTake → guildWithdraw 工作直接 approve。
+- v0.33.6：可讀性小改（body 14px、.sm 12px、tabular-nums、table.ov width:auto、--bad #e66b6b、:focus-visible）；header 的 #status/#updBox 收進 `#sysBox`（summary #sysSum 依狀態加 upd/warn/bad）；`.action-bar.idle`；tabTag 正常不顯示；公倉 #gdChars 全部角色時收起（#gdCharsCustom，ui.gdCharsOpen）。

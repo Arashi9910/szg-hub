@@ -81,7 +81,7 @@ async def main():
         dash.on('pageerror', lambda e: errs.append(str(e)))
         await dash.goto(HUB + '/'); await dash.wait_for_timeout(2500)
         r1 = await dash.locator('tr:has([data-isel="c1"])').inner_text(); r2 = await dash.locator('tr:has([data-isel="c2"])').inner_text()
-        check('分頁' in r1 and '分頁' in r2, '總覽：兩隻都標「分頁」')
+        check('分頁' not in r1 and '分頁' not in r2, '總覽：正常有分頁的不再每列都掛「分頁」標籤（只標例外）')
         check(await dash.locator('[data-switch="c1"],[data-switch="c2"]').count() == 0, '有分頁的不顯示「⇄ 切換」')
         check(await dash.locator('[data-switch="c4"]').count() == 0, '整個帳號都沒開分頁的角色也不顯示切換')
         bar = await dash.inner_text('#ovBar')
