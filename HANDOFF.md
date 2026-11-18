@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-18（v0.32.0）
+最後更新：2026-11-18（v0.32.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -65,3 +65,9 @@
 - 存入規則 `settings.guildDep` 多 `chars`（null＝全部角色，陣列＝只這些；server `guildAutoTick` 也照它）；條件 `k:'_sum'`＝浮動總和（dashboard rollPass、server guildRollPass 都支援）。UI：#gGuideBox 引導（renderGuideSteps）、#gdSummary、data-gdpreset、data-gdgroup、#gdCats 動態類別。
 - 工作排序：server `currentJobFor(code)` 依 `agentChar[code]`（/api/agent 輪詢帶的 charId）——排頭工作要的是另一隻角色時，先挑目前角色的 BAG_KINDS 工作。測試 `tests/e2e_job_order.py`、`tests/e2e_guild_setup.py`。
 - mock：`/__mock/luck?seq=1,0,…` 控制衝卷成功／失敗順序（e2e_split 用，避免隨機失敗）。
+
+## 雙分頁實測（2026-11-18，佐藤嵐思／嵐司）
+- 同一個設定檔開第二個遊戲分頁、`sessionStorage.mapleCharacter` 設成另一隻再重新整理：兩隻都正常掛機、經驗速度正常（嵐思約 13M/h、嵐司約 53 萬/h，跟平常一樣），兩個分頁的快照都會即時回報，遊戲沒有踢人或報錯。
+- 但：遊戲伺服器的 `activeCharacterId` 只在頁面載入（或 switch）時改，之後兩個分頁同步都不會改它 → 關掉第二個分頁後伺服器還記著嵐司，中控把嵐思當成背景角色。v0.32.1 讓 switch 也比對伺服器的 activeCharacterId。
+- 分頁被藏到背景（同視窗另一個分頁在前面）時遊戲會進「離線掛機」、畫面暫停同步，切回來會跳「本輪掛機報告」，經驗照算。所以兩隻都要即時資料＝兩個分頁都要可見（兩個視窗）。
+- 若要正式支援：中控「能不能操作」要改用「這隻有沒有自己的新快照」判斷，不能再用 activeCharId（guildAutoTick、看板、總覽切換、ovGroupBtns 都用到）。
