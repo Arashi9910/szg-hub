@@ -28,7 +28,14 @@ async def main():
         check(any('試跑' in l['msg'] for l in r['log']), '紀錄寫「試跑」：' + r['log'][-1]['msg'][:80])
         check(not [j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'guildDeposit'], '試跑沒有建立工作')
 
-        print('2. 自動存入')
+        print('2. 自動存入（工廠圖開著，看存入動畫）')
+        hub_json('POST', '/api/guild/refresh', {})
+        await asyncio.sleep(6)
+        fctx = await env.browser.new_context(viewport={'width': 1500, 'height': 950}); env.contexts.append(fctx)
+        fac = await fctx.new_page(); ferrs = []; fac.on('pageerror', lambda e: ferrs.append(str(e)))
+        await fac.goto(HUB + '/'); await fac.wait_for_timeout(1200)
+        await fac.click('nav button[data-tab=board]'); await fac.wait_for_timeout(2500)
+        check(await fac.locator('.fnode[data-fn="guild"]').count() == 1, '工廠圖有公倉節點')
         hub_json('POST', '/api/settings', {'guildAuto': {'mode': 'deposit', 'everyMin': 30}})
         hub_json('POST', '/api/guild/auto-run', {})
         jobs = [j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'guildDeposit']
@@ -39,6 +46,19 @@ async def main():
             if all(j['status'] in ('done', 'failed') for j in js): break
             await asyncio.sleep(1)
         check(all(j['status'] == 'done' for j in js), '工作全部完成')
+        seen = 0
+        for _ in range(40):
+            seen = max(seen, await fac.locator('.loot').count())
+            if seen: break
+            await asyncio.sleep(0.25)
+        check(seen > 0, '存入完成後，圖示沿著「背包→公倉」飛過去')
+        await fac.wait_for_timeout(2500)
+        await fac.click('[data-fzoom=fit]'); await fac.wait_for_timeout(600)
+        await fac.screenshot(path='/tmp/fac_guild.png')
+        await fac.wait_for_timeout(3000); txt = await fac.inner_text('.fnode[data-fn="guild"]')
+        check('5,221' in txt or '5221' in txt, '公倉節點的數字跟著更新')
+        check('自動存入：開' in txt and await fac.locator('#facWires path[data-w="bag>guild"]').count() == 1, '公倉節點顯示自動存入狀態、有背包→公倉的線')
+        check(not ferrs, '工廠圖沒有 JS 錯誤' + ('：' + ferrs[0] if ferrs else ''))
         gw = mock_state()['guild']['items']
         check(scrolls_on_bag() == 0 and sum(gw.values()) == before, f'背包卷軸全部進公倉（{before} 張）')
 

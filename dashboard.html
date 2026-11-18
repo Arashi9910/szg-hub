@@ -2586,6 +2586,9 @@ function facDefaults(cfg, chars) {
   let y = 30;
   for (const lane of laneOrder) for (const id of cfg.lanes[lane]) { pos['m:' + id] = [330, y]; const g = lane === 'train' ? 0 : Math.min(5, (cfg.goals[id] || []).length || 1); y += 130 + g * 20; }
   pos.exp = [700, 30]; pos.shop = [700, 200]; pos.bag = [700, 370]; pos.forge = [990, 370]; pos.out = [1270, 300];
+  // <private:guild>
+  pos.guild = [990, 560];
+  // </private:guild>
   return pos;
 }
 function facPos(cfg, chars) { const d = facDefaults(cfg, chars), p = cfg.pos || {}; for (const k of Object.keys(d)) if (p[k]) d[k] = p[k]; return d; }
@@ -2634,6 +2637,9 @@ function renderFactory() {
   html += node('bag', 'fsink', FN_W.s, `<div class="fn-hd" data-fdrag><b>🎒 背包／倉庫</b></div><div class="fn-bd sm">${gl.length ? gl.slice(0, 6).map(([id, r]) => `<div class="fgoal">${iname(id, wName(id))} <b>${rate(r)}</b></div>`).join('') : '<div class="dim">在打卷軸／打裝備的圖設定 🎯 目標後，這裡會顯示每小時的預估收穫</div>'}<div class="recent" data-recent="bag"></div></div><span class="port in"></span><span class="port out2"></span>`);
   html += node('forge', 'fsink soon', FN_W.s, `<div class="fn-hd" data-fdrag><b>🔨 強化工坊</b></div><div class="fn-bd sm dim">規劃中：依衝裝規則批次衝卷</div><span class="port in"></span><span class="port out2"></span>`);
   html += node('out', 'fsink soon', FN_W.s, `<div class="fn-hd" data-fdrag><b>🔀 分流</b></div><div class="fn-bd sm dim">規劃中：及格→鎖定／穿上<br>不及格→商店／市場</div><span class="port in"></span>`);
+  // <private:guild>
+  html += facGuildNode(node);
+  // </private:guild>
   const W = 6000, H = Math.max(4000, 600 + Math.max(...Object.values(pos).map(p => p[1])));
   if (!ui.fac.pan) ui.fac.pan = { x: 10, y: 10 };
   ui.fac.est = est; ui.fac.where = where; ui.fac.chars = chars;
@@ -2674,6 +2680,9 @@ function drawWires(tmp) {
   }
   wire(pt('bag', 'r'), pt('forge', 'l'), 'soon', 'var(--dim)', '');
   wire(pt('forge', 'r'), pt('out', 'l'), 'soon', 'var(--dim)', '');
+  // <private:guild>
+  { const a = S.guildAuto || {}, on = a.mode === 'deposit'; wire(pt('bag', 'r'), pt('guild', 'l'), on ? 'flow' : 'idle', '#5fb3d9', on ? `自動存入・每 ${Math.max(10, a.everyMin || 30)} 分` : a.mode === 'preview' ? '試跑中' : '', on ? 1.5 : 0, 'bag>guild'); }
+  // </private:guild>
   if (tmp && tmp.a) s += `<path d="${curve(tmp.a, tmp.b)}" class="w tmp" stroke="var(--accent)"/>`;
   svg.innerHTML = s;
 }
@@ -2771,6 +2780,27 @@ async function pollLoot() {
   } catch (_) {}
 }
 setInterval(pollLoot, 2500);
+// 沿著指定的線飛一個圖示（掉落動畫、公倉存入共用）
+function flyIcon(wireKey, sink, o) {
+  const path = document.querySelector(`#facWires path[data-w="${CSS.escape(wireKey)}"]`);
+  const world = $('#facWorld'); if (!path || !world || ui.fac.flying > 30) return;
+  const len = path.getTotalLength(); if (!len) return;
+  const el = document.createElement('div');
+  el.className = 'loot' + (o.cls ? ' ' + o.cls : '');
+  const u = o.id ? itemImg(o.id) : '';
+  el.innerHTML = (u ? `<img src="${esc(u)}" alt="">` : `<span>${esc(String(o.name || '').slice(0, 2))}</span>`) + (o.qty > 1 ? `<b>${o.qty > 9999 ? short(o.qty) : o.qty}</b>` : '');
+  el.title = o.name + ' × ' + o.qty;
+  world.appendChild(el); ui.fac.flying++;
+  const dur = o.dur || 1800, t0 = performance.now();
+  const step = now => {
+    const k = Math.min(1, (now - t0) / dur), e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    const p = path.getPointAtLength(e * len);
+    el.style.transform = `translate(${p.x - 14}px, ${p.y - 14}px)`;
+    if (k < 1) requestAnimationFrame(step);
+    else { el.remove(); ui.fac.flying--; const n = document.querySelector(`.fnode[data-fn="${sink}"]`); if (n) { n.classList.remove('pulse'); void n.offsetWidth; n.classList.add('pulse'); } }
+  };
+  requestAnimationFrame(step);
+}
 function flyLoot(ev, cfg) {
   const id = idOfName(ev.name), goal = !!id && (cfg.goals[ev.map] || []).map(String).includes(String(id));
   if (ui.fac.fx === 'goal' && !goal) return;
@@ -3153,6 +3183,35 @@ document.addEventListener('input', e => {
   if (e.target.id === 'gwQ') { ui.gw.q = e.target.value; renderGuildOut(); }
   if (e.target.id === 'gdQ') { gdState().q = e.target.value; renderGuildDeposit(); }
 });
+// ---- 工廠圖：公倉節點 ----
+function facGuildNode(node) {
+  const g = GUILD && GUILD.data, a = S.guildAuto || {};
+  let body;
+  if (!g) body = '<div class="dim">還沒讀過公倉</div>';
+  else {
+    const items = Object.entries(g.items || {}).filter(([, n]) => n > 0), cap = g.capacity || {};
+    const total = items.reduce((t, [, n]) => t + n, 0);
+    const top = items.sort((x, y) => y[1] - x[1]).slice(0, 4);
+    const full = cap.items && items.length / cap.items >= 0.9;
+    body = `<div>道具 <b class="${full ? 'warn' : ''}">${items.length}</b>/${cap.items || '?'} 格・共 <b>${short(total)}</b> 個</div><div>裝備 <b>${(g.gear || []).length}</b>/${cap.gear || '?'} 件</div>`
+      + top.map(([k, n]) => `<div class="fgoal">${iname(keyId(k), keyName(k))} <b>${fmt(n)}</b></div>`).join('')
+      + `<div class="dim">自動存入：${a.mode === 'deposit' ? `<span class="good">開</span>，每 ${Math.max(10, a.everyMin || 30)} 分${GUILD.autoAt ? `・下次 ${clock(GUILD.autoAt + Math.max(10, a.everyMin || 30) * 60e3)}` : ''}` : a.mode === 'preview' ? '試跑中' : '關'}</div>`;
+  }
+  return node('guild', 'fsink', FN_W.s, `<div class="fn-hd" data-fdrag><b>🏦 公會倉庫</b><a data-goto="guild" class="sm" title="打開公倉分頁">開啟 ›</a></div><div class="fn-bd sm">${body}</div><span class="port in"></span><span class="port out2"></span>`);
+}
+// 公倉存入工作完成時，存進去的東西沿著「背包→公倉」飛過去（只播開頁之後完成的）
+let facGuildSeen = null, facGuildLoadAt = 0;
+function facGuildTick() {
+  if (Date.now() - facGuildLoadAt > 15000) { facGuildLoadAt = Date.now(); loadGuild(true).then(() => { if (document.querySelector('nav button.on').dataset.tab === 'board' && ui.board.view === 'factory') renderFactory(); }); }
+  const done = (DATA.jobs || []).filter(j => j.kind === 'guildDeposit' && j.status === 'done');
+  if (!facGuildSeen) { facGuildSeen = new Set(done.map(j => j.id)); return; }
+  const fresh = done.filter(j => !facGuildSeen.has(j.id));
+  fresh.forEach(j => facGuildSeen.add(j.id));
+  if (fresh.length) setTimeout(() => { facGuildLoadAt = 0; facGuildTick(); }, 2500); // 動畫飛到之後更新公倉數字
+  if (!fresh.length || ui.fac.fx === 'off' || !$('#facWorld')) return;
+  const rows = fresh.flatMap(j => [...(j.batches[0].items || []).map(x => ({ id: keyId(x.key), name: x.name, qty: x.qty })), ...(j.batches[0].gear || []).map(x => ({ id: 0, name: x.name, qty: 1 }))]);
+  rows.sort((x, y) => y.qty - x.qty).slice(0, 12).forEach((o, i) => setTimeout(() => flyIcon('bag>guild', 'guild', { ...o, cls: 'sold', dur: 1700 }), i * 260));
+}
 // </private:guild>
 function renderAll() {
   loadExt();
@@ -3166,6 +3225,9 @@ function renderAll() {
   if (active === 'market') loadMarket().then(renderMarket);
   if (active === 'maps') renderMaps();
   if (active === 'board') renderBoard();
+  // <private:guild>
+  if (active === 'board') facGuildTick();
+  // </private:guild>
   // <private:guild>
   if (active === 'guild') renderGuild();
   // </private:guild>

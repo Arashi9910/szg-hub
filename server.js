@@ -249,7 +249,7 @@ function guildAutoTick(force) {
     const mine = db.jobs.filter(j => String(j.kind).startsWith('guild') && j.fromCharId === snap.char.id);
     if (mine.some(j => ['pending', 'approved', 'running'].includes(j.status))) continue;
     // 剛做完公倉工作、角色還沒回報新的背包資料：這份資料是舊的，等下一次
-    const lastDone = Math.max(0, ...mine.map(j => ((j.log || []).slice(-1)[0] || {}).at || 0));
+    const lastDone = Math.max(0, ...mine.filter(j => j.kind !== 'guildView').map(j => ((j.log || []).slice(-1)[0] || {}).at || 0));
     if (lastDone && (snap.receivedAt || 0) < lastDone + 2000) continue;
     const plan = guildPlanFor(snap, dep);
     if (!plan.items.length && !plan.gear.length) continue;
