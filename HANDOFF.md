@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-18（v0.30.2）
+最後更新：2026-11-18（v0.31.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -54,3 +54,8 @@
 - 清單選取要「點整列」就能選（`tr.pickrow`＋勾選框的 data-*pick 屬性，共用點選／Shift 選一段的處理），不要只能點小勾選框
 - 繁體中文；先給結論；介面要一眼看懂、操作直覺，喜歡有「自動工廠」感的視覺
 - 會動到遊戲資料、金錢、不可逆的操作要先確認；藥水會自動買，不需要提醒
+
+## 升級時間（v0.31.0）
+- 快照 `char.nextXp`（遊戲 `c.nextXp` 精確值，沒有時退回畫面算的 expNeed）、`nextXpExact`。
+- server 收到精確值時寫 `db.expTable[lv]=nextXp`，`/api/data` 回 `expTable`。
+- dashboard：`ORIG_EXP`（V113 公式）、`expNeed(lv)`（表內精確，否則原版×最接近已知等級倍率，標估計）、`lvTime(c,target)`、`ui.ovTarget`（localStorage ovTarget）、`#ovExpBox` 經驗表。測試 `tests/e2e_lv_time.py`。

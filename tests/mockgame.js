@@ -92,7 +92,7 @@ function makeGear(key, extra = {}) {
 }
 function makeChar(id, name, job, lv, map, extra = {}) {
   return {
-    id, name, job, lv, xp: 0, money: 500000, map, auto: false, until: null, hp: 500, maxhp: 500, mp: 300, maxmp: 300, kills: 0,
+    id, name, job, lv, xp: 0, nextXp: 1000 * lv * lv, money: 500000, map, auto: false, until: null, hp: 500, maxhp: 500, mp: 300, maxmp: 300, kills: 0,
     stats: { incSTR: 40, incDEX: 40, incINT: 4, incLUK: 4 }, gear: {}, equipmentBag: [], warehouseGear: [], inventory: { i2000000: 200, i2000003: 100 },
     inventoryStacks: [], warehouse: {}, warehouseMesos: 0, supply: { hpItem: 'i2000000', mpItem: 'i2000003' }, autoSell: { maps: {} }, log: [], ...extra,
   };
