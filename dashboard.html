@@ -524,6 +524,14 @@
       <div class="bar" id="gwBar" style="margin-top:8px"></div>
     </div>
     <div class="card">
+      <h3>自動存入</h3>
+      <div class="bar"><span>模式</span><select id="gaMode"><option value="off">關閉</option><option value="preview">試跑（只記錄會存哪些）</option><option value="deposit">自動存入</option></select>
+        <span>每</span><input type="number" id="gaEvery" min="10" max="1440" style="width:70px"><span>分鐘檢查一次</span>
+        <button class="btn" id="gaRun">立即執行一次</button><span class="dim" id="gaInfo"></span></div>
+      <div class="dim">照下面「存入選單」的勾選和條件（含整類勾選、浮動條件、每隻保留數量），替<b>在線而且是目前角色</b>的帳號建立存入工作，直接排隊執行、不用確認。不是目前角色的不會動；公倉快滿時會停下來。</div>
+      <details style="margin-top:6px"><summary class="dim">紀錄</summary><div id="gaLog"></div></details>
+    </div>
+    <div class="card">
       <h3>存入公會倉庫</h3>
       <div class="bar"><button class="btn primary" id="gdOpen">開啟存入選單</button><span class="dim">從所有角色的背包找可以存的東西（已鎖定、不可交易、補給中的不會列出），裝備可以用「掉落浮動」篩選，符合的才存入。</span></div>
       <div id="gdPanel" style="display:none">
@@ -532,6 +540,7 @@
           <div class="seg" id="gdKinds"><button data-gdkind="all">全部</button><button data-gdkind="gear">裝備</button><button data-gdkind="卷軸">卷軸</button><button data-gdkind="other">其他</button></div>
           <input id="gdQ" placeholder="搜尋名稱" style="width:160px" autocomplete="off"><button class="btn sm" id="gdPickShown">勾選目前列出的</button><button class="btn sm" id="gdPickNone">清除勾選</button><span class="dim" id="gdPickInfo"></span>
         </div>
+        <div class="bar"><span style="width:70px">整類勾選</span><label><input type="checkbox" data-gdcat="卷軸"> 所有卷軸</label><label><input type="checkbox" data-gdcat="裝備"> 所有裝備（套用下面的條件）</label><span class="dim">整類勾選會包含之後撿到的新種類，自動存入用這個最方便</span></div>
         <div id="gdList" style="max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:6px"></div>
         <div class="bar" style="align-items:flex-start;margin-top:10px"><span style="width:70px">裝備條件</span>
           <div><div class="dim" style="margin-bottom:4px">掉落浮動＝這件掉落時的數值 − 標準值（不含衝卷）。例：物攻浮動 ≥ 2 代表比標準多 2 以上。沒有設條件＝勾選的裝備全部存入。</div>
@@ -2896,11 +2905,11 @@ let GUILD = { data: null }, guildLoadAt = 0;
 ui.gw = { tab: 'item', q: '', sel: new Map(), all: '' };
 ui.gd = null;
 function gdState() {
-  if (!ui.gd) { const sv = S.guildDep || {}; ui.gd = { open: false, chars: null, kind: 'all', q: '', names: new Set(sv.names || []), conds: sv.conds || [], mode: sv.mode || 'all', unknown: !!sv.unknown, keep: sv.keep || 0 }; }
+  if (!ui.gd) { const sv = S.guildDep || {}; ui.gd = { open: false, chars: null, kind: 'all', q: '', names: new Set(sv.names || []), cats: new Set(sv.cats || []), conds: sv.conds || [], mode: sv.mode || 'all', unknown: !!sv.unknown, keep: sv.keep || 0 }; }
   return ui.gd;
 }
 let gdSaveTimer = null;
-function gdSave() { const d = gdState(); clearTimeout(gdSaveTimer); gdSaveTimer = setTimeout(() => saveSettings({ guildDep: { names: [...d.names], conds: d.conds, mode: d.mode, unknown: d.unknown, keep: d.keep } }), 600); }
+function gdSave() { const d = gdState(); clearTimeout(gdSaveTimer); gdSaveTimer = setTimeout(() => saveSettings({ guildDep: { names: [...d.names], cats: [...d.cats], conds: d.conds, mode: d.mode, unknown: d.unknown, keep: d.keep } }), 600); }
 async function loadGuild(force) {
   if (!force && Date.now() - guildLoadAt < 4000) return GUILD;
   guildLoadAt = Date.now();
@@ -2939,7 +2948,15 @@ function gearFits(g) {
     .sort((a, b) => (a.char.lv || 0) - (b.char.lv || 0)).map(s => s.char.id);
 }
 function renderGuild() {
-  loadGuild().then(() => { renderGuildOut(); renderGuildDeposit(); });
+  loadGuild().then(() => { renderGuildOut(); renderGuildDeposit(); renderGuildAuto(); });
+}
+function renderGuildAuto() {
+  const a = S.guildAuto || {}, ae = document.activeElement;
+  if (ae !== $('#gaMode')) $('#gaMode').value = a.mode || 'off';
+  if (ae !== $('#gaEvery')) $('#gaEvery').value = a.everyMin || 30;
+  const at = GUILD.autoAt;
+  $('#gaInfo').textContent = a.mode && a.mode !== 'off' ? (at ? `上次 ${clock(at)}，下次約 ${clock(at + Math.max(10, a.everyMin || 30) * 60e3)}` : '下一分鐘內開始') : '';
+  $('#gaLog').innerHTML = (GUILD.log || []).slice().reverse().map(l => `<div><span class="dim">${clock(l.at)}</span> ${esc(l.msg)}</div>`).join('') || '<div class="dim">還沒有紀錄</div>';
 }
 function renderGuildOut() {
   const g = GUILD && GUILD.data;
@@ -3011,6 +3028,8 @@ function gdShown(all) {
   const d = gdState(), q = d.q.trim().toLowerCase();
   return all.filter(x => (d.kind === 'all' || (d.kind === 'gear' ? x.type === 'gear' : d.kind === '卷軸' ? x.kind === '卷軸' : x.type === 'item' && x.kind !== '卷軸')) && (!q || x.name.toLowerCase().includes(q)));
 }
+const gdCovered = (d, x) => d.cats.has(x.type === 'gear' ? '裝備' : x.kind);
+const gdPicked = (d, x) => d.names.has(x.k) || gdCovered(d, x);
 // 依目前的勾選與條件算出每隻角色要存的東西
 function gdPlan(all) {
   const d = gdState(), plan = new Map(), keep = Math.max(0, Number(d.keep) || 0);
@@ -3018,7 +3037,7 @@ function gdPlan(all) {
   const gearRows = [];
   const P = s => plan.get(s.char.id) || plan.set(s.char.id, { s, items: [], gear: [] }).get(s.char.id);
   for (const x of all) {
-    if (!d.names.has(x.k)) continue;
+    if (!gdPicked(d, x)) continue;
     for (const r of x.rows) {
       if (r.g) {
         const dl = rollDelta(r.g), ok = rollPass(dl, d.conds, d.mode, d.unknown);
@@ -3044,9 +3063,10 @@ function renderGuildDeposit() {
   $('#gdList').innerHTML = `<table><thead><tr><th class="nosort" style="width:24px"></th><th class="nosort">名稱</th><th class="nosort">類型</th><th class="nosort num">數量</th><th class="nosort">在誰身上</th></tr></thead><tbody>${shown.map(x => {
     const img = itemImg(x.id);
     const who = [...x.chars].map(id => charNameOf(id));
-    return `<tr><td><input type="checkbox" data-gdpick="${esc(x.k)}" ${d.names.has(x.k) ? 'checked' : ''}></td><td title="${esc(itemTip(x.id))}">${img ? `<img src="${esc(img)}" style="width:20px;height:20px;vertical-align:middle;margin-right:4px" loading="lazy">` : ''}${esc(x.name)}</td><td class="dim">${esc(x.type === 'gear' ? '裝備・' + x.kind : x.kind)}</td><td class="num">${fmt(x.n)}${x.type === 'gear' ? ' 件' : ''}</td><td class="dim">${esc(who.slice(0, 6).join('、'))}${who.length > 6 ? ` 等 ${who.length} 隻` : ''}</td></tr>`;
+    return `<tr><td><input type="checkbox" data-gdpick="${esc(x.k)}" ${gdPicked(d, x) ? 'checked' : ''} ${gdCovered(d, x) ? 'disabled title="已由整類勾選包含"' : ''}></td><td title="${esc(itemTip(x.id))}">${img ? `<img src="${esc(img)}" style="width:20px;height:20px;vertical-align:middle;margin-right:4px" loading="lazy">` : ''}${esc(x.name)}</td><td class="dim">${esc(x.type === 'gear' ? '裝備・' + x.kind : x.kind)}</td><td class="num">${fmt(x.n)}${x.type === 'gear' ? ' 件' : ''}</td><td class="dim">${esc(who.slice(0, 6).join('、'))}${who.length > 6 ? ` 等 ${who.length} 隻` : ''}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="empty">沒有可以存的東西</td></tr>'}</tbody></table>`;
-  $('#gdPickInfo').textContent = `已勾 ${[...d.names].filter(k => all.some(x => x.k === k)).length} 種`;
+  $('#gdPickInfo').textContent = `已勾 ${all.filter(x => gdPicked(d, x)).length} 種`;
+  document.querySelectorAll('[data-gdcat]').forEach(b => { b.checked = d.cats.has(b.dataset.gdcat); });
   $('#gdConds').innerHTML = d.conds.map((c, i) => `<div class="bar" style="margin:2px 0"><select data-gdck="${i}">${STAT_ORDER.map(k => `<option value="${k}" ${c.k === k ? 'selected' : ''}>${esc(statNames[k] || k)}</option>`).join('')}</select><span>浮動 ≥</span><input type="number" data-gdcmin="${i}" value="${esc(c.min)}" style="width:70px"><button class="btn sm" data-gdcdel="${i}">✕</button></div>`).join('') || '<div class="dim">（沒有條件）</div>';
   $('#gdMode').value = d.mode; $('#gdUnknown').checked = d.unknown;
   if (ae !== $('#gdKeep')) $('#gdKeep').value = d.keep;
@@ -3090,6 +3110,7 @@ document.addEventListener('click', async e => {
       await poll(true); openJobs(); return;
     }
     if (t.id === 'gdOpen') { d.open = !d.open; renderGuildDeposit(); return; }
+    if (t.id === 'gaRun') { t.disabled = true; await api('/api/guild/auto-run', {}); await loadGuild(true); renderGuildAuto(); await poll(true); t.disabled = false; return; }
     if (t.id === 'gdCharsAll') { d.chars = null; renderGuildDeposit(); return; }
     if (t.id === 'gdCharsNone') { d.chars = new Set(); renderGuildDeposit(); return; }
     if (t.dataset.gdkind) { d.kind = t.dataset.gdkind; renderGuildDeposit(); return; }
@@ -3119,6 +3140,12 @@ document.addEventListener('change', e => {
   if (t.dataset.gdck) { d.conds[Number(t.dataset.gdck)].k = t.value; gdSave(); renderGuildDeposit(); return; }
   if (t.dataset.gdcmin) { d.conds[Number(t.dataset.gdcmin)].min = t.value === '' ? '' : Number(t.value); gdSave(); renderGuildDeposit(); return; }
   if (t.id === 'gdMode') { d.mode = t.value; gdSave(); renderGuildDeposit(); return; }
+  if (t.dataset.gdcat) { if (t.checked) d.cats.add(t.dataset.gdcat); else d.cats.delete(t.dataset.gdcat); gdSave(); renderGuildDeposit(); return; }
+  if (t.id === 'gaMode' || t.id === 'gaEvery') {
+    const mode = $('#gaMode').value, everyMin = Math.max(10, Number($('#gaEvery').value) || 30);
+    if (t.id === 'gaMode' && mode === 'deposit' && !confirm('開啟後，符合存入選單條件的東西會定時自動存進公倉（直接執行、不用確認）。確定開啟？')) { $('#gaMode').value = (S.guildAuto || {}).mode || 'off'; return; }
+    saveSettings({ guildAuto: { mode, everyMin } }); renderGuildAuto(); return;
+  }
   if (t.id === 'gdUnknown') { d.unknown = t.checked; gdSave(); renderGuildDeposit(); return; }
   if (t.id === 'gdKeep') { d.keep = Math.max(0, Number(t.value) || 0); gdSave(); renderGuildDeposit(); return; }
 });
