@@ -50,8 +50,8 @@ def prepare_hub(fresh=True):
 
 
 class Env:
-    def __init__(self, fresh=True, headless=True, busy_rate=0, extdb=None):
-        self.fresh, self.headless, self.busy_rate, self.extdb = fresh, headless, busy_rate, extdb
+    def __init__(self, fresh=True, headless=True, busy_rate=0, extdb=None, sync_ms=3000):
+        self.fresh, self.headless, self.busy_rate, self.extdb, self.sync_ms = fresh, headless, busy_rate, extdb, sync_ms
         self.procs, self.contexts, self.logs = [], [], []
 
     async def __aenter__(self):
@@ -60,7 +60,7 @@ class Env:
             os.makedirs(os.path.join(HUB_DIR, 'data'), exist_ok=True)
             json.dump({'source': 'test', 'fetchedAt': int(time.time() * 1000), 'meta': {}, 'items': self.extdb, 'mobs': {}, 'quiz': []},
                       open(os.path.join(HUB_DIR, 'data', 'extdb.json'), 'w', encoding='utf-8'), ensure_ascii=False)
-        env = {**os.environ, 'BUSY_RATE': str(self.busy_rate)}
+        env = {**os.environ, 'BUSY_RATE': str(self.busy_rate), 'MOCK_SYNC_MS': str(self.sync_ms)}
         self.procs.append(subprocess.Popen(['node', os.path.join(HERE, 'mockgame.js'), '9900'], env=env, stdout=open('/tmp/mockgame.log', 'w'), stderr=subprocess.STDOUT))
         self.procs.append(subprocess.Popen(['node', 'server.js'], cwd=HUB_DIR, env={**os.environ, 'PORT': '8787'}, stdout=open('/tmp/hub.log', 'w'), stderr=subprocess.STDOUT))
         try:

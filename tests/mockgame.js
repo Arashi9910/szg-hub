@@ -184,6 +184,8 @@ function handle(a, body) {
   const now = Date.now();
   switch (body.type) {
     case 'sync': {
+      // 真實遊戲：伺服器的「目前角色」跟著頁面同步的角色走
+      if (body.characterId && a.chars[body.characterId]) a.active = body.characterId;
       let evs = [];
       for (const x of Object.values(a.chars)) evs = evs.concat(simulate(x, now));
       const res = { ...sessionView(a), summary: { events: evs }, tradeEligible: tradeEligible(a) };
@@ -292,15 +294,18 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>上漲谷�
 // 模擬遊戲的 client-update.js：所有 /api/game 請求補上版本標頭
 (function(){ const f = window.fetch; window.fetch = function(input, init){ init = init || {}; const u = String((input && input.url) || input);
   if (u.includes('/api/game')) { init.headers = Object.assign({}, init.headers || {}, { 'X-Game-Version': '${GAME_VERSION}' }); } return f.call(this, input, init); }; })();
+// 跟真實遊戲一樣：同步用的是記憶體裡「畫面上的角色」，同步完再把它寫回 sessionStorage
+let cur = null;
 async function sync(){
-  const r = await fetch('/api/game', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'sync', characterId: sessionStorage.getItem('mapleCharacter') }) });
+  cur = cur || sessionStorage.getItem('mapleCharacter');
+  const r = await fetch('/api/game', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'sync', characterId: cur }) });
   const j = await r.json(); if (!j.character) return;
-  sessionStorage.setItem('mapleCharacter', j.character.id);
+  cur = j.character.id; sessionStorage.setItem('mapleCharacter', j.character.id);
   sessionStorage.setItem('mapleSessionView', JSON.stringify({ state: j }));
   document.getElementById('who').textContent = j.character.name + ' Lv' + j.character.lv + ' 楓幣 ' + j.character.money.toLocaleString();
   document.getElementById('st').textContent = 'EXP ' + j.character.xp + ' [12.50%]\\n平均每小時經驗 120,000\\n你的遊戲 ID：' + (window.__code || '');
 }
-fetch('/api/account').then(r => r.json()).then(a => { window.__code = a.playerCode; if (!sessionStorage.getItem('mapleCharacter')) sessionStorage.setItem('mapleCharacter', a.activeCharacterId); sync(); setInterval(sync, 3000); });
+fetch('/api/account').then(r => r.json()).then(a => { window.__code = a.playerCode; if (!sessionStorage.getItem('mapleCharacter')) sessionStorage.setItem('mapleCharacter', a.activeCharacterId); sync(); setInterval(sync, ${Number(process.env.MOCK_SYNC_MS) || 3000}); });
 </script></body></html>`;
 
 function acctOf(req) {

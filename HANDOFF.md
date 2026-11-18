@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-18（v0.25.1）
+最後更新：2026-11-18（v0.25.2）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -10,7 +10,7 @@
   3. `python3 tools/make-public.py <私人repo路徑> <公開repo路徑>` 產生公開版（會拿掉 REMOTE／TOKEN／Tailscale，新增的程式檔要加進 `tools/make-public.py` 的 FILES）
   4. 更新公開 repo 的 README（公開版 README 獨立維護），commit 後 `git -c push.negotiate=true push`
   5. 在使用者面板分頁（http://127.0.0.1:8787/）執行 `/api/update/check` → `/api/update/apply` 套用；遊戲分頁約 2 分鐘內自動換新腳本
-- 測試：`/home/claude/test`（mockgame.js 模擬遊戲、harness.py 共用工具、e2e_smoke.py 冒煙測試，`python3 e2e_smoke.py`）。harness 會把私人 repo 複製到 /tmp/hub 當測試中控，並先 `POST /api/settings {"autoUpdate":false}`，否則會被 GitHub 版本蓋掉。2026-11-18 舊測試檔隨舊工作階段消失，已重寫；**之後要放進 repo 才不會再不見**。
+- 測試：`tests/`（e2e_smoke、e2e_guild、e2e_switch）；原本寫在 `/home/claude/test`（mockgame.js 模擬遊戲、harness.py 共用工具、e2e_smoke.py 冒煙測試，`python3 e2e_smoke.py`）。harness 會把私人 repo 複製到 /tmp/hub 當測試中控，並先 `POST /api/settings {"autoUpdate":false}`，否則會被 GitHub 版本蓋掉。2026-11-18 舊測試檔隨舊工作階段消失，已重寫；**之後要放進 repo 才不會再不見**。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定；**公會倉庫相關功能只做私人版**（公開版其他人做法可能不同），之後用程式標記讓 make-public 移除。
 
 ## 檔案
@@ -22,7 +22,7 @@
 
 ## 遊戲 API 重點（/api/game）
 - 需要 `X-Game-Version` 標頭（頁面 fetch 會加）；非 sync 動作要 requestId；「存檔忙碌」要重試（agent 的 `gameRetry`）
-- 換圖 `{type:'map', map, characterId}`；切換角色 `{type:'switch'}`
+- 換圖 `{type:'map', map, characterId}`；切換角色 `{type:'switch'}`。頁面重新載入時用 `sessionStorage.mapleCharacter` 決定角色，但**遊戲每次同步完會把它寫回畫面上的角色**（記憶體裡的 state），所以 agent 切換後要擋住這個寫入再立刻重新整理（v0.25.2）；伺服器的「目前角色」也會跟著頁面同步的角色走
 - 自動販售 `{type:'autoSell', characterId, map, config:{enabled,itemIds}}`：**只接受角色目前所在地圖**
 - 所有 /api/game 回應都是「整份狀態放最上層」（character、characters、tradeEligible…）＋ `summary`；頁面把它存成 `mapleSessionView = {state: 回應}`
 - 批次衝卷（神匠之魂，2026-11-18 讀遊戲程式碼核對）：單件 `{type:'artisanScroll', uid, item, count(≤10), stopAfterSuccesses(0=不停), expectedSlots: g.slots, stopOnFail}`；多件把 `uid` 換成 `uids:[2～10]`。**每衝 1 次**扣 1 張卷軸＋10 萬楓幣（ARTISAN_FEE），失敗也扣格；卷軸要在同一隻角色身上，適用條件 `catalog.scrolls[id].target === gear.type`；詛咒卷軸失敗可能讓裝備消失。回應格式還沒實際看過。單次 `{type:'scroll', item, target, uid}`
