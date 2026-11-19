@@ -22,6 +22,9 @@ def cut(text, start, end, name, keep_end=True):
 
 for f in FILES:
     shutil.copyfile(os.path.join(src, f), os.path.join(dst, f))
+# 共享題庫的 Apps Script（讓別人自己架一份）
+os.makedirs(os.path.join(dst, 'tools'), exist_ok=True)
+shutil.copyfile(os.path.join(src, 'tools', 'quiz-share.gs'), os.path.join(dst, 'tools', 'quiz-share.gs'))
 
 # 只在私人版的功能：程式裡用 <private:名稱> … </private:名稱> 包起來（整行標記，JS 用 // 、HTML 用 <!-- -->），公開版整段拿掉
 import re
