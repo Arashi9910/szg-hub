@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-20（v0.39.0）
+最後更新：2026-11-20（v0.39.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -109,6 +109,6 @@
 - v0.37.0：開關統一成 `input[type=checkbox].sw`（CSS 滑動開關，.pre＝試跑橘色）；總覽自動化改 `.auto-tile`＋`data-autotog`（AUTO_TOG 七個可切換；gear/mklist 開啟時 confirm 選直接或試跑，沒角色／規則會 alert 帶去設定）。`select[data-seg]`＋option data-short 由 `enhanceSegs()` 產生 `.mode-seg` 分段按鈕（select 隱藏，按鈕改值後觸發 change；測試要看 `.mode-seg` 不要看 select 是否可見）。表情符號換 Lucide（ic()／data-ic＋fillIcons()，renderAll 結尾會跑）。
 - v0.38.0 共享題庫：Apps Script `tools/quiz-share.gs`（試算表「題庫」分頁：key、題目、選項、答案、票數、投票紀錄 {答案:[install]}、停用、更新時間；同票不提供；每 install 10 分鐘 40 次）。使用者的部署網址寫在 server.js `QUIZ_SHARE_URL`（公開版也用同一個，使用者同意預設加入）。server：`quizShareQueue`（/api/quiz/learn 帶 correct 欄位＝遊戲正解才排隊）、`quizShareSync` 每分鐘檢查（上傳 5 分鐘一次、下載 30 分鐘一次、新的「等你作答」觸發立即下載）、db.installId、db.quizShareState、db.quizShared；quizBank 順序 ext < bank < shared < learned。測試 `tests/e2e_quiz_share.py`＋`tests/mock_appscript.js`（vm 跑真的 .gs），環境變數 SZG_QUIZ_SHARE_URL 指向本機模擬。
 - v0.38.1 補送：`quizShareSync` 先下載再掃 learned（`st.scanTo` 時間水位，含 by=面板 的，放 `SZG_QUIZ_VERIFY_MS`＝30 分鐘還沒被遊戲正解更正才送）；缺選項的從 ext／共享題庫補，補不到的記在 `st.optWait` 下次再試。取代舊的 `backfilled`（只送非面板的，導致 208 題只送了 2 題）。
-- v0.39.0 楓幣收入：遊戲 `state.character.earned`（主控台累計賺得）與 `character.sessionReport`（money、xp、activeMs、startedAt、stoppedAt…，也有 soldItems／soldGear／purchased／used）；agent 快照 `char.earned`、`char.session`。dashboard `mesoRate(c)`＝session.money÷activeMs（≥10 分鐘才算），總覽讀數「楓幣收入／時」（只加掛機中的）、「合計賺得」（session.money 加總＋累計）；表格欄 mrate。mock `/__mock/session`，測試 `tests/e2e_income.py`。表格排序：null 一律排最後。
+- v0.39.0 楓幣收入：遊戲 `state.character.earned`（主控台累計賺得）與 `character.sessionReport`（money、xp、activeMs、startedAt、stoppedAt…，也有 soldItems／soldGear／purchased／used）；agent 快照 `char.earned`、`char.session`。dashboard `mesoRate(c)`＝session.money÷activeMs（≥10 分鐘才算），總覽讀數「楓幣收入／時」（只加掛機中的）、「合計賺得」（session.money 加總＋累計）；表格欄 mrate。mock `/__mock/session`，測試 `tests/e2e_income.py`。表格排序：null 一律排最後。v0.39.1：session.startedAt 是毫秒數字；session.money 是淨額（會是負的）；short() 支援負數。
   - 注意：使用者的 Chrome 登入多個 Google 帳號，直接開網址會跳 /u/5/ 顯示找不到；中控（Node、不帶 cookie）存取正常。
 
