@@ -62,7 +62,8 @@ class Env:
                       open(os.path.join(HUB_DIR, 'data', 'extdb.json'), 'w', encoding='utf-8'), ensure_ascii=False)
         env = {**os.environ, 'BUSY_RATE': str(self.busy_rate), 'MOCK_SYNC_MS': str(self.sync_ms)}
         self.procs.append(subprocess.Popen(['node', os.path.join(HERE, 'mockgame.js'), '9900'], env=env, stdout=open('/tmp/mockgame.log', 'w'), stderr=subprocess.STDOUT))
-        self.procs.append(subprocess.Popen(['node', 'server.js'], cwd=HUB_DIR, env={**os.environ, 'PORT': '8787'}, stdout=open('/tmp/hub.log', 'w'), stderr=subprocess.STDOUT))
+        # 測試絕對不能送到真的共享題庫：沒指定時指向一個不存在的本機位址
+        self.procs.append(subprocess.Popen(['node', 'server.js'], cwd=HUB_DIR, env={**os.environ, 'PORT': '8787', 'SZG_QUIZ_SHARE_URL': os.environ.get('SZG_QUIZ_SHARE_URL', 'http://127.0.0.1:9/')}, stdout=open('/tmp/hub.log', 'w'), stderr=subprocess.STDOUT))
         try:
             wait_url(MOCK + '/api/account'); wait_url(HUB + '/api/settings')
         except Exception:

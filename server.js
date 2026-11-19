@@ -118,7 +118,7 @@ function quizBank() {
 }
 // ===== 共享題庫：Google 試算表＋Apps Script（tools/quiz-share.gs）=====
 // 預設加入（公開版也是）；只上傳遊戲公布的正確答案＋匿名編號，不送角色名稱。設定：settings.quizShare = { on, url }
-const QUIZ_SHARE_URL = '';
+const QUIZ_SHARE_URL = 'https://script.google.com/macros/s/AKfycbxsdKpgb1W1YlFfwE0DpK0ZvWObMcsdnCLDr1WdURBG7MPApdaR8MPzkCZ2KQY2eiqKzQ/exec';
 const quizShareCfg = () => { const x = (db.settings && db.settings.quizShare) || {}; return { on: x.on !== false, url: x.url || process.env.SZG_QUIZ_SHARE_URL || QUIZ_SHARE_URL }; };
 // 只接受 Google Apps Script 的網址（測試時可以用環境變數指到本機的模擬）
 const quizShareOn = () => { const c = quizShareCfg(); return c.on && (/^https:\/\/script\.google(usercontent)?\.com\//.test(c.url || '') || (!!process.env.SZG_QUIZ_SHARE_URL && c.url === process.env.SZG_QUIZ_SHARE_URL)); };
