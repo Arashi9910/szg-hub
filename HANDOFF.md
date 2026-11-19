@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-19（v0.35.0）
+最後更新：2026-11-19（v0.36.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -100,4 +100,10 @@
   - 公倉：`#gStatus` 狀態列（renderGuildStatus）、`.g-xfer` 三欄（左 `#gxBagOut` renderGuildBag／ui.gx，中 `#gxDeposit`＋`#gwBar`，右 `#gwOut`）、`#gRulesDrawer`（執行＋存入規則）、`#gMoneyDrawer`（楓幣點數）；Esc 關抽屜。存入（gxDepositPlan）與領取都直接 approve。測試 `tests/e2e_guild_xfer.py`；其他公倉測試要先點 `#gRulesOpen`／`#gMoneyOpen`。
   - 背包：角色卡收進 `<details id="bCharBox">`（localStorage bagCharsOpen）。
   - 參考：遊戲倉庫「背包與倉庫並排、中間按鈕搬移」（Opsive Storage Menu、Expressobits inventory transfer）、漸進揭露（少用設定收進抽屜）、GitLab 設定頁摘要。
+- v0.36.0 功能整理（使用者同意的四步）：
+  1. 入口分工：背包「給…」抽屜 `#bGiveDrawer`（giveOpen/renderGive/giveReqs，ui.give.src）取代交易頁分發（舊 #gFrom 程式碼留著但有 guard）；背包拿掉「含公倉」（ui.bag.guild 固定 false）和「存進公倉」（bagExtraActions 改成連到公倉）。
+  2. 總覽「自動化」`#ovAuto`（autoItems/renderOvAuto，server `automationInfo()` 進 /api/data.auto）。
+  3. 共用角色選擇器 `charPickHTML(id)`＋`CP[id]={get,set}`，spec {mode: all|A|B|tab|custom, ids}；as/mk 存 charSpec＋展開的 chars map（cpMapSync 動態同步，資料沒載入時不寫）；guildDep.charMode。類別順序 BAG_KIND_ORDER 裝備、卷軸、消耗、其他；裝備頁 #fJudge、公倉背包欄 #gxJudge。
+  4. 部位設定：拿掉 slotStats 編輯器，穿戴對照 `statLineJ` 全部素質＋要看的加粗；條件 `_rollOk`／`_rollScore`（dashboard condVal、agent rollProf/ROLLP、market.js 由 server 注入 rollProfile）。`/api/autosell?v=` 沒帶或 < 0.36.0 的腳本拿不到用 _roll 條件的規則（舊腳本會當 0 全賣）。
+  - 測試：新增 e2e_bag_give、e2e_filters、e2e_rollsell；刪除 e2e_bag_guild（功能移除）。
 
