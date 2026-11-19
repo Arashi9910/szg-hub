@@ -392,6 +392,12 @@
   .auto-chip:hover { border-color: var(--accent); }
   .auto-chip.off { color: var(--dim); } .auto-chip.off b { font-weight: 400; }
   .auto-chip.pre b { color: var(--warn); } .auto-chip.bad { border-color: var(--bad); } .auto-chip.bad b { color: var(--bad); }
+
+  /* ===== 共用角色選擇器（v0.36）===== */
+  .cpick { display: inline-flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  .cp-list { display: flex; flex-direction: column; gap: 4px; flex-basis: 100%; margin-top: 4px; }
+  .cp-grp { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; } .cp-grp b { color: var(--dim); font-weight: 500; width: 34px; }
+  .cp-grp label { display: inline-flex; gap: 3px; align-items: center; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -481,6 +487,7 @@
         <span>強化 ≥</span><input type="number" id="fPlus">
         <span>剩餘可衝 ≥</span><input type="number" id="fSlotsLeft">
         <label><input type="checkbox" id="fWearable"> 只看有人能穿的</label>
+        <span id="fJudgeBox"></span>
       </div>
       <div class="bar" style="align-items:flex-start"><span style="width:70px">素質條件</span>
         <div><div id="fConds"></div><button class="btn" id="addCond">＋ 新增條件</button></div>
@@ -543,7 +550,8 @@
         <details class="bag-adv"><summary>更多篩選</summary><div id="ffBag"></div></details>
         <details class="bag-adv rp-editor"><summary>浮動判斷基準</summary><div class="rp-body"></div></details>
       </div>
-      <details id="bCharBox" class="b-charbox"><summary><span data-ic="backpack"></span> <span id="bCharSum">角色：全部</span> <span class="dim sm">（點開選角色；按住 Ctrl 可以多選）</span></summary><div id="bChars" class="char-strip"></div></details>
+      <div class="bar" style="margin:4px 0 0"><span class="dim">角色</span><span id="bCharPick"></span></div>
+      <details id="bCharBox" class="b-charbox"><summary><span data-ic="backpack"></span> <span id="bCharSum">角色卡</span> <span class="dim sm">（每隻角色的背包數量、可賣金額；點卡片只看那隻，Ctrl 多選）</span></summary><div id="bChars" class="char-strip"></div></details>
     </div>
     <div id="bagOut"></div>
     <div id="bagBar" class="action-bar" style="display:none"></div>
@@ -712,13 +720,14 @@
     </div>
     </div>
     <div class="g-tools">
-      <div class="seg" id="gwTabs"><button data-gwtab="scroll">卷軸</button><button data-gwtab="use">消耗</button><button data-gwtab="etc">其他</button><button data-gwtab="gear">裝備</button></div>
+      <div class="seg" id="gwTabs"><button data-gwtab="gear">裝備</button><button data-gwtab="scroll">卷軸</button><button data-gwtab="use">消耗</button><button data-gwtab="etc">其他</button></div>
       <input id="gwQ" placeholder="搜尋名稱（兩邊一起篩）" style="width:200px" autocomplete="off">
       <span class="dim sm">點整列選取（Shift＋點選一段）。左邊選好按「存入」，右邊選好按「領取」。</span>
     </div>
     <div class="g-xfer">
       <div class="card g-pane" id="gBagPane">
-        <div class="g-pane-hd"><b>背包</b><select id="gxChars" title="看哪些角色的背包"></select><span id="gxBagInfo" class="dim sm"></span></div>
+        <div class="g-pane-hd"><b>背包</b><span id="gxBagInfo" class="dim sm"></span></div>
+        <div class="g-pane-tools" id="gxChars"></div>
         <div id="gxBagTools" class="g-pane-tools"></div>
         <div id="gxBagOut" class="g-list"></div>
       </div>
@@ -755,11 +764,10 @@
         <button class="btn sm" data-gdpreset="good" title="所有卷軸＋浮動達標的裝備（每個部位照「浮動判斷基準」看各自的素質；爛的留在背包給自動販售處理）">卷軸＋比標準好的裝備</button>
         <button class="btn sm" data-gdpreset="clear">清空規則</button></div>
       <div class="bar"><span class="gd-lb">哪些角色</span><div class="chips" id="gdChars"></div></div>
-      <div class="bar"><span class="gd-lb"></span><button class="btn sm" id="gdCharsAll" title="包含之後新增的角色">全部角色</button><button class="btn sm" data-gdgroup="A">只選 A 組</button><button class="btn sm" data-gdgroup="B">只選 B 組</button><button class="btn sm" id="gdCharsNone">全不選</button><span class="dim sm" id="gdCharsInfo"></span></div>
       <div class="bar"><span class="gd-lb">整類存入</span><div class="chips" id="gdCats"></div><span class="dim sm">勾整類會包含之後撿到的新東西，自動存入用這個最方便</span></div>
       <details id="gdPickBox"><summary style="cursor:pointer"><span class="gd-lb" style="display:inline-block">個別挑選</span> <span class="dim sm">只想存特定幾種時用（點整列選取）</span>　<span class="dim sm" id="gdPickInfo"></span></summary>
         <div class="bar">
-          <div class="seg" id="gdKinds"><button data-gdkind="all">全部</button><button data-gdkind="gear">裝備</button><button data-gdkind="卷軸">卷軸</button><button data-gdkind="other">其他</button></div>
+          <div class="seg" id="gdKinds"><button data-gdkind="all">全部</button><button data-gdkind="gear">裝備</button><button data-gdkind="卷軸">卷軸</button><button data-gdkind="消耗">消耗</button><button data-gdkind="other">其他</button></div>
           <input id="gdQ" placeholder="搜尋名稱" style="width:160px" autocomplete="off"><button class="btn sm" id="gdPickShown">勾選目前列出的</button><button class="btn sm" id="gdPickNone">清除個別勾選</button>
         </div>
         <div id="gdList" style="max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:6px"></div>
@@ -1326,6 +1334,7 @@ function readFilterFromUI() {
   f.char = $('#fChar').value; f.name = $('#fName').value.trim();
   f.lvMin = $('#fLvMin').value; f.lvMax = $('#fLvMax').value; f.plus = $('#fPlus').value; f.slotsLeft = $('#fSlotsLeft').value;
   f.wearable = $('#fWearable').checked;
+  f.judge = $('#fJudge') ? $('#fJudge').value : 'all';
   f.conds = readConds($('#fConds'));
 }
 
@@ -1339,6 +1348,7 @@ function renderFilterUI() {
   const chars = snaps().slice().sort((a, b) => cmp(a.char.name, b.char.name));
   $('#fChar').innerHTML = '<option value="">全部角色</option>' + chars.map(s => `<option value="${s.char.id}" ${f.char === s.char.id ? 'selected' : ''}>${esc(s.char.name)}</option>`).join('');
   $('#fName').value = f.name; $('#fLvMin').value = f.lvMin; $('#fLvMax').value = f.lvMax; $('#fPlus').value = f.plus; $('#fSlotsLeft').value = f.slotsLeft; $('#fWearable').checked = f.wearable;
+  $('#fJudgeBox').innerHTML = rollFilterSel('fJudge', f.judge || 'all');
   $('#fConds').innerHTML = f.conds.map(condRow).join('') + (f.conds.length > 1 ? '<div class="dim">「且」優先：A 且 B 或 C ＝（A 且 B）或 C</div>' : '');
   $('#presetSel').innerHTML = '<option value="">（未選擇）</option>' + (S.presets || []).map((p, i) => `<option value="${i}">${esc(p.name)}</option>`).join('');
 }
@@ -1394,6 +1404,7 @@ function gearMatch(g, f, mode, onlyItself) {
     if (f.slotsLeft !== '' && g.slotsLeft < Number(f.slotsLeft)) return false;
     if (condsPass(g, f.conds, mode) === false) return false;
     if (f.wearable && !wearers(g).length) return false;
+    if (!rollFilterPass(g, f.judge)) return false;
     return true;
   }
 }
@@ -1413,7 +1424,7 @@ function renderList() {
   for (const id of [...ui.gearSel]) if (!rows.some(g => g.uid === id)) ui.gearSel.delete(id);
   // 篩選摘要
   const fs = [f.slots.length && '部位 ' + f.slots.map(slotLabel).join('/'), f.locs.length && f.locs.length < LOCS.length && '只看' + f.locs.join('/'), f.jobs.length && '職業 ' + JOBS.filter(([, b]) => f.jobs.includes(b)).map(([n]) => n).join('/'),
-    f.char && (DATA.chars[f.char] ? DATA.chars[f.char].char.name : '指定角色'), (f.lvMin !== '' || f.lvMax !== '') && `Lv ${f.lvMin || 0}~${f.lvMax || '∞'}`, f.plus !== '' && `強化≥${f.plus}`, f.slotsLeft !== '' && `可衝≥${f.slotsLeft}`, f.wearable && '有人能穿',
+    f.char && (DATA.chars[f.char] ? DATA.chars[f.char].char.name : '指定角色'), (f.lvMin !== '' || f.lvMax !== '') && `Lv ${f.lvMin || 0}~${f.lvMax || '∞'}`, f.plus !== '' && `強化≥${f.plus}`, f.slotsLeft !== '' && `可衝≥${f.slotsLeft}`, f.wearable && '有人能穿', f.judge && f.judge !== 'all' && ({ ok: '浮動達標', no: '浮動未達標', unknown: '算不出浮動' })[f.judge],
     f.conds.filter(c => c.val !== '').length && `素質條件 ${f.conds.filter(c => c.val !== '').length} 條`].filter(Boolean);
   $('#fSummary').textContent = fs.length ? '已套用：' + fs.join('・') : '（未設定，點開設定部位、位置、職業、等級、素質條件、顯示欄位）';
   if (ui.gearGroup) { $('#gearOut').innerHTML = gearGroupView(rows, mode); return; }
@@ -1759,7 +1770,7 @@ function bagGuildRows(raw) {
 }
 const guildGearTip = x => `${x.successes ? '+' + x.successes + ' ' : ''}${statLine(x.stats || {}, STAT_ORDER) || '無素質'}　可衝 ${x.slots ?? '?'}${x.locked ? '　🔒' : ''}`;
 try { const v = localStorage.getItem('bagView'); if (v === 'char' || v === 'item' || v === 'list') ui.bag.view = v; } catch (_) {}
-const BAG_KIND_ORDER = ['裝備', '消耗', '卷軸', '其他', '裝飾', '點數'];
+const BAG_KIND_ORDER = ['裝備', '卷軸', '消耗', '其他', '裝飾', '點數']; // 全中控同一個類別順序
 const kindRank = k => { const i = BAG_KIND_ORDER.indexOf(k); return i < 0 ? 99 : i; };
 const bagSid = (charId, rid) => charId + '|' + rid;
 // 有背包資料的角色（依帳號、名稱排序）
@@ -1810,7 +1821,8 @@ function renderBagList() {
     Object.keys(kc).sort((x, y) => kindRank(x) - kindRank(y)).map(k => `<button data-bkind="${esc(k)}" class="${b.kind === k ? 'on' : ''}">${esc(k)}<span class="n">${kc[k]}</span></button>`).join('');
   // 角色卡
   { const picked = chars.filter(s => b.chars.has(s.char.id)), nSelAll = [...ui.bagSel].filter(id => !id.startsWith(GSID)).length;
-    $('#bCharSum').innerHTML = `角色：${picked.length ? esc(picked.slice(0, 4).map(s => s.char.name).join('、')) + (picked.length > 4 ? ` 等 ${picked.length} 隻` : '') : `全部（${chars.length} 隻）`}${nSelAll ? `<span class="good">・已選 ${nSelAll} 項</span>` : ''}`;
+    if (!$('#bCharPick').contains(document.activeElement) || document.activeElement.tagName === 'BUTTON') $('#bCharPick').innerHTML = charPickHTML('bag', { noFuture: true });
+    $('#bCharSum').innerHTML = `角色卡：${picked.length ? esc(picked.slice(0, 4).map(s => s.char.name).join('、')) + (picked.length > 4 ? ` 等 ${picked.length} 隻` : '') : `全部（${chars.length} 隻）`}${nSelAll ? `<span class="good">・已選 ${nSelAll} 項</span>` : ''}`;
     fillIcons($('#bag'));
     const box = $('#bCharBox'); if (!box.dataset.init) { box.dataset.init = '1'; try { box.open = localStorage.getItem('bagCharsOpen') === '1'; } catch (_) {} } }
   $('#bChars').innerHTML = chars.map(s => {
@@ -2125,6 +2137,7 @@ document.addEventListener('click', async e => {
       else if (e.ctrlKey || e.metaKey) { if (b.chars.has(d.bchar)) b.chars.delete(d.bchar); else b.chars.add(d.bchar); }
       else if (b.chars.size === 1 && b.chars.has(d.bchar)) b.chars.clear();
       else { b.chars.clear(); b.chars.add(d.bchar); }
+      b.cp = b.chars.size ? { mode: 'custom', ids: [...b.chars] } : { mode: 'all' };
       renderBagList(); return;
     }
     if (d.bpick) { const ids = d.bpick.split(','), allSel = ids.every(id => ui.bagSel.has(id)); for (const id of ids) { if (allSel) ui.bagSel.delete(id); else ui.bagSel.add(id); } renderBagList(); return; }
@@ -2503,8 +2516,8 @@ function renderAS(force) {
   if (!$('#asPreview').contains(document.activeElement)) renderASPreview();
   if (!force && card.contains(document.activeElement) && document.activeElement.tagName !== 'BUTTON') return;
   $('#asMode').value = cfg.mode;
-  $('#asChars').innerHTML = snaps().slice().sort((a, b) => cmp(a.char.name, b.char.name)).map(s => `<label><input type="checkbox" class="as-char" value="${s.char.id}" ${cfg.chars[s.char.id] ? 'checked' : ''}>${esc(s.char.name)}${s.char.id === S.mainCharId ? '★' : ''}</label>`).join('')
-    + '<button class="btn" id="asCharAll">全選</button><button class="btn" id="asCharNoMain">全選（不含本尊）</button><button class="btn" id="asCharNone">清除</button>';
+  $('#asChars').innerHTML = charPickHTML('as');
+  cpMapSync(cfg.charSpec, cfg.chars, chars => saveAS({ chars }));
   $('#asRules').innerHTML = cfg.rules.length ? cfg.rules.map(ruleHTML).join('') : '<div class="dim" style="margin:8px 0">還沒有規則。</div>';
 }
 document.addEventListener('click', async e => {
@@ -2673,8 +2686,8 @@ function renderMkAuto(force) {
   $('#mkLog').innerHTML = logs.length ? logs.map(l => `<div><span class="dim">${clock(l.at)}</span> ${esc(l.name)}：${esc(l.msg)}</div>`).join('') : '<span class="dim">還沒有紀錄</span>';
   if (!force && (box.contains(document.activeElement) && document.activeElement.tagName !== 'BUTTON' || (ui.pickOpen || '').startsWith('mr'))) return;
   $('#mkMode').value = c.mode;
-  $('#mkChars').innerHTML = snaps().slice().sort((a, b) => cmp(a.char.name, b.char.name)).map(s => `<label><input type="checkbox" class="mk-char" value="${s.char.id}" ${c.chars[s.char.id] ? 'checked' : ''}>${esc(s.char.name)}</label>`).join('')
-    + '<button class="btn" id="mkCharAll">全選</button><button class="btn" id="mkCharNone">清除</button>';
+  $('#mkChars').innerHTML = charPickHTML('mk');
+  cpMapSync(c.charSpec, c.chars, chars => saveMk({ chars }));
   $('#mkRules').innerHTML = c.rules.length ? c.rules.map(mkRuleHTML).join('') : '<div class="dim" style="margin:8px 0">還沒有規則。</div>';
   if ($('#mkPlan').closest('details').open) renderMkPlan();
 }
@@ -3956,6 +3969,55 @@ document.addEventListener('click', async e => {
 // ================= 公會倉庫 =================
 let GUILD = { data: null }, guildLoadAt = 0;
 ui.gw = { tab: 'scroll', q: '', sel: new Map(), all: '', conds: [], mode: 'all', fresh: false, seller: '', judge: 'all' };
+// ===== 共用角色選擇器：全部／A 組／B 組／有分頁的／自訂 =====
+// 每個用到的地方註冊 CP[id] = { get(): spec, set(spec), all? }；spec = { mode, ids }
+// 「全部／A／B／有分頁的」是動態的：之後新增的角色、切換分頁都會自動算進去
+const CP = {};
+function cpIds(spec) {
+  const all = snaps().slice().sort((a, b) => cmp(a.char.name, b.char.name)).map(s => s.char.id);
+  const m = (spec && spec.mode) || 'all';
+  if (m === 'all') return all;
+  if (m === 'A' || m === 'B') { const g = new Set(groupChars(m)); return all.filter(id => g.has(id)); }
+  if (m === 'tab') return all.filter(id => hasTab(id));
+  const set = new Set((spec && spec.ids) || []); return all.filter(id => set.has(id));
+}
+// 舊設定（{角色id: true}）轉成 spec：剛好是全部角色就當「全部」
+function cpFromMap(map) { const ids = Object.keys(map || {}).filter(k => map[k]); const all = snaps().map(s => s.char.id); return ids.length && all.every(id => ids.includes(id)) ? { mode: 'all' } : { mode: 'custom', ids }; }
+function charPickHTML(id, opts = {}) {
+  const spec = CP[id].get() || { mode: 'all' }, ids = cpIds(spec), on = new Set(ids);
+  const btn = (m, l) => `<button class="${spec.mode === m ? 'on' : ''}" data-cp="${id}|${m}">${l}</button>`;
+  let h = `<span class="cpick"><span class="seg">${btn('all', '全部')}${btn('A', 'A 組')}${btn('B', 'B 組')}${btn('tab', '有分頁的')}${btn('custom', '自訂')}</span><span class="dim sm">${ids.length} 隻${spec.mode === 'all' && !opts.noFuture ? '（之後新增的也算）' : ''}</span>`;
+  if (spec.mode === 'custom') {
+    const byG = { A: [], B: [] };
+    for (const s of snaps().slice().sort((a, b) => cmp(a.char.name, b.char.name))) (byG[charGroup(s.char.id)] || byG.A).push(s);
+    h += `<span class="cp-list">${['A', 'B'].filter(g => byG[g].length).map(g => `<span class="cp-grp"><b>${g} 組</b>${byG[g].map(s => `<label title="Lv${s.char.lv} ${esc(s.char.jobName || '')}"><input type="checkbox" data-cpc="${id}|${s.char.id}" ${on.has(s.char.id) ? 'checked' : ''}>${esc(s.char.name)}${s.char.id === S.mainCharId ? '★' : ''}</label>`).join('')}</span>`).join('')}
+      <span><button class="btn sm" data-cpall="${id}|1">全選</button><button class="btn sm" data-cpall="${id}|0">清除</button></span></span>`;
+  }
+  return h + '</span>';
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-cp],[data-cpall]'); if (!t) return;
+  if (t.dataset.cp) { const [id, mode] = t.dataset.cp.split('|'); const cur = CP[id].get() || { mode: 'all' }; CP[id].set(mode === 'custom' ? { mode, ids: cpIds(cur) } : { mode }); return; }
+  const [id, v] = t.dataset.cpall.split('|'); CP[id].set({ mode: 'custom', ids: v === '1' ? snaps().map(s => s.char.id) : [] });
+});
+document.addEventListener('change', e => {
+  const t = e.target; if (!t.dataset || !t.dataset.cpc) return;
+  const [id, cid] = t.dataset.cpc.split('|'); const cur = CP[id].get() || { mode: 'custom', ids: [] };
+  const set = new Set(cur.mode === 'custom' ? cur.ids || [] : cpIds(cur)); if (t.checked) set.add(cid); else set.delete(cid);
+  CP[id].set({ mode: 'custom', ids: [...set] });
+});
+// 存成 {角色id: true} 給伺服器、腳本用的設定：動態模式在面板重畫時，角色變了就重存一次
+function cpMapSync(spec, map, save) {
+  if (!spec || spec.mode === 'custom' || !snaps().length) return; // 資料還沒載入時不要把設定洗掉
+  const want = cpIds(spec), have = Object.keys(map || {}).filter(k => map[k]);
+  if (want.length !== have.length || want.some(id => !map[id])) save(Object.fromEntries(want.map(i => [i, true])));
+}
+CP.as = { get: () => asCfg().charSpec || cpFromMap(asCfg().chars), set: async spec => { await saveAS({ charSpec: spec, chars: Object.fromEntries(cpIds(spec).map(i => [i, true])) }); renderAS(true); } };
+CP.mk = { get: () => mkCfg().charSpec || cpFromMap(mkCfg().chars), set: async spec => { await saveMk({ charSpec: spec, chars: Object.fromEntries(cpIds(spec).map(i => [i, true])) }); renderMkAuto(true); } };
+CP.gd = { get: () => { const d = gdState(); return d.charMode && d.charMode !== 'custom' ? { mode: d.charMode } : d.chars ? { mode: 'custom', ids: [...d.chars] } : { mode: 'all' }; },
+  set: spec => { const d = gdState(); d.charMode = spec.mode; d.chars = spec.mode === 'all' ? null : new Set(cpIds(spec)); gdSave(); renderGuildDeposit(); } };
+CP.gx = { get: () => ui.gx.cp || { mode: 'all' }, set: spec => { ui.gx.cp = spec; ui.gx.sel.clear(); renderGuildBag(); } };
+CP.bag = { get: () => ui.bag.cp || { mode: 'all' }, set: spec => { ui.bag.cp = spec; ui.bag.chars = new Set(spec.mode === 'all' ? [] : cpIds(spec)); if (spec.mode !== 'all' && !ui.bag.chars.size) ui.bag.chars.add('__none__'); renderBagList(); } };
 const rollSum = d => d ? Object.values(d).reduce((t, v) => t + v, 0) : null;
 // ===== 浮動判斷基準：每個部位、每種武器看的素質不同 =====
 // 分數＝這件裝備在「這個部位要看的素質」上的掉落浮動加總；分數 ≥ 門檻＝達標（比標準好，值得留）
@@ -4049,11 +4111,11 @@ function gwGearPass(g) {
 ui.gd = null;
 // 存入規則（settings.guildDep）：chars＝哪些角色（null＝全部，包含之後新增的）、cats＝整類、names＝個別挑選、conds＝裝備浮動條件、keep＝每種道具保留幾個
 function gdState() {
-  if (!ui.gd) { const sv = S.guildDep || {}; ui.gd = { kind: 'all', q: '', chars: Array.isArray(sv.chars) ? new Set(sv.chars) : null, names: new Set(sv.names || []), cats: new Set(sv.cats || []), conds: sv.conds || [], mode: sv.mode || 'all', unknown: !!sv.unknown, keep: sv.keep || 0 }; }
+  if (!ui.gd) { const sv = S.guildDep || {}; ui.gd = { kind: 'all', q: '', charMode: sv.charMode || '', chars: Array.isArray(sv.chars) ? new Set(sv.chars) : null, names: new Set(sv.names || []), cats: new Set(sv.cats || []), conds: sv.conds || [], mode: sv.mode || 'all', unknown: !!sv.unknown, keep: sv.keep || 0 }; }
   return ui.gd;
 }
 let gdSaveTimer = null;
-function gdSave() { const d = gdState(); clearTimeout(gdSaveTimer); gdSaveTimer = setTimeout(() => saveSettings({ guildDep: { chars: d.chars ? [...d.chars] : null, names: [...d.names], cats: [...d.cats], conds: d.conds, mode: d.mode, unknown: d.unknown, keep: d.keep } }), 400); }
+function gdSave() { const d = gdState(); clearTimeout(gdSaveTimer); gdSaveTimer = setTimeout(() => saveSettings({ guildDep: { charMode: d.charMode || '', chars: d.chars ? [...d.chars] : null, names: [...d.names], cats: [...d.cats], conds: d.conds, mode: d.mode, unknown: d.unknown, keep: d.keep } }), 400); }
 const GD_CAT_LABEL = { 卷軸: '所有卷軸', 裝備: '所有裝備', 消耗: '所有消耗品', 其他: '所有其他道具' };
 const gdCatLabel = k => GD_CAT_LABEL[k] || '所有' + k;
 const gdCondKey = k => k === '_pass' ? '依部位基準達標' : k === '_sum' ? '浮動總和' : (statNames[k] || k);
@@ -4217,15 +4279,14 @@ const GW_KIND = { scroll: k => k === '卷軸', use: k => k === '消耗', etc: k 
 ui.gx = { chars: 'all', sel: new Set(), shown: [] };
 function gxCharList() {
   const all = snaps().slice().sort((a, b) => cmp(accountLabel(a.accountId, a), accountLabel(b.accountId, b)) || cmp(a.char.name, b.char.name));
-  if (ui.gx.chars === 'all') return all;
-  if (ui.gx.chars === 'A' || ui.gx.chars === 'B') { const ids = new Set(groupChars(ui.gx.chars)); return all.filter(s => ids.has(s.char.id)); }
-  return all.filter(s => s.char.id === ui.gx.chars);
+  const ids = new Set(cpIds(ui.gx.cp || { mode: 'all' }));
+  return all.filter(s => ids.has(s.char.id));
 }
 // 背包裡可以存進公倉的東西（沒鎖、可交易、不是補給中的）
 function gxBagRows() {
   const tab = ui.gw.tab, q = ui.gw.q.trim().toLowerCase(), rows = [];
   if (tab === 'gear') {
-    for (const s of gxCharList()) for (const g of s.gear || []) if (g.loc === '背包' && !g.locked && g.tradable) rows.push({ rk: 'g:' + g.uid, g, s, name: g.name, id: g.itemId, j: rollJudge(g) });
+    for (const s of gxCharList()) for (const g of s.gear || []) if (g.loc === '背包' && !g.locked && g.tradable && rollFilterPass(g, ui.gx.judge)) rows.push({ rk: 'g:' + g.uid, g, s, name: g.name, id: g.itemId, j: rollJudge(g) });
   } else {
     const agg = new Map();
     for (const s of gxCharList()) for (const it of s.items || []) {
@@ -4240,17 +4301,13 @@ function gxBagRows() {
 }
 function renderGuildBag() {
   const sel = $('#gxChars'); if (!sel) return;
-  if (document.activeElement !== sel) {
-    const cs = snaps().slice().sort((a, b) => cmp(a.char.name, b.char.name));
-    sel.innerHTML = `<option value="all">全部角色</option><option value="A">A 組</option><option value="B">B 組</option>` + cs.map(s => `<option value="${s.char.id}">${esc(s.char.name)}${stateSuffix(s)}</option>`).join('');
-    sel.value = ui.gx.chars;
-  }
+  sel.innerHTML = charPickHTML('gx', { noFuture: true });
   const rows = gxBagRows(), G = ui.gw.tab === 'gear';
   const valid = new Set(rows.map(r => r.rk)); for (const k of [...ui.gx.sel]) if (!valid.has(k)) ui.gx.sel.delete(k);
   ui.gx.shown = rows.map(r => r.rk);
   const n = ui.gx.sel.size;
   $('#gxBagInfo').textContent = `${rows.length} ${G ? '件' : '種'}可以存`;
-  $('#gxBagTools').innerHTML = `<span class="sm">已選 <b>${n}</b></span><button class="btn sm" data-gxsel="all">全選</button>${G ? '<button class="btn sm" data-gxsel="ok" title="依浮動判斷基準">選達標的</button><button class="btn sm" data-gxsel="no">選未達標的</button>' : ''}${n ? '<button class="btn sm" data-gxsel="none">清除</button>' : ''}`;
+  $('#gxBagTools').innerHTML = `<span class="sm">已選 <b>${n}</b></span><button class="btn sm" data-gxsel="all">全選</button>${G ? rollFilterSel('gxJudge', ui.gx.judge || 'all') + '<button class="btn sm" data-gxsel="ok" title="依浮動判斷基準">選達標的</button><button class="btn sm" data-gxsel="no">選未達標的</button>' : ''}${n ? '<button class="btn sm" data-gxsel="none">清除</button>' : ''}`;
   let h = `<table><thead><tr><th class="nosort" style="width:24px"></th><th class="nosort">名稱</th>${G ? '<th class="nosort">在誰身上</th><th class="nosort">掉落浮動</th><th class="nosort">判斷</th>' : '<th class="nosort num">可存</th><th class="nosort">在誰身上</th>'}</tr></thead><tbody>`;
   if (!rows.length) h += `<tr><td colspan="5" class="empty">${snaps().length ? '背包裡沒有這一類可以存的東西' : '還沒有背包資料'}</td></tr>`;
   for (const r of rows.slice(0, 500)) {
@@ -4296,7 +4353,7 @@ function renderGuildStatus() {
 }
 function openGDrawer(id) { document.querySelectorAll('.g-drawer').forEach(x => { x.style.display = x.id === id ? '' : 'none'; }); if (id === 'gMoneyDrawer') renderGuildMoney(); if (id === 'gRulesDrawer') { renderGuildDeposit(); renderGuildAuto(); } }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.g-drawer').forEach(x => { x.style.display = 'none'; }); });
-document.addEventListener('change', e => { if (e.target.id === 'gxChars') { ui.gx.chars = e.target.value; ui.gx.sel.clear(); renderGuildBag(); } });
+document.addEventListener('change', e => { if (e.target.id === 'gxJudge') { ui.gx.judge = e.target.value; renderGuildBag(); } });
 document.addEventListener('click', async e => {
   const t = e.target.closest('[data-gxpick],[data-gxsel],#gxDeposit,#gRulesOpen,#gMoneyOpen,[data-gclose]'); if (!t || !t.closest('#guild')) return;
   if (t.dataset.gclose) { $('#' + t.dataset.gclose).style.display = 'none'; return; }
@@ -4437,7 +4494,7 @@ function gdCandidates() {
 }
 function gdShown(all) {
   const d = gdState(), q = d.q.trim().toLowerCase();
-  return all.filter(x => (d.kind === 'all' || (d.kind === 'gear' ? x.type === 'gear' : d.kind === '卷軸' ? x.kind === '卷軸' : x.type === 'item' && x.kind !== '卷軸')) && (!q || x.name.toLowerCase().includes(q)));
+  return all.filter(x => (d.kind === 'all' || (d.kind === 'gear' ? x.type === 'gear' : d.kind === '卷軸' || d.kind === '消耗' ? x.kind === d.kind : x.type === 'item' && x.kind !== '卷軸' && x.kind !== '消耗')) && (!q || x.name.toLowerCase().includes(q)));
 }
 const gdCovered = (d, x) => d.cats.has(x.type === 'gear' ? '裝備' : x.kind);
 const gdPicked = (d, x) => d.names.has(x.k) || gdCovered(d, x);
@@ -4467,15 +4524,8 @@ function renderGuildDeposit() {
   const d = gdState();
   const ae = document.activeElement;
   $('#gdSummary').innerHTML = gdSummary(d);
-  {
-    // 選角色：全部角色時收起來；自訂時分 A 組、B 組兩列
-    const chip = sn => `<label title="${esc(sn.char.jobName || '')}"><input type="checkbox" data-gdchar="${sn.char.id}" ${!d.chars || d.chars.has(sn.char.id) ? 'checked' : ''}>${esc(sn.char.name)} <span class="dim sm">Lv${sn.char.lv}</span></label>`;
-    const byG = { A: [], B: [] }; for (const sn of snaps().slice().sort((a, b) => cmp(a.char.name, b.char.name))) (byG[charGroup(sn.char.id)] || byG.A).push(sn);
-    $('#gdChars').innerHTML = !d.chars && !ui.gdCharsOpen
-      ? `<span>全部角色（目前 ${snaps().length} 隻，之後新增的也算）</span> <button class="btn sm" id="gdCharsCustom">自訂角色</button>`
-      : ['A', 'B'].filter(g => byG[g].length).map(g => `<div class="gd-grp"><b>${g} 組</b>${byG[g].map(chip).join('')}</div>`).join('');
-  }
-  $('#gdCharsInfo').textContent = d.chars ? `已選 ${d.chars.size} 隻` : '目前：全部角色（之後新增的也會存）';
+  if (d.charMode && !['all', 'custom'].includes(d.charMode) && snaps().length) { const ids = cpIds({ mode: d.charMode }); if (!d.chars || ids.length !== d.chars.size || ids.some(x => !d.chars.has(x))) { d.chars = new Set(ids); gdSave(); } }
+  if (!$('#gdChars').contains(ae) || ae.tagName === 'BUTTON') $('#gdChars').innerHTML = charPickHTML('gd');
   document.querySelectorAll('#gdKinds button').forEach(b => b.classList.toggle('on', b.dataset.gdkind === d.kind));
   const all = gdCandidates(), shown = gdShown(all);
   $('#gdList').innerHTML = `<table><thead><tr><th class="nosort" style="width:24px"></th><th class="nosort">名稱</th><th class="nosort">類型</th><th class="nosort num">數量</th><th class="nosort">在誰身上</th></tr></thead><tbody>${shown.map(x => {
