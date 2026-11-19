@@ -83,7 +83,7 @@ async def main():
 
         print('3. 領取：裝備依建議、卷軸全部給弓箭分身')
         await dash.wait_for_timeout(3500)
-        await dash.click('#gwTabs button[data-gwtab=item]'); await dash.wait_for_timeout(300)
+        await dash.click('#gwTabs button[data-gwtab=scroll]'); await dash.wait_for_timeout(300)
         await dash.check('[data-gwpick="i:i2040801"]'); await dash.wait_for_timeout(200)
         await dash.fill('[data-gwqty="i:i2040801"]', '3'); await dash.press('[data-gwqty="i:i2040801"]', 'Tab')
         await dash.select_option('#gwAll', 'c3')

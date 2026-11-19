@@ -31,6 +31,7 @@ const equipment = {
   e1082149: { itemId: 1082149, name: '褐色工作手套', equipmentType: 'gloves', type: { category: 'Armor' }, meta: { reqLevel: 10, reqJob: 0 }, base: { incPDD: 5 }, slots: 7 },
   e1302000: { itemId: 1302000, name: '劍', equipmentType: 'oneHandedSword', type: { category: 'OneHandedWeapon' }, meta: { reqLevel: 0, reqJob: 1 }, base: { incPAD: 17 }, slots: 7 },
   e1452002: { itemId: 1452002, name: '戰鬥弓', equipmentType: 'bow', type: { category: 'TwoHandedWeapon' }, meta: { reqLevel: 10, reqJob: 4, reqDEX: 35 }, base: { incPAD: 28 }, slots: 7 },
+  e1372005: { itemId: 1372005, name: '木製短杖', equipmentType: 'wand', type: { category: 'OneHandedWeapon' }, meta: { reqLevel: 8, reqJob: 2 }, base: { incMAD: 29 }, slots: 7 },
   e1040002: { itemId: 1040002, name: '白色背心', equipmentType: 'top', type: { category: 'Armor' }, meta: { reqLevel: 0, reqJob: 0 }, base: { incPDD: 3 }, slots: 7 },
 };
 const jobs = {
@@ -99,7 +100,7 @@ function makeChar(id, name, job, lv, map, extra = {}) {
 }
 const accounts = {};
 function addAccount(acct, code, chars) {
-  accounts[acct] = { acct, code, chars: Object.fromEntries(chars.map(c => [c.id, c])), active: chars[0].id };
+  accounts[acct] = { acct, code, chars: Object.fromEntries(chars.map(c => [c.id, c])), active: chars[0].id, cashPoints: 5000 };
 }
 addAccount('A1', 'A1B2C3D4E5F6', [
   makeChar('c1', '本尊劍士', 'fighter', 45, 'gms104040000', { money: 30000000, gear: { weapon: makeGear('e1302000') },
@@ -160,7 +161,7 @@ const strip = c => { const { _simAt, ...rest } = c; return rest; };
 // 回應裡的 character：請求指定的角色（同一個帳號開兩個分頁時，每個分頁拿到自己的角色）
 function sessionView(a, cid) {
   const c = a.chars[cid] || a.chars[a.active];
-  return { serverTime: Date.now(), character: strip(c), characters: Object.values(a.chars).map(x => ({ id: x.id, name: x.name, lv: x.lv, job: x.job, auto: x.auto })), party: null, knowledge: { ready: false, remaining: 0 } };
+  return { serverTime: Date.now(), cashPoints: a.cashPoints, character: strip(c), characters: Object.values(a.chars).map(x => ({ id: x.id, name: x.name, lv: x.lv, job: x.job, auto: x.auto })), party: null, knowledge: { ready: false, remaining: 0 } };
 }
 function tradeEligible(a, cid) {
   const c = a.chars[cid] || a.chars[a.active];
@@ -276,7 +277,16 @@ function handle(a, body) {
       return { ...sessionView(a, c.id), summary: { events: [] } };
     }
     case 'guildWarehouseView': return { ...sessionView(a, c.id), summary: { events: [], guildWarehouse: guildView() } };
-    case 'guildWarehouseMesos': case 'guildWarehouseCash': fail('測試不碰楓幣／點數');
+    case 'guildWarehouseMesos': case 'guildWarehouseCash': {
+      // 存入：從角色楓幣／帳號點數扣掉、加到公倉；提領：扣稅（模擬遊戲的 taxPercent）
+      const amt = Math.floor(Number(body.amount) || 0); if (!(amt > 0)) fail('金額不正確');
+      const isM = body.type === 'guildWarehouseMesos', gk = isM ? 'mesos' : 'cashPoints';
+      const get = () => isM ? c.money : a.cashPoints, set = v => { if (isM) c.money = v; else a.cashPoints = v; };
+      if (body.op === 'deposit') { if (get() < amt) fail(isM ? '楓幣不足' : '點數不足'); set(get() - amt); guild[gk] += amt; }
+      else if (body.op === 'withdraw') { if (guild[gk] < amt) fail('公會倉庫餘額不足'); guild[gk] -= amt; set(get() + Math.floor(amt * (100 - guild.taxPercent) / 100)); }
+      else fail('不明的操作');
+      return { ...sessionView(a, c.id), summary: { events: [], guildWarehouse: guildView() } };
+    }
     case 'guildWarehouseBatch': {
       const list = body.items || []; if (list.length > 100) fail('一次最多 100 項');
       // 真實遊戲另有單次請求上限（門檻不明），模擬成：總數量超過 3000 回「請求過大」
@@ -344,6 +354,21 @@ http.createServer((req, res) => {
   if (url.pathname === '/api/catalog') return send(res, 200, catalog);
   // 測試控制：查看／重設狀態
   if (url.pathname === '/__mock/state') return send(res, 200, { accounts, guild });
+  // 測試控制：/__mock/additem?acct=A1&char=c1&key=i2000001&qty=20
+  if (url.pathname === '/__mock/additem') {
+    const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
+    if (!c) return send(res, 404, { error: 'no char' });
+    const k = url.searchParams.get('key'); c.inventory[k] = (c.inventory[k] || 0) + Number(url.searchParams.get('qty') || 1); rebuildStacks(c);
+    return send(res, 200, { ok: true });
+  }
+  // 測試控制：/__mock/addgear?acct=A1&char=c1&key=e1452002&clean=incPAD:30,incDEX:2 放一件指定浮動的裝備到背包
+  if (url.pathname === '/__mock/addgear') {
+    const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
+    if (!c) return send(res, 404, { error: 'no char' });
+    const clean = Object.fromEntries((url.searchParams.get('clean') || '').split(',').filter(Boolean).map(x => { const [k, v] = x.split(':'); return [k, Number(v)]; }));
+    const g = makeGear(url.searchParams.get('key'), { stats: { ...clean }, cleanStats: clean });
+    c.equipmentBag.push(g); return send(res, 200, { ok: true, uid: g.uid });
+  }
   if (url.pathname === '/__mock/luck') { scrollQueue = (url.searchParams.get('seq') || '').split(',').filter(x => x !== '').map(Number); return send(res, 200, { ok: true, n: scrollQueue.length }); }
   if (url.pathname === '/api/game' && req.method === 'POST') {
     let buf = ''; req.on('data', d => buf += d); req.on('end', () => {

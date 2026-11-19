@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-18（v0.33.6）
+最後更新：2026-11-19（v0.34.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -30,7 +30,7 @@
 - 自動販售 `{type:'autoSell', characterId, map, config:{enabled,itemIds}}`：**只接受角色目前所在地圖**
 - 所有 /api/game 回應都是「整份狀態放最上層」（character、characters、tradeEligible…）＋ `summary`；頁面把它存成 `mapleSessionView = {state: 回應}`
 - 批次衝卷（神匠之魂，2026-11-18 讀遊戲程式碼核對）：單件 `{type:'artisanScroll', uid, item, count(≤10), stopAfterSuccesses(0=不停), expectedSlots: g.slots, stopOnFail}`；多件把 `uid` 換成 `uids:[2～10]`。**每衝 1 次**扣 1 張卷軸＋10 萬楓幣（ARTISAN_FEE），失敗也扣格；卷軸要在同一隻角色身上，適用條件 `catalog.scrolls[id].target === gear.type`；詛咒卷軸失敗可能讓裝備消失。多件時遊戲要求**名稱、key、剩餘次數相同而且沒鎖定**。結果在 `character.lastArtisan`（單件 `{uid, attempts:[bool], successes, destroyed, slots, fee, stop}`；多件 `{multi:true, gear, selected, scroll, rate, items:[{attempts, successes, destroyed, slots, stop}], successes, lost, fee, stop}`；前者是讀遊戲程式碼推的，還沒實際衝過）。目錄 `catalog.scrolls[key] = {name, target, rate, cursed(失敗消失 %), stats}`。單次 `{type:'scroll', item, target, uid}`
-- 公會倉庫（2026-11-18 實際存取 1 張卷軸核對）：`guildWarehouseView`、`guildWarehouseBatch {op:'deposit'|'withdraw', items:[{kind:'item', item:key, qty} | {kind:'gear', uid}](≤100), characterId}`。回應在 `summary.guildWarehouse = {guildName, mesos, cashPoints, items:{key:qty}, gear:[], capacity:{gear:500, items:500}, taxPercent:5}`；同步回應不會帶公倉內容。**單次請求另有伺服器上限**：98 種、10,658 張卷軸一次送會回「請求過大」（門檻不明，遊戲畫面只限 100 項），agent 會自動切半重送。楓幣／點數是另外的 `guildWarehouseMesos`、`guildWarehouseCash`（使用者規則：不要動楓幣）。鎖定裝備、任務道具、不可交易的不能存。公會名「佐藤商會」，11 個帳號都在裡面
+- 公會倉庫（2026-11-18 實際存取 1 張卷軸核對）：`guildWarehouseView`、`guildWarehouseBatch {op:'deposit'|'withdraw', items:[{kind:'item', item:key, qty} | {kind:'gear', uid}](≤100), characterId}`。回應在 `summary.guildWarehouse = {guildName, mesos, cashPoints, items:{key:qty}, gear:[], capacity:{gear:500, items:500}, taxPercent:5}`；同步回應不會帶公倉內容。**單次請求另有伺服器上限**：98 種、10,658 張卷軸一次送會回「請求過大」（門檻不明，遊戲畫面只限 100 項），agent 會自動切半重送。楓幣／點數是另外的 `guildWarehouseMesos`、`guildWarehouseCash`，格式 `{type, op:'deposit'|'withdraw', amount, characterId}`（2026-11-19 從 /game/game.js 讀到；提領時遊戲畫面會跳稅金確認，taxPercent 5）。使用者規則：我自己操作時不要動楓幣；v0.34 起有「存楓幣／點數」功能，但一律要使用者逐一確認。鎖定裝備、任務道具、不可交易的不能存。公會名「佐藤商會」，11 個帳號都在裡面
 - 戰鬥事件在 sync 回應 `summary.events`（actor、damage、effectiveDamage、lines、skill、mob、killed）；冒險紀錄 `character.log`（「撿取：X × n」「自動販售：X × n，獲得 N 楓幣」）
 - 目錄 `/api/catalog`：maps、mobs、mapDrops、drops、autoSellDrops（每張圖可販售的掉落）、skills、fourth（4 轉技能書：level、fee、bookDrops、books；技能書在背包「消耗」分頁）
 - 傷害測試稻草人地圖 gms990040001／gms990040002（單人，產生 character.dpsReport）
@@ -85,3 +85,11 @@
 - v0.33.4：強化試跑 `fgPlan()` 多 `cap`（budget＝min(卷軸, 楓幣/10萬)、canSure／canExp）、`rows[].maybeShort`、`expPassAvail`；pieces 依（已衝少、剩餘多）排序；`.fg-pickbar` data-fgsel=all/none/top/sure/exp、#fgTopN、#fgAllBox。面板有 approved/running 工作時每 3 秒 poll；forge 工作剛結束強制重抓 /api/forge。
 - v0.33.5：背包「含公倉」（#bGuild，localStorage bagGuild）：`bagGuildRows()`，選取鍵 `G|g:uid`／`G|i:key` 放在 ui.bagSel（bagSelected 只看角色，賣出／鎖定不受影響）；動作列 `#bGuildTo` + data-bact=guildTake → guildWithdraw 工作直接 approve。
 - v0.33.6：可讀性小改（body 14px、.sm 12px、tabular-nums、table.ov width:auto、--bad #e66b6b、:focus-visible）；header 的 #status/#updBox 收進 `#sysBox`（summary #sysSum 依狀態加 upd/warn/bad）；`.action-bar.idle`；tabTag 正常不顯示；公倉 #gdChars 全部角色時收起（#gdCharsCustom，ui.gdCharsOpen）。
+- v0.34.0：
+  - 浮動判斷分部位／武器：面板 `rollProfileDefault/rollProfile/rollJudge/rollFilterPass/rollEditorHTML`（settings.rollProfiles = {gtype: {stats, min}}），server `rollProfile` 同一套預設；條件 `{k:'_pass'}`＝依部位基準達標（不用填數字）。gearType：快照 g.gtype、公倉 g.type。
+  - 公倉內容分頁 scroll/use/etc/gear（`itemKindOfKey`：快照類別 → WORLD.scrolls → 道具編號 204／2／3／4）。
+  - 存楓幣／點數：工作 kind `guildMoney`（batches[0].mesos/cash），server 一律 pending、approve-all 跳過；agent `runGuildMoney` 先 guildWarehouseView、檢查身上夠、用 game()（不重試）存入、比對公倉餘額。面板「④ 存楓幣、點數」(#gmCard)。
+  - 背包 view `list`（`bagListView`），工具列 #bJudge（ui.bag.judge 也套用到其他兩種看法）、data-bquick=rollno。
+  - 測試：`tests/e2e_roll_money.py`；mock 新增 `/__mock/addgear`、`/__mock/additem`、guildWarehouseMesos/Cash、帳號 cashPoints。
+  - 控制室風格改版（灰階、讀數列、需要處理加公倉快滿／知識王）先 `git stash`（ui-controlroom-wip），使用者說先處理功能，之後再接回。
+  - ⚠ 讀遊戲原始碼時：開 https://play.szg08.com/ 首頁會被導到 /game/（中控腳本會跑），要從 /robots.txt 這類靜態頁面 fetch('/game/game.js')。

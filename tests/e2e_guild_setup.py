@@ -8,6 +8,10 @@ def check(cond, msg):
     global ok
     print(('  ✓ ' if cond else '  ✗ ') + msg); ok = ok and bool(cond)
 
+PHYS = {'sword', 'twoSword', 'axe', 'twoAxe', 'mace', 'twoMace', 'spear', 'polearm', 'bow', 'crossbow', 'claw', 'dagger', 'knuckle', 'gun'}
+def judge(g):  # 跟面板 rollProfileDefault 同一套預設
+    t = g.get('type'); st = ['incMAD'] if t in ('wand', 'staff') else ['incPAD'] if t in PHYS else ['incPAD', 'incSTR', 'incDEX', 'incINT', 'incLUK'] if t == 'gloves' else ['incSTR', 'incDEX', 'incINT', 'incLUK', 'incPAD', 'incMAD']
+    return sum(g['cleanStats'].get(k, 0) - g['baseStats'].get(k, 0) for k in st) >= 1
 def dsum(g): return sum(g['cleanStats'].get(k, 0) - g['baseStats'].get(k, 0) for k in set(g['cleanStats']) | set(g['baseStats']))
 
 async def main():
@@ -31,14 +35,14 @@ async def main():
         print('2. 快速套用「卷軸＋比標準好的裝備」')
         await d.click('[data-gdpreset="good"]'); await d.wait_for_timeout(1200)
         dep = hub_json('GET', '/api/data')['settings']['guildDep']
-        check(set(dep['cats']) == {'卷軸', '裝備'} and dep['conds'] == [{'k': '_sum', 'min': 1}], f'存檔：{dep}')
+        check(set(dep['cats']) == {'卷軸', '裝備'} and dep['conds'] == [{'k': '_pass', 'min': ''}], f'存檔：{dep}')
         summ = await d.inner_text('#gdSummary')
-        check('所有卷軸' in summ and '浮動總和 ≥ 1' in summ and '全部角色' in summ, '摘要：' + summ.replace('\n', ' / '))
+        check('所有卷軸' in summ and '依部位基準達標' in summ and '全部角色' in summ, '摘要：' + summ.replace('\n', ' / '))
         check(await d.is_checked('[data-gdcat="卷軸"]') and await d.is_checked('[data-gdcat="裝備"]'), '整類勾選同步打勾')
         st = mock_state()
-        want = sum(1 for a in st['accounts'].values() for g in a['chars'][a['active']]['equipmentBag'] if not g['locked'] and dsum(g) >= 1)
+        want = sum(1 for a in st['accounts'].values() for g in a['chars'][a['active']]['equipmentBag'] if not g['locked'] and judge(g))
         prev = await d.inner_text('#gdPreview')
-        check(f'符合 {want} 件' in prev, f'預覽符合件數＝浮動總和 ≥ 1 的件數（{want}）：' + prev.split('\n')[0])
+        check(f'符合 {want} 件' in prev, f'預覽符合件數＝依部位基準達標的件數（{want}）：' + prev.split('\n')[0])
 
         print('3. 選角色')
         check('全部角色' in await d.inner_text('#gdChars') and await d.locator('[data-gdchar]').count() == 0, '全部角色時收起來，不列出一長串勾選框')
