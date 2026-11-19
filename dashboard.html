@@ -377,6 +377,21 @@
   .b-charbox > summary::-webkit-details-marker { display: none; }
   .b-charbox > summary::before { content: '▸'; color: var(--dim); } .b-charbox[open] > summary::before { content: '▾'; }
   .b-charbox[open] > .char-strip { margin-top: 6px; }
+
+  /* ===== 背包「給」抽屜（v0.36）===== */
+  .bg-src { border-bottom: 1px solid var(--line); padding: 8px 0; }
+  .bg-src.bad-src { opacity: .6; }
+  .bg-hd { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-bottom: 4px; }
+  .bg-tbl { border: 0; } .bg-tbl td { padding: 3px 6px; }
+
+  /* ===== 總覽：自動化總表（v0.36）===== */
+  .ov-auto { padding: 8px 12px; }
+  .ov-auto-hd { display: flex; gap: 10px; align-items: baseline; margin-bottom: 6px; }
+  .ov-auto-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .auto-chip { display: inline-flex; gap: 6px; align-items: center; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 4px 9px; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+  .auto-chip:hover { border-color: var(--accent); }
+  .auto-chip.off { color: var(--dim); } .auto-chip.off b { font-weight: 400; }
+  .auto-chip.pre b { color: var(--warn); } .auto-chip.bad { border-color: var(--bad); } .auto-chip.bad b { color: var(--bad); }
 </style>
 </head>
 <body>
@@ -406,6 +421,7 @@
   <!-- 總覽 -->
   <section id="overview" class="on">
     <div class="card attn" id="ovAttn"></div>
+    <div class="card ov-auto" id="ovAuto"></div>
     <div class="card"><div class="stats-row" id="ovSummary"></div>
       <details id="ovMoneyBox" style="margin-top:8px"><summary class="dim" style="cursor:pointer">楓幣分布（每隻角色、帳號倉庫）</summary><div id="mesoOut" style="margin-top:6px"></div></details></div>
     <div class="card">
@@ -508,20 +524,7 @@
       <div class="bar" style="margin-top:8px"><button class="btn primary" id="mkCollect">建立收集工作</button><span class="dim" id="collectMsg"></span></div>
     </div>
 
-    <div class="card tip-card">💡 要把東西給某隻角色，最快的方式是到「<a href="#" data-goto="bag">背包</a>」勾選物品（可以跨好幾隻角色），再按底部的「給 … 送出」。下面的「分發」適合要指定數量或轉楓幣時使用。</div>
-    <div class="card">
-      <h3>分發：指定數量、轉楓幣給某隻角色</h3>
-      <div class="bar">
-        <span>從</span><select id="gFrom"></select>
-        <span>給</span><select id="gTo"></select>
-        <span>楓幣</span><input type="number" id="gMoney" style="width:140px" placeholder="0">
-        <span class="dim" id="gMoneyHint"></span>
-      </div>
-      <div id="ffGive"></div>
-      <div class="bar"><button class="btn" id="gSelItems">道具全選（最大數量）</button><button class="btn" id="gSelGear">裝備全選</button><button class="btn" id="gClear">清除選擇</button><span class="dim">也可以在數量欄自己輸入；裝備勾選即可</span></div>
-      <div id="givePick" style="max-height:520px;overflow:auto"></div>
-      <div class="bar" style="margin-top:8px"><button class="btn primary" id="mkGive">建立分發工作</button><span class="dim" id="giveMsg"></span></div>
-    </div>
+    <div class="card tip-card">要把東西或楓幣給某隻角色（指定數量、跨好幾隻角色），請到「<a href="#" data-goto="bag">背包</a>」勾選物品後按底部的「給…」；只轉楓幣按「轉楓幣…」。</div>
   </section>
 
   <!-- 背包 -->
@@ -537,7 +540,6 @@
         <label><input type="checkbox" id="bHideLocked"> 隱藏已鎖定</label>
         <span id="bJudgeBox"></span>
         <label title="「依道具」裡把各帳號倉庫的數量也列出來（倉庫的東西不能直接賣，只顯示）"><input type="checkbox" id="bWh"> 含倉庫</label>
-        <label title="把公會倉庫的道具、裝備也列出來，選好後可以「從公倉領取」給指定角色"><input type="checkbox" id="bGuild"> 含公倉</label><span id="bGuildInfo" class="dim sm"></span>
         <details class="bag-adv"><summary>更多篩選</summary><div id="ffBag"></div></details>
         <details class="bag-adv rp-editor"><summary>浮動判斷基準</summary><div class="rp-body"></div></details>
       </div>
@@ -545,6 +547,13 @@
     </div>
     <div id="bagOut"></div>
     <div id="bagBar" class="action-bar" style="display:none"></div>
+    <aside id="bGiveDrawer" class="drawer g-drawer" style="display:none">
+      <div class="dhd"><b>給角色</b><span class="dim" style="flex:1">交易給：<select id="bgTo"></select>　可以改每樣的數量、另外加楓幣（楓幣另扣 5% 手續費）</span><button class="btn" data-bgclose>關閉 ✕</button></div>
+      <div id="bgOut"></div>
+      <div class="bar" style="margin-top:8px"><select id="bgAdd"></select></div>
+      <div class="bar" style="margin-top:10px"><button class="btn primary" id="bgCreate">建立交易工作</button><span id="bgSum" class="dim"></span></div>
+      <div class="dim sm">建立後要在右上角「工作」確認執行；執行時雙方的遊戲分頁都要開著。</div>
+    </aside>
   </section>
   <!-- 派工看板 -->
   <section id="board">
@@ -1047,9 +1056,45 @@ function renderAttention(rows) {
     ? `<h3>需要處理（${items.length}）</h3>${items.sort((a, b) => LVORD[a.lv] - LVORD[b.lv]).map(i => `<div class="attn-row ${i.lv}"><span class="ic"><span class="lamp ${i.lv}" title="${i.lv === 'bad' ? '停機／錯誤' : i.lv === 'warn' ? '注意' : '資訊'}"></span></span><span class="tx">${i.text}</span>${i.btn ? `<span class="act">${i.btn}</span>` : ''}</div>`).join('')}`
     : `<div class="attn-ok"><span class="lamp"></span>　全部正常：角色都在掛機、遊戲分頁都有回報、沒有待確認的工作</div>`;
 }
+
+// ===== 總覽：自動化總表（每個自動功能一顆，點一下跳到它的設定）=====
+function autoItems() {
+  const A = DATA.auto || {}, now = Date.now();
+  const recentBad = x => x && now - x.at < 3600e3 && /失敗|出錯|錯誤/.test(x.msg);
+  const ip = S.idlePolicy || {}, as = S.autoSell || {}, ga = S.guildAuto || {}, mk = { scanHours: 3, autoClaim: true, mode: 'off', ...(S.market || {}) };
+  const nChars = o => Object.values(o || {}).filter(Boolean).length;
+  const boardSell = snaps().filter(x => x.autoSell && x.autoSell.enabled).length;
+  return [
+    { k: 'idle', name: '掛機續掛', st: ip.autoRenew ? 'on' : 'off', desc: [ip.autoRenew ? `到期前 ${ip.renewBeforeMin || 30} 分重新開始` : '', ip.stopAfterHours ? `掛滿 ${ip.stopAfterHours} 小時暫停` : '', ip.wakeHours ? `離線每 ${ip.wakeHours} 小時領取` : ''].filter(Boolean).join('、') || '關閉', last: A.idle, go: 'idle' },
+    { k: 'gear', name: '撿到裝備自動處理', st: as.mode === 'sell' ? 'on' : as.mode === 'preview' ? 'pre' : 'off', desc: as.mode && as.mode !== 'off' ? `${nChars(as.chars)} 隻角色・${(as.rules || []).filter(r => r.on !== false).length} 條規則` : '關閉', last: A.gear, go: 'gear' },
+    { k: 'guild', name: '公倉自動存入', st: ga.mode === 'deposit' ? 'on' : ga.mode === 'preview' ? 'pre' : 'off', desc: ga.mode && ga.mode !== 'off' ? `每 ${Math.max(10, ga.everyMin || 30)} 分` : '關閉', last: A.guild, go: 'guild' },
+    { k: 'mkscan', name: '市場行情掃描', st: 'on', desc: `每 ${mk.scanHours} 小時`, last: A.market && A.market.lastScan ? { at: A.market.lastScan, msg: '完整掃描' } : null, go: 'market' },
+    { k: 'mklist', name: '自動上架', st: mk.mode === 'auto' ? 'on' : mk.mode === 'preview' ? 'pre' : 'off', desc: mk.mode !== 'off' ? `${nChars(mk.chars)} 隻角色・${(mk.rules || []).length} 條規則` : '關閉', last: A.market && A.market.list, go: 'market' },
+    { k: 'claim', name: '自動領攤位收益', st: mk.autoClaim ? 'on' : 'off', desc: mk.autoClaim ? '開' : '關閉', go: 'market' },
+    { k: 'quiz', name: '知識王自動作答', st: S.quizAuto ? 'on' : 'off', desc: S.quizAuto ? '每 45 秒檢查' : '關閉', last: A.quiz, go: 'quiz' },
+    { k: 'board', name: '遊戲自動販售', st: boardSell ? 'on' : 'off', desc: boardSell ? `${boardSell} 隻角色在目前地圖開著` : '沒有角色開著', go: 'board' },
+    { k: 'upd', name: '中控自動更新', st: S.autoUpdate !== false ? 'on' : 'off', desc: S.autoUpdate !== false ? '有新版自動套用' : '關閉', last: A.update && A.update.at ? { at: A.update.at, msg: A.update.error ? '檢查失敗：' + A.update.error : '已檢查' } : null, go: 'sys' },
+  ].map(x => ({ ...x, bad: recentBad(x.last) || (x.k === 'upd' && A.update && A.update.error) }));
+}
+function renderOvAuto() {
+  const el = $('#ovAuto'); if (!el) return;
+  const xs = autoItems(), nOn = xs.filter(x => x.st !== 'off').length;
+  const lbl = { on: '開', pre: '試跑', off: '關' };
+  el.innerHTML = `<div class="ov-auto-hd"><b>自動化</b><span class="dim sm">${nOn}／${xs.length} 個開著・點一下到設定</span></div><div class="ov-auto-list">${xs.map(x => `<button class="auto-chip ${x.st} ${x.bad ? 'bad' : ''}" data-autogo="${x.go}" title="${esc(x.desc + (x.last ? `\n最近：${clock(x.last.at)} ${x.last.name ? x.last.name + '：' : ''}${x.last.msg}` : ''))}"><span class="lamp ${x.bad ? 'bad' : x.st === 'pre' ? 'warn' : ''}"></span><span class="nm">${esc(x.name)}</span><b>${lbl[x.st]}</b>${x.last ? `<span class="dim sm">${ago(Date.now() - x.last.at)}</span>` : ''}</button>`).join('')}</div>`;
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-autogo]'); if (!t) return;
+  const g = t.dataset.autogo;
+  if (g === 'idle') { const d = $('#idleCard'); d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  if (g === 'sys') { $('#sysBox').open = true; return; }
+  document.querySelector(`nav button[data-tab="${g === 'gear' ? 'gear' : g}"]`).click();
+  if (g === 'gear') { const b = document.querySelector('#gViewSeg button[data-gv="auto"]'); if (b) b.click(); }
+  if (g === 'guild') setTimeout(() => openGDrawer('gRulesDrawer'), 50);
+});
 function renderOverview() {
   const rows = ovRows();
   renderAttention(rows);
+  renderOvAuto();
 
   // 摘要
   const live = rows.filter(r => !r.missing);
@@ -1530,7 +1575,7 @@ function pickerList(id, which) {
 function rerenderFF(id) {
   if (id.startsWith('mr')) { saveMk({ rules: readMkRules() }); renderMkAuto(true); return; }
   const box = { collect: '#ffCollect', give: '#ffGive', bag: '#ffBag' }[id];
-  if (box) $(box).innerHTML = ffHTML(id, ui.ff[id], id === 'bag', id === 'bag');
+  if (box && $(box)) $(box).innerHTML = ffHTML(id, ui.ff[id], id === 'bag', id === 'bag');
   if (id === 'collect') renderTrade();
   if (id === 'give') renderGivePick();
   if (id === 'bag') renderBagList();
@@ -1658,11 +1703,7 @@ function renderTrade() {
     $('#collectPick').innerHTML = c + '</tbody></table><div class="dim" style="margin-top:4px">滑鼠移到數字上可以看到會收哪些東西。</div>';
   }
 
-  const gFrom = $('#gFrom').value || S.mainCharId || '';
-  $('#gFrom').innerHTML = charOpt(gFrom, true);
-  $('#gTo').innerHTML = charOpt($('#gTo').value, true);
-  if (!ui.pickOpen.startsWith('give|') && (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#ffGive'))) $('#ffGive').innerHTML = ffHTML('give', ui.ff.give, false);
-  renderGivePick();
+
 }
 
 function giveLists(s) {
@@ -1672,6 +1713,7 @@ function giveLists(s) {
   return { items, gear };
 }
 function renderGivePick() {
+  if (!$('#gFrom')) return; // 交易頁的「分發」已併到背包的「給」
   const s = DATA.chars[$('#gFrom').value];
   if (!s) { $('#givePick').innerHTML = '<div class="dim">先選擇「從」哪隻角色。</div>'; $('#gMoneyHint').textContent = ''; return; }
   $('#gMoneyHint').textContent = `持有 ${short(s.char.money)}，最多可給約 ${short(Math.floor(s.char.money / 1.05))}（5% 手續費）`;
@@ -1689,7 +1731,7 @@ function renderGivePick() {
 // ---------- 背包頁 ----------
 // ---------- 背包（全角色） ----------
 ui.bag = { view: 'item', q: '', kind: '', sellOnly: false, hideLocked: false, wh: false, guild: false, guildAt: 0, chars: new Set(), giveTo: '', guildTo: '', judge: 'all' };
-try { ui.bag.guild = localStorage.getItem('bagGuild') === '1'; } catch (_) {}
+// 「含公倉」已拿掉：公倉的東西請到「公倉」分頁（背包、公倉並排搬移）
 // ---- 背包的「含公倉」：公會倉庫的東西也列出來，可以選取後「從公倉領取」給某隻角色 ----
 // 道具 key 的類別：先看角色背包裡同一種東西的類別，沒有的話用道具編號判斷（204xxxx 卷軸、2xxxxxx 消耗、3xxxxxx 裝飾、4xxxxxx 其他）
 let _kindCache = { at: 0, m: {} };
@@ -1706,7 +1748,7 @@ function itemKindOfKey(key) {
 const GSID = 'G|'; // 公倉物品的選取鍵開頭（跟角色的 角色id|物品 分開）
 function bagGuildRows(raw) {
   const g = typeof GUILD !== 'undefined' && GUILD && GUILD.data;
-  if (!g || !ui.bag.guild) return [];
+  if (!g || !ui.bag.guild) return []; // ui.bag.guild 固定 false
   const b = ui.bag, q = raw ? '' : b.q.trim();
   if (!raw && b.sellOnly) return []; // 公倉的東西不能直接賣
   const kindOf = itemKindOfKey;
@@ -1747,7 +1789,7 @@ function renderBag() {
   const b = ui.bag;
   document.querySelectorAll('#bView button').forEach(x => x.classList.toggle('on', x.dataset.bview === b.view));
   if (document.activeElement !== $('#bSearch')) $('#bSearch').value = b.q;
-  $('#bSellOnly').checked = b.sellOnly; $('#bHideLocked').checked = b.hideLocked; $('#bWh').checked = b.wh; $('#bGuild').checked = b.guild;
+  $('#bSellOnly').checked = b.sellOnly; $('#bHideLocked').checked = b.hideLocked; $('#bWh').checked = b.wh;
   if (b.guild && typeof loadGuild === 'function') loadGuild().then(() => { const at = (GUILD && GUILD.at) || -1; if (at !== b.guildAt) { b.guildAt = at; renderBagList(); } });
   if (!ui.pickOpen.startsWith('bag|') && (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#ffBag'))) $('#ffBag').innerHTML = ffHTML('bag', ui.ff.bag, true, true);
   renderBagList();
@@ -1758,7 +1800,7 @@ function renderBagList() {
   const valid = new Set(); for (const s of chars) for (const r of bagRows(s, true, true)) valid.add(bagSid(s.char.id, r.id));
   for (const r of bagGuildRows(true)) valid.add(r.id);
   const gd = typeof GUILD !== 'undefined' && GUILD && GUILD.data;
-  $('#bGuildInfo').textContent = b.guild ? (gd ? `（${gd.guildName || '公倉'}：道具 ${Object.keys(gd.items || {}).length} 種、裝備 ${(gd.gear || []).length} 件・更新於 ${ago(Date.now() - (GUILD.at || 0))}）` : '（還沒讀過公倉：到「公倉」分頁按重新整理，或在遊戲裡打開公倉一次）') : '';
+  if ($('#bGuildInfo')) $('#bGuildInfo').textContent = b.guild ? (gd ? `（${gd.guildName || '公倉'}：道具 ${Object.keys(gd.items || {}).length} 種、裝備 ${(gd.gear || []).length} 件・更新於 ${ago(Date.now() - (GUILD.at || 0))}）` : '（還沒讀過公倉：到「公倉」分頁按重新整理，或在遊戲裡打開公倉一次）') : '';
   for (const id of [...ui.bagSel]) if (!valid.has(id)) ui.bagSel.delete(id);
   const vis = bagVisibleChars();
   // 類別頁籤（數量是目前看得到的角色）
@@ -1925,7 +1967,7 @@ function renderBagBar() {
   }
   if (!sel.length) {
     bar.style.display = visCount ? '' : 'none';
-    bar.innerHTML = `<span class="dim">快速選取：</span><button class="btn" data-bquick="sell">選取畫面上所有可賣的</button><button class="btn" data-bquick="all">選取畫面上全部</button>`;
+    bar.innerHTML = `<span class="dim">快速選取：</span><button class="btn" data-bquick="sell">選取畫面上所有可賣的</button><button class="btn" data-bquick="all">選取畫面上全部</button><button class="btn" id="bGiveMoney" title="從某隻角色轉楓幣給另一隻（不用先選物品）">${ic('coins')} 轉楓幣…</button>`;
     return;
   }
   const chars = new Set(sel.map(x => x.s.char.id));
@@ -1936,10 +1978,93 @@ function renderBagBar() {
   bar.innerHTML = `<span class="sum">已選 <b>${sel.length}</b> 項・<b>${chars.size}</b> 隻角色${est ? `・賣出約 <b class="good">${short(est)}</b> 楓幣` : ''}</span>
     ${notReady.length ? `<span class="warn" title="${esc(notReady.map(s => s.char.name).join('、'))}">⚠ ${notReady.length} 隻沒有自己的遊戲分頁，工作會等到它有分頁（開分頁或切換過去）</span>` : ''}
     <button class="btn primary" data-bact="sell" ${nSell ? '' : 'disabled'}>賣出${nSell < sel.length ? `（${nSell} 項可賣）` : ''}</button><button class="btn" data-bact="lock">鎖定</button><button class="btn" data-bact="unlock">解鎖</button>${bagExtraActions(sel)}
-    <span class="give-grp"><span class="dim">給</span><select id="bGiveTo">${charOpt(ui.bag.giveTo || S.mainCharId || '', true).replace('（選擇角色）', '（選角色）')}</select><button class="btn" data-bact="give" title="把選取的東西交易給這隻角色（數量＝全部可交易的）">送出 ▸</button></span>
+    <button class="btn" data-bact="give" title="交易給某隻角色：可以改每樣的數量、另外加楓幣">${ic('arrow-right')} 給…</button>
     ${guildSeg}<button class="btn" data-bquick="clear">清除選擇</button><span class="dim" id="bMsg"></span>`;
 }
-// 分發：選取的東西依來源角色各建一個交易工作給目標角色
+// ---- 背包「給」：選好的東西（可以改數量）＋楓幣，交易給某隻角色（取代原本交易頁的「分發」）----
+// ui.give.src = { 來源角色id: { items: { key: 數量 }, gear: Set(uid), money } }
+ui.give = { to: '', src: {} };
+function giveOpen(fromSel) {
+  const src = {};
+  if (fromSel) for (const x of bagSelected()) {
+    const r = x.r, p = src[x.s.char.id] || (src[x.s.char.id] = { items: {}, gear: new Set(), money: 0 });
+    if (r.t === 'i') { const q = Math.min(r.i.tradableQty ?? r.free, r.free); if (!r.i.supply && q > 0) p.items[r.i.key] = q; }
+    else if (!r.g.locked && r.g.tradable !== false) p.gear.add(r.g.uid);
+  }
+  ui.give = { to: ui.bag.giveTo || S.mainCharId || '', src };
+  $('#bGiveDrawer').style.display = '';
+  renderGive();
+}
+function renderGive() {
+  const el = $('#bgOut'); if (!el || $('#bGiveDrawer').style.display === 'none') return;
+  if (document.activeElement !== $('#bgTo')) $('#bgTo').innerHTML = charOpt(ui.give.to, true).replace('（選擇角色）', '（選角色）');
+  const to = DATA.chars[ui.give.to], toAcc = to && to.accountId;
+  let h = '';
+  for (const [cid, p] of Object.entries(ui.give.src)) {
+    const s = DATA.chars[cid]; if (!s) continue;
+    const same = toAcc && s.accountId === toAcc, self = cid === ui.give.to;
+    const items = Object.entries(p.items).map(([key, qty]) => { const it = (s.items || []).find(i => i.key === key && i.loc === '背包') || { key, name: keyName(key), tradableQty: qty }; return { it, qty }; });
+    const gear = [...p.gear].map(uid => (s.gear || []).find(g => g.uid === uid)).filter(Boolean);
+    h += `<div class="bg-src ${same ? 'bad-src' : ''}"><div class="bg-hd"><b>${esc(s.char.name)}</b><span class="dim sm">${esc(accountLabel(s.accountId, s))}・身上 ${short(s.char.money)} 楓幣</span>
+      ${self ? '<span class="bad sm">就是收的人，不會送</span>' : same ? '<span class="bad sm">同一個帳號不能交易（請用遊戲倉庫）</span>' : ''}
+      <label class="sm">＋楓幣 <input type="number" min="0" max="${s.char.money || 0}" data-bgmoney="${cid}" value="${p.money || ''}" placeholder="0" style="width:130px"></label>
+      <button class="btn sm" data-bgdrop="${cid}" title="這隻不送了">移除</button></div>`;
+    if (items.length || gear.length) {
+      h += '<table class="bg-tbl"><tbody>';
+      for (const { it, qty } of items) h += `<tr><td>${iname(it.itemId, it.name)}</td><td class="num dim">可交易 ${fmt(it.tradableQty ?? qty)}</td><td><input type="number" min="0" max="${it.tradableQty ?? qty}" data-bgqty="${cid}|${esc(it.key)}" value="${qty}" style="width:90px"></td></tr>`;
+      for (const g of gear) h += `<tr><td>${iname(g.itemId, gearLabel(g))}</td><td class="dim sm">${esc(statLine(g.stats || {}, STAT_ORDER) || '')}</td><td><button class="btn sm" data-bggear="${cid}|${esc(g.uid)}">不送</button></td></tr>`;
+      h += '</tbody></table>';
+    } else h += '<div class="dim sm" style="padding:4px 0">只轉楓幣</div>';
+    h += '</div>';
+  }
+  if (!h) h = '<div class="dim" style="padding:10px 0">還沒有要送的東西。在背包勾選物品後按「給…」，或用下面加一隻角色只轉楓幣。</div>';
+  el.innerHTML = h;
+  const has = new Set(Object.keys(ui.give.src));
+  $('#bgAdd').innerHTML = '<option value="">＋ 加一隻角色（轉楓幣）</option>' + snaps().filter(s => !has.has(s.char.id)).sort((a, b) => cmp(a.char.name, b.char.name)).map(s => `<option value="${s.char.id}">${esc(s.char.name)}（${short(s.char.money)}）</option>`).join('');
+  const reqs = giveReqs();
+  const n = reqs.reduce((a, r) => a + r.batches.reduce((x, b) => x + b.items.length + b.gear.length, 0), 0), m = reqs.reduce((a, r) => a + r.batches.reduce((x, b) => x + (b.money || 0), 0), 0);
+  $('#bgSum').innerHTML = reqs.length ? `${reqs.length} 隻角色 → ${to ? esc(to.char.name) : '?'}：${n} 格${m ? `、楓幣 ${fmt(m)}（另扣 5% 手續費）` : ''}` : '';
+  $('#bgCreate').disabled = !reqs.length;
+}
+function giveReqs() {
+  const to = DATA.chars[ui.give.to]; if (!to) return [];
+  const out = [];
+  for (const [cid, p] of Object.entries(ui.give.src)) {
+    const s = DATA.chars[cid]; if (!s || cid === ui.give.to || s.accountId === to.accountId) continue;
+    const items = Object.entries(p.items).filter(([, q]) => q > 0).map(([key, qty]) => { const it = (s.items || []).find(i => i.key === key && i.loc === '背包') || {}; return { key, name: it.name || keyName(key), cat: it.cat, qty }; });
+    const gear = [...p.gear].map(uid => { const g = (s.gear || []).find(x => x.uid === uid); return g && { uid, name: gearLabel(g) }; }).filter(Boolean);
+    const money = Math.max(0, Math.floor(Number(p.money) || 0));
+    if (items.length || gear.length || money) out.push({ kind: 'give', fromCharId: cid, toCharId: ui.give.to, batches: toBatches(items.flatMap(v => splitItem(v)), gear, money) });
+  }
+  return out;
+}
+document.addEventListener('input', e => {
+  const t = e.target; if (!t.dataset) return;
+  if (t.dataset.bgqty) { const [cid, key] = t.dataset.bgqty.split('|'); const v = Math.max(0, Math.min(Number(t.max) || 0, Math.floor(Number(t.value) || 0))); ui.give.src[cid].items[key] = v; renderGiveSum(); }
+  if (t.dataset.bgmoney) { const v = Math.max(0, Math.min(Number(t.max) || 0, Math.floor(Number(t.value) || 0))); ui.give.src[t.dataset.bgmoney].money = v; renderGiveSum(); }
+});
+function renderGiveSum() { const a = document.activeElement; renderGive(); if (a && a.dataset && (a.dataset.bgqty || a.dataset.bgmoney)) { const sel = a.dataset.bgqty ? `[data-bgqty="${CSS.escape(a.dataset.bgqty)}"]` : `[data-bgmoney="${a.dataset.bgmoney}"]`; const n = $(sel); if (n) { n.focus(); const v = n.value; n.value = ''; n.value = v; } } }
+document.addEventListener('change', e => {
+  if (e.target.id === 'bgTo') { ui.give.to = ui.bag.giveTo = e.target.value; renderGive(); }
+  if (e.target.id === 'bgAdd' && e.target.value) { ui.give.src[e.target.value] = { items: {}, gear: new Set(), money: 0 }; renderGive(); }
+});
+document.addEventListener('click', async e => {
+  const t = e.target.closest('[data-bgdrop],[data-bggear],#bgCreate,[data-bgclose],#bGiveMoney'); if (!t) return;
+  if (t.id === 'bGiveMoney') { giveOpen(false); return; }
+  if (t.dataset.bgclose !== undefined) { $('#bGiveDrawer').style.display = 'none'; return; }
+  if (t.dataset.bgdrop) { delete ui.give.src[t.dataset.bgdrop]; renderGive(); return; }
+  if (t.dataset.bggear) { const [cid, uid] = t.dataset.bggear.split('|'); ui.give.src[cid].gear.delete(uid); renderGive(); return; }
+  if (t.id === 'bgCreate') {
+    const reqs = giveReqs(); if (!reqs.length) return;
+    try {
+      await api('/api/jobs', reqs);
+      $('#bGiveDrawer').style.display = 'none'; ui.give.src = {}; ui.bagSel.clear();
+      await poll(true); openJobs();
+    } catch (err) { $('#bgSum').textContent = '失敗：' + err.message; }
+  }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#bGiveDrawer')) $('#bGiveDrawer').style.display = 'none'; });
+// （舊）分發：選取的東西依來源角色各建一個交易工作給目標角色
 function bagGiveJobs(to) {
   if (!to) throw new Error('請先在「給」選擇要給哪隻角色');
   const by = {}, skipped = [];
@@ -2034,7 +2159,8 @@ document.addEventListener('click', async e => {
       renderBagList(); return;
     }
     if (d.bact && bagActHooks[d.bact]) { await bagActHooks[d.bact](); return; }
-    if (d.bact === 'give') {
+    if (d.bact === 'give') { giveOpen(true); return; }
+    if (d.bact === 'giveOld') {
       const to = $('#bGiveTo').value; ui.bag.giveTo = to;
       const { reqs, skipped } = bagGiveJobs(to);
       const n = reqs.reduce((a, r) => a + r.batches.reduce((x, b) => x + b.items.length + b.gear.length, 0), 0);
@@ -4490,7 +4616,8 @@ function bagGuildPlan() {
   }
   return { reqs: Object.entries(by).filter(([, v]) => v.items.length || v.gear.length).map(([from, v]) => ({ kind: 'guildDeposit', fromCharId: from, batches: [{ items: v.items, gear: v.gear }] })), skipped };
 }
-bagExtraActions = sel => `<button class="btn" data-bact="guild" title="把選取的東西存進公會倉庫（可以再領回來）">🏦 存進公倉</button>`;
+// 存進公倉改到「公倉」分頁（背包、公倉並排搬移）；背包只負責賣、鎖、給角色
+bagExtraActions = () => `<a href="#" class="sm" data-goto="guild" title="存進公倉請到「公倉」分頁，左邊背包選好按「存入 →」">存公倉 ›</a>`;
 bagActHooks.guild = async () => {
   const { reqs, skipped } = bagGuildPlan();
   if (!reqs.length) { alert('選取的東西都不能存（已鎖定、補給使用中或不可交易）'); return; }

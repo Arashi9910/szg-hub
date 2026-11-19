@@ -521,6 +521,16 @@ function alertSummary() {
   if (st) { const now = Date.now(); const xs = Object.values(st).filter(u => now - (u.at || 0) < 12 * 3600e3); out.quiz = { n: xs.length, by: [...new Set(xs.map(u => u.by).filter(Boolean))].slice(0, 6) }; }
   return out;
 }
+// 總覽「自動化」總表：各自動功能最後一次做事的時間與訊息（設定本身在 settings 裡）
+function automationInfo() {
+  const last = arr => { const x = (arr || [])[(arr || []).length - 1]; return x ? { at: x.at, msg: String(x.msg || '').slice(0, 120), name: x.name || '' } : null; };
+  const m = db.market || {};
+  return {
+    idle: last(db.idleLog), gear: last(db.gearLog), guild: last(db.guildLog), quiz: last(db.quiz && db.quiz.log),
+    market: { lastScan: m.lastFull || 0, list: last(m.listLog) },
+    update: { at: (updateInfo && updateInfo.checkedAt) || 0, error: (updateInfo && updateInfo.error) || '' },
+  };
+}
 function send(res, code, body, type = 'application/json; charset=utf-8') {
   res.writeHead(code, {
     'Content-Type': type,
@@ -588,7 +598,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/api/data') {
       const tabsOut = {}; for (const [code, m] of Object.entries(tabs)) for (const [id, t] of Object.entries(m)) if (Date.now() - t.at < TAB_LIVE_MS) tabsOut[id] = { code, at: t.at, hidden: t.hidden, off: t.off };
-      return send(res, 200, { now: Date.now(), tabs: tabsOut, chars: db.chars, dps: db.dps || {}, settings: db.settings, jobs: db.jobs.slice(-100), expTable: db.expTable || {}, idleLog: (db.idleLog || []).slice(-50), gearLog: (db.gearLog || []).slice(-80), scriptVersion: scriptVersion(), update: updateInfo, alerts: alertSummary() });
+      return send(res, 200, { now: Date.now(), tabs: tabsOut, chars: db.chars, dps: db.dps || {}, settings: db.settings, jobs: db.jobs.slice(-100), expTable: db.expTable || {}, idleLog: (db.idleLog || []).slice(-50), gearLog: (db.gearLog || []).slice(-80), scriptVersion: scriptVersion(), update: updateInfo, alerts: alertSummary(), auto: automationInfo() });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/push') {
