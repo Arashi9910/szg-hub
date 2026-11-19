@@ -76,7 +76,7 @@ async def main():
         await d.click('#bag details.rp-editor summary'); await d.wait_for_timeout(500)
         await d.click('#bag [data-rpstat="gloves|incPDD"]'); await d.wait_for_timeout(1200)
         prof = (hub_json('GET', '/api/data')['settings'].get('rollProfiles') or {}).get('gloves')
-        check(prof and 'incPDD' in prof['stats'] and prof['min'] == 1, f'設定存檔：{prof}')
+        check(prof and prof['stats'] == ['incSTR', 'incDEX', 'incINT', 'incLUK', 'incPDD'] and prof['min'] == 1, f'手套預設看四屬，加上物防後存檔：{prof}')
         st = mock_state()
         gl = [g for g in st['accounts']['A1']['chars']['c1']['equipmentBag'] if g['type'] == 'gloves']
         good = [g for g in gl if g['cleanStats'].get('incPDD', 0) - g['baseStats'].get('incPDD', 0) >= 1]
@@ -107,16 +107,16 @@ async def main():
         check('橘色藥水' in use and '卷軸' not in use, '消耗分頁列出藥水：' + ' '.join(use.split())[:60])
         check('卷軸' in scr and '橘色藥水' not in scr, '卷軸分頁只有卷軸')
 
-        print('6. 存楓幣、點數：要逐一確認，「全部確認」不包含')
+        print('6. 存楓幣、點數：建立後待確認，「全部確認」也可以確認')
         await d.fill('[data-gmm="c1"]', '1000000'); await d.fill('[data-gmc="c1"]', '300')
         check('楓幣 1,000,000' in await d.inner_text('#gmSum'), '合計即時更新')
         before_money = mock_state()['accounts']['A1']['chars']['c1']['money']
         await d.click('#gmCreate'); await d.wait_for_timeout(1200)
         js = [j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'guildMoney']
         check(len(js) == 1 and js[0]['status'] == 'pending' and js[0]['batches'][0]['mesos'] == 1000000 and js[0]['batches'][0]['cash'] == 300, '建立 1 個待確認工作')
-        http('POST', f'{HUB}/api/jobs/approve-all'); await asyncio.sleep(1)
-        check(next(j for j in hub_json('GET', '/api/data')['jobs'] if j['id'] == js[0]['id'])['status'] == 'pending', '「全部確認」不會確認存楓幣工作')
-        http('POST', f"{HUB}/api/jobs/{js[0]['id']}/approve")
+        await d.click('#jobBtn'); await d.wait_for_timeout(600)
+        await d.click('[data-approve-all]'); await d.wait_for_timeout(800)
+        await d.keyboard.press('Escape')
         j = await wait_job(js[0]['id'])
         st = mock_state()
         check(j['status'] == 'done', '執行完成：' + ' / '.join(x['msg'] for x in j['log'][-3:]))
@@ -125,11 +125,32 @@ async def main():
         check(st['accounts']['A1']['cashPoints'] == 4700, '帳號點數扣掉 300')
         check(any('公倉楓幣 0 → 1,000,000' in x['msg'] for x in j['log']), '紀錄寫出公倉餘額變化')
 
-        print('7. 超過身上楓幣：不存、標示失敗')
+        print('7. 從公倉提領：扣稅、紀錄寫出實際拿到多少')
+        await d.wait_for_timeout(3500)
+        await d.click('[data-gmop="withdraw"]'); await d.wait_for_timeout(400)
+        check('建立提領工作' in await d.inner_text('#gmCreate'), '切到提領模式')
+        await d.fill('[data-gmm="c3"]', '200000'); await d.fill('[data-gmc="c3"]', '100')
+        check('稅後約拿到楓幣 190,000' in await d.inner_text('#gmSum'), '預估稅後金額：' + await d.inner_text('#gmSum'))
+        m3 = mock_state()['accounts']['A2']['chars']['c3']['money']
+        await d.click('#gmCreate'); await d.wait_for_timeout(1200)
+        wj = [j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'guildMoney' and j['status'] == 'pending']
+        check(len(wj) == 1 and wj[0]['batches'][0]['op'] == 'withdraw' and wj[0]['fromCharId'] == 'c3', '建立 1 個提領工作（給弓箭分身）')
+        http('POST', f"{HUB}/api/jobs/{wj[0]['id']}/approve")
+        j = await wait_job(wj[0]['id']); st = mock_state()
+        check(j['status'] == 'done', '提領完成：' + ' / '.join(x['msg'] for x in j['log'][-3:]))
+        check(st['guild']['mesos'] == 800000 and st['guild']['cashPoints'] == 200, f"公倉楓幣 {st['guild']['mesos']}、點數 {st['guild']['cashPoints']}")
+        check(abs(st['accounts']['A2']['chars']['c3']['money'] - m3 - 190000) < 5000 and st['accounts']['A2']['cashPoints'] == 5095, '角色拿到扣稅後的楓幣、帳號點數 +95')
+        check(any('差額是公會稅' in x['msg'] for x in j['log']), '紀錄寫出稅金差額')
+        r = hub_json('POST', '/api/jobs', {'kind': 'guildMoney', 'fromCharId': 'c3', 'batches': [{'op': 'withdraw', 'mesos': 99999999, 'cash': 0}]})
+        http('POST', f"{HUB}/api/jobs/{r['jobs'][0]['id']}/approve")
+        j = await wait_job(r['jobs'][0]['id'])
+        check(j['status'] == 'failed' and '公倉楓幣不足' in j['lastMsg'] and mock_state()['guild']['mesos'] == 800000, '超過公倉餘額：失敗、公倉不變')
+
+        print('8. 超過身上楓幣：不存、標示失敗')
         r = hub_json('POST', '/api/jobs', {'kind': 'guildMoney', 'fromCharId': 'c3', 'batches': [{'mesos': 999999999, 'cash': 0}]})
         http('POST', f"{HUB}/api/jobs/{r['jobs'][0]['id']}/approve")
         j = await wait_job(r['jobs'][0]['id'])
-        check(j['status'] == 'failed' and '不足' in j['lastMsg'] and mock_state()['guild']['mesos'] == 1000000, '楓幣不足時失敗、公倉不變：' + j['lastMsg'])
+        check(j['status'] == 'failed' and '不足' in j['lastMsg'] and mock_state()['guild']['mesos'] == 800000, '楓幣不足時失敗、公倉不變：' + j['lastMsg'])
 
         for tab in ['overview', 'bag', 'guild', 'gear']:
             await d.click(f'nav button[data-tab={tab}]'); await d.wait_for_timeout(500)

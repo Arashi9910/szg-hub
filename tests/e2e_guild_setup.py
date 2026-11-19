@@ -10,7 +10,7 @@ def check(cond, msg):
 
 PHYS = {'sword', 'twoSword', 'axe', 'twoAxe', 'mace', 'twoMace', 'spear', 'polearm', 'bow', 'crossbow', 'claw', 'dagger', 'knuckle', 'gun'}
 def judge(g):  # 跟面板 rollProfileDefault 同一套預設
-    t = g.get('type'); st = ['incMAD'] if t in ('wand', 'staff') else ['incPAD'] if t in PHYS else ['incPAD', 'incSTR', 'incDEX', 'incINT', 'incLUK'] if t == 'gloves' else ['incSTR', 'incDEX', 'incINT', 'incLUK', 'incPAD', 'incMAD']
+    t = g.get('type'); st = ['incMAD'] if t in ('wand', 'staff') else ['incPAD'] if t in PHYS else ['incSTR', 'incDEX', 'incINT', 'incLUK']
     return sum(g['cleanStats'].get(k, 0) - g['baseStats'].get(k, 0) for k in st) >= 1
 def dsum(g): return sum(g['cleanStats'].get(k, 0) - g['baseStats'].get(k, 0) for k in set(g['cleanStats']) | set(g['baseStats']))
 

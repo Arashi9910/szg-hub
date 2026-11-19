@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-19（v0.34.0）
+最後更新：2026-11-19（v0.34.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -93,3 +93,5 @@
   - 測試：`tests/e2e_roll_money.py`；mock 新增 `/__mock/addgear`、`/__mock/additem`、guildWarehouseMesos/Cash、帳號 cashPoints。
   - 控制室風格改版（灰階、讀數列、需要處理加公倉快滿／知識王）先 `git stash`（ui-controlroom-wip），使用者說先處理功能，之後再接回。
   - ⚠ 讀遊戲原始碼時：開 https://play.szg08.com/ 首頁會被導到 /game/（中控腳本會跑），要從 /robots.txt 這類靜態頁面 fetch('/game/game.js')。
+- v0.34.1：使用者更正——防具、手套只看四屬（力敏智幸），不看物攻魔攻；武器照舊。公倉楓幣／點數加提領（batches[0].op='withdraw'，agent 檢查公倉餘額、記錄身上前後差＝扣稅後實拿；mock 提領扣 taxPercent）；使用者要「全部確認」也能確認 guildMoney（面板確認框列出存入／提領合計）。面板切到提領或建立提領前會 loadGuild(true)（公倉餘額可能幾秒前的）。真實遊戲還沒實際存取過楓幣／點數，提領扣稅方式（拿到 95% 或公倉多扣）未證實。
+
