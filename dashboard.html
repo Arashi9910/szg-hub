@@ -471,9 +471,9 @@
       </div>
     </div>
 
-    <details class="cfg card" id="slotCfgBox">
-      <summary>各部位要顯示哪些素質</summary>
-      <div class="slotcfg" id="slotCfg"></div>
+    <details class="cfg card rp-editor" id="slotCfgBox">
+      <summary>部位設定：每個部位、武器判斷浮動要看哪些素質</summary>
+      <div class="rp-body"></div>
     </details>
 
     <details class="card" id="filterCard">
@@ -548,7 +548,7 @@
         <span id="bJudgeBox"></span>
         <label title="「依道具」裡把各帳號倉庫的數量也列出來（倉庫的東西不能直接賣，只顯示）"><input type="checkbox" id="bWh"> 含倉庫</label>
         <details class="bag-adv"><summary>更多篩選</summary><div id="ffBag"></div></details>
-        <details class="bag-adv rp-editor"><summary>浮動判斷基準</summary><div class="rp-body"></div></details>
+        <details class="bag-adv rp-editor"><summary>部位設定</summary><div class="rp-body"></div></details>
       </div>
       <div class="bar" style="margin:4px 0 0"><span class="dim">角色</span><span id="bCharPick"></span></div>
       <details id="bCharBox" class="b-charbox"><summary><span data-ic="backpack"></span> <span id="bCharSum">角色卡</span> <span class="dim sm">（每隻角色的背包數量、可賣金額；點卡片只看那隻，Ctrl 多選）</span></summary><div id="bChars" class="char-strip"></div></details>
@@ -709,7 +709,7 @@
       <div class="g-st-cap" id="gsCap"></div>
       <div class="g-st-money" id="gsMoney"></div>
       <div class="g-st-auto" id="gsAuto"></div>
-      <div class="g-st-btns"><button class="btn" id="gwRefresh" title="請一個在線的遊戲分頁讀取公會倉庫（只讀）"><span data-ic="refresh-cw"></span> 重新整理</button><button class="btn" id="gRulesOpen" title="自動存入、存入規則、浮動判斷基準"><span data-ic="settings-2"></span> 存入規則</button><button class="btn" id="gMoneyOpen" title="存入或提領楓幣、點數"><span data-ic="coins"></span> 楓幣／點數</button></div>
+      <div class="g-st-btns"><button class="btn" id="gwRefresh" title="請一個在線的遊戲分頁讀取公會倉庫（只讀）"><span data-ic="refresh-cw"></span> 重新整理</button><button class="btn" id="gRulesOpen" title="自動存入、存入規則、部位設定"><span data-ic="settings-2"></span> 存入規則</button><button class="btn" id="gMoneyOpen" title="存入或提領楓幣、點數"><span data-ic="coins"></span> 楓幣／點數</button></div>
     </div>
     <div id="gGuideWrap">
     <div class="card">
@@ -761,7 +761,7 @@
       <div class="bar"><span class="gd-lb">快速套用</span>
         <button class="btn sm" data-gdpreset="scroll" title="所有卷軸都存，其他不動">只存卷軸</button>
         <button class="btn sm" data-gdpreset="scrollgear" title="所有卷軸＋所有裝備（不挑素質）">卷軸＋全部裝備</button>
-        <button class="btn sm" data-gdpreset="good" title="所有卷軸＋浮動達標的裝備（每個部位照「浮動判斷基準」看各自的素質；爛的留在背包給自動販售處理）">卷軸＋比標準好的裝備</button>
+        <button class="btn sm" data-gdpreset="good" title="所有卷軸＋浮動達標的裝備（每個部位照「部位設定」看各自的素質；爛的留在背包給自動販售處理）">卷軸＋比標準好的裝備</button>
         <button class="btn sm" data-gdpreset="clear">清空規則</button></div>
       <div class="bar"><span class="gd-lb">哪些角色</span><div class="chips" id="gdChars"></div></div>
       <div class="bar"><span class="gd-lb">整類存入</span><div class="chips" id="gdCats"></div><span class="dim sm">勾整類會包含之後撿到的新東西，自動存入用這個最方便</span></div>
@@ -780,7 +780,7 @@
             <label title="很舊的掉落沒有標準值，算不出浮動"><input type="checkbox" id="gdUnknown"> 算不出浮動的也存入</label></div>
         </div>
       </div>
-      <details class="rp-editor" id="gdRollBox"><summary style="cursor:pointer"><span class="gd-lb" style="display:inline-block">浮動判斷基準</span> <span class="dim sm">每個部位、每種武器要看哪些素質（物理武器看物攻、法杖看魔攻…）</span></summary><div class="rp-body"></div></details>
+      <details class="rp-editor" id="gdRollBox"><summary style="cursor:pointer"><span class="gd-lb" style="display:inline-block">部位設定</span> <span class="dim sm">每個部位、每種武器判斷浮動要看哪些素質（跟裝備頁、背包同一份）</span></summary><div class="rp-body"></div></details>
       <div class="bar"><span class="gd-lb">道具保留</span><span>每隻角色每種留</span><input type="number" id="gdKeep" min="0" style="width:70px"><span class="dim sm">個在背包（0＝全部存入）</span></div>
     </div>
     </aside>
@@ -1291,11 +1291,17 @@ function slotStats(slot) {
   if (slot === 'weapon') return ['incPAD','incMAD','incSTR','incDEX','incINT','incLUK'];
   return ['incSTR','incDEX','incINT','incLUK','incPAD','incMAD','incPDD'];
 }
+// 裝備的素質：全部列出，「部位設定」裡要看的素質加粗（取代原本的「各部位要顯示哪些素質」）
+function statLineJ(g, st) {
+  const pick = new Set(rollProfile(gearType(g)).stats);
+  return STAT_ORDER.filter(k => st[k]).map(k => pick.has(k) ? `<b>${statNames[k] || k} ${st[k]}</b>` : `${statNames[k] || k} ${st[k]}`).join(' · ');
+}
 function statLine(st, keys) {
   return keys.filter(k => st[k]).map(k => `${statNames[k] || k} ${st[k]}`).join(' · ');
 }
 
 function renderSlotCfg() {
+  if (!$('#slotCfg')) return; // 已改成共用的「部位設定」
   const slots = [...new Set(allGear().map(g => g.slot))].sort((a, b) => SLOT_ORDER.indexOf(a) - SLOT_ORDER.indexOf(b));
   if (!slots.length) { $('#slotCfg').innerHTML = '<span class="dim">有資料後才會出現部位。</span>'; return; }
   $('#slotCfg').innerHTML = slots.map(sl => `<b>${slotLabel(sl)}</b><div class="chips">${STAT_ORDER.map(k =>
@@ -1316,9 +1322,9 @@ function renderMatrix() {
     for (const col of cols) {
       const g = bySlot[col];
       if (!g) { h += '<td class="dim">—</td>'; continue; }
-      const line = statLine(g[mode] || {}, slotStats(g.slot));
+      const line = statLineJ(g, g[mode] || {});
       const clean = mode === 'cleanStats';
-      h += `<td class="cell-gear">${itemImg(g.itemId) ? `<img class="ico" src="${esc(itemImg(g.itemId))}" loading="lazy" alt="" onerror="this.remove()">` : ''}<div class="n" title="${esc(itemTip(g.itemId))}">${esc(g.name)} ${!clean && g.plus ? `<span class="plus">+${g.plus}</span>` : ''}</div><div class="s">${esc(line) || '—'}</div>${clean ? (g.maxSlots ? `<div class="s">可衝 ${g.maxSlots} 次</div>` : '') : (g.slotsLeft ? `<div class="s">可衝 ${g.slotsLeft} 次</div>` : '')}</td>`;
+      h += `<td class="cell-gear">${itemImg(g.itemId) ? `<img class="ico" src="${esc(itemImg(g.itemId))}" loading="lazy" alt="" onerror="this.remove()">` : ''}<div class="n" title="${esc(itemTip(g.itemId))}">${esc(g.name)} ${!clean && g.plus ? `<span class="plus">+${g.plus}</span>` : ''}</div><div class="s">${line || '—'}</div>${clean ? (g.maxSlots ? `<div class="s">可衝 ${g.maxSlots} 次</div>` : '') : (g.slotsLeft ? `<div class="s">可衝 ${g.slotsLeft} 次</div>` : '')}</td>`;
     }
     h += '</tr>';
   }
@@ -1353,7 +1359,7 @@ function renderFilterUI() {
   $('#presetSel').innerHTML = '<option value="">（未選擇）</option>' + (S.presets || []).map((p, i) => `<option value="${i}">${esc(p.name)}</option>`).join('');
 }
 // 條件可用的欄位：各素質＋幾個裝備本身的數值
-const COND_EXTRA = { _sum4: '四屬總和', _plus: '強化次數', _slotsLeft: '剩餘可衝', _maxSlots: '總可衝次數', _reqLevel: '需求等級' };
+const COND_EXTRA = { _rollOk: '浮動達標（1＝是）', _rollScore: '浮動分數', _sum4: '四屬總和', _plus: '強化次數', _slotsLeft: '剩餘可衝', _maxSlots: '總可衝次數', _reqLevel: '需求等級' };
 const COND_OPS = ['>', '>=', '<', '<=', '=', '≠'];
 function condLabel(k) { return COND_EXTRA[k] || statNames[k] || k; }
 function condRow(c, i) {
@@ -1373,6 +1379,9 @@ function condVal(g, k, mode) {
   if (k === '_slotsLeft') return g.slotsLeft || 0;
   if (k === '_maxSlots') return g.maxSlots || 0;
   if (k === '_reqLevel') return g.reqLevel || 0;
+  // 依「部位設定」的浮動判斷（每個部位、武器看的素質不同）；算不出浮動的：分數 -999、不算達標
+  if (k === '_rollOk') { const j = rollJudge(g); return j && j.ok ? 1 : 0; }
+  if (k === '_rollScore') { const j = rollJudge(g); return j ? j.score : -999; }
   return st[k] || 0;
 }
 function condOk(v, op, t) {
@@ -1852,7 +1861,7 @@ function bagListView(vis) {
     : kindRank(a.r.kind) - kindRank(b.r.kind) || cmp(typ(a), typ(b)) || cmp(a.r.name, b.r.name) || ((b.j ? b.j.score : -999) - (a.j ? a.j.score : -999)));
   const nG = rows.filter(x => x.r.t === 'g').length, nNo = rows.filter(x => !x.guild && x.j && !x.j.ok && !x.r.locked).length;
   const th = (k, l, cls = '') => `<th class="${cls}" data-blsort="${k}" style="cursor:pointer">${l}${sortKey === k ? ' ▼' : ''}</th>`;
-  let h = `<div class="card" style="padding:0"><div class="bar" style="padding:8px 10px 0"><span class="dim">共 ${rows.length} 列（裝備 ${nG} 件）</span>${nNo ? `<button class="btn sm" data-bquick="rollno">選取畫面上浮動未達標、沒鎖定的裝備（${nNo} 件）</button>` : ''}<span class="dim sm">判斷依「浮動判斷基準」：每個部位、武器種類看的素質不同（上方可以改）</span></div>
+  let h = `<div class="card" style="padding:0"><div class="bar" style="padding:8px 10px 0"><span class="dim">共 ${rows.length} 列（裝備 ${nG} 件）</span>${nNo ? `<button class="btn sm" data-bquick="rollno">選取畫面上浮動未達標、沒鎖定的裝備（${nNo} 件）</button>` : ''}<span class="dim sm">判斷依「部位設定」：每個部位、武器種類看的素質不同（上方可以改）</span></div>
     <table class="sticky"><thead><tr><th class="nosort" style="width:28px"></th>${th('kind', '物品')}<th class="nosort">類別／部位</th>${th('owner', '在誰身上')}<th class="nosort num">數量</th><th class="nosort">強化／可衝</th><th class="nosort">掉落浮動</th>${th('score', '判斷')}<th class="nosort num">商店單價</th><th class="nosort">狀態</th></tr></thead><tbody>`;
   for (const x of rows.slice(0, 800)) {
     const r = x.r, sel = ui.bagSel.has(x.sid), g = r.g;
@@ -2481,7 +2490,7 @@ function ruleHTML(r, i) {
     <div class="bar"><span style="width:56px">職業</span><div class="chips">${JOBS.map(([n, b]) => `<label><input type="checkbox" class="r-job" value="${b}" ${(r.jobs || []).includes(b) ? 'checked' : ''}>${n}</label>`).join('')}<span class="dim">（都不勾＝全部）</span></div></div>
     <div class="bar" style="align-items:flex-start"><span style="width:56px">保留條件</span>
       <div><label><input type="checkbox" class="r-all" ${r.sellAll ? 'checked' : ''}> 不保留，這類全部賣掉</label>
-        <div class="rconds" ${r.sellAll ? 'style="display:none"' : ''}>${(r.conds || []).map(condRow).join('')}<button class="btn" data-raddc="${i}">＋ 條件</button>
+        <div class="rconds" ${r.sellAll ? 'style="display:none"' : ''}>${(r.conds || []).map(condRow).join('')}<button class="btn" data-raddc="${i}">＋ 條件</button><button class="btn" data-raddroll="${i}" title="保留條件加上「浮動達標 = 1」：依部位設定判斷，浮動沒達標的賣掉">＋ 保留浮動達標的</button>
         <span class="dim">符合就保留，不符合就賣。「且」優先於「或」。</span></div></div></div>
   </div>`;
 }
@@ -2526,6 +2535,7 @@ document.addEventListener('click', async e => {
   const cfg = asCfg();
   if (t.id === 'asAdd') { await saveAS({ rules: [...readRules(), { on: true, name: '規則 ' + (cfg.rules.length + 1), slots: [], jobs: [], nameInc: '', sellAll: false, conds: [{ join: 'and', stat: 'incSTR', op: '>=', val: '' }] }] }); renderAS(true); }
   if (t.dataset.rdel !== undefined) { if (!confirm('刪除這條規則？')) return; const rs = readRules(); rs.splice(Number(t.dataset.rdel), 1); await saveAS({ rules: rs }); renderAS(true); }
+  if (t.dataset.raddroll !== undefined) { const rs = readRules(); const r = rs[Number(t.dataset.raddroll)]; r.conds = (r.conds || []).filter(c => c.val !== '' && c.val != null); r.conds.push({ join: r.conds.length ? 'or' : 'and', stat: '_rollOk', op: '=', val: '1' }); await saveAS({ rules: rs }); renderAS(true); return; }
   if (t.dataset.raddc !== undefined) { const rs = readRules(); rs[Number(t.dataset.raddc)].conds.push({ join: 'and', stat: 'incSTR', op: '>=', val: '' }); await saveAS({ rules: rs }); renderAS(true); }
   if (t.hasAttribute('data-delcond')) { e.stopImmediatePropagation(); t.closest('.cond').remove(); await saveAS({ rules: readRules() }); renderAS(true); }
   if (t.id === 'asCharAll' || t.id === 'asCharNoMain' || t.id === 'asCharNone') {
@@ -4019,7 +4029,7 @@ CP.gd = { get: () => { const d = gdState(); return d.charMode && d.charMode !== 
 CP.gx = { get: () => ui.gx.cp || { mode: 'all' }, set: spec => { ui.gx.cp = spec; ui.gx.sel.clear(); renderGuildBag(); } };
 CP.bag = { get: () => ui.bag.cp || { mode: 'all' }, set: spec => { ui.bag.cp = spec; ui.bag.chars = new Set(spec.mode === 'all' ? [] : cpIds(spec)); if (spec.mode !== 'all' && !ui.bag.chars.size) ui.bag.chars.add('__none__'); renderBagList(); } };
 const rollSum = d => d ? Object.values(d).reduce((t, v) => t + v, 0) : null;
-// ===== 浮動判斷基準：每個部位、每種武器看的素質不同 =====
+// ===== 部位設定：每個部位、每種武器看的素質不同 =====
 // 分數＝這件裝備在「這個部位要看的素質」上的掉落浮動加總；分數 ≥ 門檻＝達標（比標準好，值得留）
 const WEAPON_PHYS = ['sword', 'twoSword', 'axe', 'twoAxe', 'mace', 'twoMace', 'spear', 'polearm', 'bow', 'crossbow', 'claw', 'dagger', 'knuckle', 'gun'];
 const WEAPON_MAGIC = ['wand', 'staff'];
@@ -4054,7 +4064,7 @@ function rollFilterPass(g, f) {
   if (f === 'unknown') return !j;
   return j ? (f === 'ok' ? j.ok : !j.ok) : false;
 }
-const rollFilterSel = (id, v) => `<select id="${id}" title="依「浮動判斷基準」：每個部位、武器種類看的素質不同"><option value="all" ${v === 'all' ? 'selected' : ''}>浮動：全部</option><option value="ok" ${v === 'ok' ? 'selected' : ''}>浮動達標的</option><option value="no" ${v === 'no' ? 'selected' : ''}>浮動未達標的</option><option value="unknown" ${v === 'unknown' ? 'selected' : ''}>算不出浮動的</option></select>`;
+const rollFilterSel = (id, v) => `<select id="${id}" title="依「部位設定」：每個部位、武器種類看的素質不同"><option value="all" ${v === 'all' ? 'selected' : ''}>浮動：全部</option><option value="ok" ${v === 'ok' ? 'selected' : ''}>浮動達標的</option><option value="no" ${v === 'no' ? 'selected' : ''}>浮動未達標的</option><option value="unknown" ${v === 'unknown' ? 'selected' : ''}>算不出浮動的</option></select>`;
 // 基準編輯器（公倉、背包共用同一份設定）
 function rollEditorTypes() {
   const seen = new Set();
@@ -4073,7 +4083,7 @@ function rollEditorHTML() {
       <td class="wrap">${STAT_ORDER.map(k => `<span class="holder ${p.stats.includes(k) ? 'sel' : ''}" data-rpstat="${t}|${k}">${esc(statNames[k] || k)}</span>`).join('')}</td>
       <td>分數 ≥ <input type="number" data-rpmin="${t}" value="${p.min}" style="width:56px"></td>
       <td>${custom ? `<button class="btn sm" data-rpreset="${t}">還原預設</button>` : '<span class="dim sm">預設</span>'}</td></tr>`; };
-  return `<div class="dim sm" style="margin:4px 0 6px">點素質切換要不要算進分數。分數＝那些素質的掉落浮動加總（例：雙手棍只看物攻，物攻 +2 就是 2 分；防具預設看力量、敏捷、智力、幸運）。達標＝分數 ≥ 門檻。存入規則、公倉篩選、背包條列都用這份。</div>
+  return `<div class="dim sm" style="margin:4px 0 6px">點素質切換要不要算進分數。分數＝那些素質的掉落浮動加總（例：雙手棍只看物攻，物攻 +2 就是 2 分；防具預設看力量、敏捷、智力、幸運）。達標＝分數 ≥ 門檻。裝備頁、背包、公倉、撿到自動處理、自動上架都用這份。</div>
     <div class="bar"><button class="btn sm" data-rpbulk="phys">把第一種物理武器的設定套用到所有物理武器</button><button class="btn sm" data-rpbulk="armor">把帽子的設定套用到所有防具、飾品</button><button class="btn sm" data-rpbulk="reset">全部還原預設</button></div>
     <table class="rp-table"><thead><tr><th class="nosort">種類</th><th class="nosort">要看的素質</th><th class="nosort">門檻</th><th class="nosort"></th></tr></thead><tbody>
     <tr><td colspan="4" class="dim sm">武器</td></tr>${weapons.map(row).join('') || '<tr><td colspan="4" class="dim">還沒看到武器</td></tr>'}
@@ -4087,7 +4097,7 @@ document.addEventListener('click', e => {
   const P = { ...(S.rollProfiles || {}) };
   if (t.dataset.rpstat) { const [ty, k] = t.dataset.rpstat.split('|'); const p = rollProfile(ty); const st = p.stats.includes(k) ? p.stats.filter(x => x !== k) : [...p.stats, k]; P[ty] = { stats: STAT_ORDER.filter(x => st.includes(x)), min: p.min }; }
   else if (t.dataset.rpreset) delete P[t.dataset.rpreset];
-  else if (t.dataset.rpbulk === 'reset') { if (!confirm('把所有部位的浮動判斷基準還原成預設？')) return; for (const k of Object.keys(P)) delete P[k]; }
+  else if (t.dataset.rpbulk === 'reset') { if (!confirm('把所有部位的部位設定還原成預設？')) return; for (const k of Object.keys(P)) delete P[k]; }
   else if (t.dataset.rpbulk === 'phys') { const { weapons } = rollEditorTypes(); const src = weapons.find(x => WEAPON_PHYS.includes(x)); if (!src) return; const p = rollProfile(src); for (const x of WEAPON_PHYS) P[x] = { stats: [...p.stats], min: p.min }; }
   else if (t.dataset.rpbulk === 'armor') { const p = rollProfile('hat'); for (const x of ARMOR_ORDER) if (x !== 'hat') P[x] = { stats: [...p.stats], min: p.min }; }
   rollSave(P);
@@ -4240,7 +4250,7 @@ function renderGuildOut() {
       ${rollFilterSel('gwJudge', ui.gw.judge)}<label><input type="checkbox" id="gwFresh" ${ui.gw.fresh ? 'checked' : ''}> 只看沒衝過卷的</label>
       <span class="dim">列出 ${rows.length} 件</span><button class="btn sm" id="gwPickShown">勾選目前列出的</button></div></div></div>`;
   const opt = (sel, fits) => '<option value="">（不領）</option>' + snaps().slice().sort((a, b) => cmp(a.char.name, b.char.name)).map(s => `<option value="${s.char.id}" ${sel === s.char.id ? 'selected' : ''}>${fits && fits[0] === s.char.id ? '★ ' : ''}${esc(s.char.name)} Lv${s.char.lv} ${esc(s.char.jobName || s.char.branch || '')}${fits && !fits.includes(s.char.id) ? '（不能穿）' : ''}${stateSuffix(s)}</option>`).join('');
-  let h = `<table><thead><tr><th class="nosort" style="width:24px"></th><th class="nosort">名稱</th>${ui.gw.tab !== 'gear' ? '<th class="nosort num">數量</th><th class="nosort">領幾個</th>' : '<th class="nosort">強化</th><th class="nosort">掉落浮動</th><th class="nosort" title="依浮動判斷基準：每個部位、武器種類看的素質不同">判斷</th><th class="nosort">給誰</th>'}</tr></thead><tbody>`;
+  let h = `<table><thead><tr><th class="nosort" style="width:24px"></th><th class="nosort">名稱</th>${ui.gw.tab !== 'gear' ? '<th class="nosort num">數量</th><th class="nosort">領幾個</th>' : '<th class="nosort">強化</th><th class="nosort">掉落浮動</th><th class="nosort" title="依部位設定：每個部位、武器種類看的素質不同">判斷</th><th class="nosort">給誰</th>'}</tr></thead><tbody>`;
   if (!rows.length) h += `<tr><td colspan="7" class="empty">${ui.gw.tab === 'gear' ? '沒有裝備' : '這一類沒有東西'}</td></tr>`;
   for (const r of rows.slice(0, 400)) {
     const sel = ui.gw.sel.get(r.rk);
@@ -4307,7 +4317,7 @@ function renderGuildBag() {
   ui.gx.shown = rows.map(r => r.rk);
   const n = ui.gx.sel.size;
   $('#gxBagInfo').textContent = `${rows.length} ${G ? '件' : '種'}可以存`;
-  $('#gxBagTools').innerHTML = `<span class="sm">已選 <b>${n}</b></span><button class="btn sm" data-gxsel="all">全選</button>${G ? rollFilterSel('gxJudge', ui.gx.judge || 'all') + '<button class="btn sm" data-gxsel="ok" title="依浮動判斷基準">選達標的</button><button class="btn sm" data-gxsel="no">選未達標的</button>' : ''}${n ? '<button class="btn sm" data-gxsel="none">清除</button>' : ''}`;
+  $('#gxBagTools').innerHTML = `<span class="sm">已選 <b>${n}</b></span><button class="btn sm" data-gxsel="all">全選</button>${G ? rollFilterSel('gxJudge', ui.gx.judge || 'all') + '<button class="btn sm" data-gxsel="ok" title="依部位設定">選達標的</button><button class="btn sm" data-gxsel="no">選未達標的</button>' : ''}${n ? '<button class="btn sm" data-gxsel="none">清除</button>' : ''}`;
   let h = `<table><thead><tr><th class="nosort" style="width:24px"></th><th class="nosort">名稱</th>${G ? '<th class="nosort">在誰身上</th><th class="nosort">掉落浮動</th><th class="nosort">判斷</th>' : '<th class="nosort num">可存</th><th class="nosort">在誰身上</th>'}</tr></thead><tbody>`;
   if (!rows.length) h += `<tr><td colspan="5" class="empty">${snaps().length ? '背包裡沒有這一類可以存的東西' : '還沒有背包資料'}</td></tr>`;
   for (const r of rows.slice(0, 500)) {
@@ -4539,7 +4549,7 @@ function renderGuildDeposit() {
   for (const k of d.cats) kinds.add(k);
   const cnt = k => all.filter(x => (k === '裝備' ? x.type === 'gear' : x.type === 'item' && x.kind === k)).reduce((t, x) => t + x.n, 0);
   $('#gdCats').innerHTML = [...kinds].map(k => `<label><input type="checkbox" data-gdcat="${esc(k)}" ${d.cats.has(k) ? 'checked' : ''}> ${esc(gdCatLabel(k))} <span class="dim sm">${fmt(cnt(k))}</span></label>`).join('');
-  $('#gdConds').innerHTML = d.conds.map((c, i) => `<div class="bar" style="margin:2px 0"><select data-gdck="${i}"><option value="_pass" ${c.k === '_pass' ? 'selected' : ''}>依部位基準達標</option><option value="_sum" ${c.k === '_sum' ? 'selected' : ''}>浮動總和（所有素質）</option>${STAT_ORDER.map(k => `<option value="${k}" ${c.k === k ? 'selected' : ''}>${esc(statNames[k] || k)}</option>`).join('')}</select>${c.k === '_pass' ? '<span class="dim sm">每個部位、武器照下面「浮動判斷基準」各自判斷</span>' : `<span>浮動 ≥</span><input type="number" data-gdcmin="${i}" value="${esc(c.min)}" style="width:70px">`}<button class="btn sm" data-gdcdel="${i}">✕</button></div>`).join('') || '<div class="dim">（沒有條件）</div>';
+  $('#gdConds').innerHTML = d.conds.map((c, i) => `<div class="bar" style="margin:2px 0"><select data-gdck="${i}"><option value="_pass" ${c.k === '_pass' ? 'selected' : ''}>依部位基準達標</option><option value="_sum" ${c.k === '_sum' ? 'selected' : ''}>浮動總和（所有素質）</option>${STAT_ORDER.map(k => `<option value="${k}" ${c.k === k ? 'selected' : ''}>${esc(statNames[k] || k)}</option>`).join('')}</select>${c.k === '_pass' ? '<span class="dim sm">每個部位、武器照下面「部位設定」各自判斷</span>' : `<span>浮動 ≥</span><input type="number" data-gdcmin="${i}" value="${esc(c.min)}" style="width:70px">`}<button class="btn sm" data-gdcdel="${i}">✕</button></div>`).join('') || '<div class="dim">（沒有條件）</div>';
   $('#gdMode').value = d.mode; $('#gdUnknown').checked = d.unknown;
   if (ae !== $('#gdKeep')) $('#gdKeep').value = d.keep;
   const pl = gdPlan(all);

@@ -135,7 +135,7 @@ function save() {
     }
   }, 1000);
 }
-market = makeMarket(() => db, save, id => charName(id));
+market = makeMarket(() => db, save, id => charName(id), t => rollProfile(t));
 // 冒險資料庫（外部）：題庫、道具／怪物資料與圖示
 const extdb = makeExtDb(DATA_DIR, () => db.settings || {}, msg => { console.log('[資料庫] ' + msg); quizLog(msg); save(); });
 extdb.schedule();
@@ -779,7 +779,11 @@ const server = http.createServer(async (req, res) => {
     // ---- 撿到裝備自動處理 ----
     if (req.method === 'GET' && url.pathname === '/api/autosell') {
       const a = db.settings.autoSell || {};
-      return send(res, 200, { mode: a.mode || 'off', rules: a.rules || [], chars: a.chars || {} });
+      // 舊腳本看不懂「浮動達標／浮動分數」條件（會當成 0 → 全部賣掉）：沒帶版本或版本太舊的，用到這些條件的規則先不給
+      const oldAgent = verLt(url.searchParams.get('v') || '0', '0.36.0');
+      const rules = (a.rules || []).filter(r => !oldAgent || !(r.conds || []).some(c => /^_roll/.test(c.stat || '')));
+      // rollProfiles：腳本判斷「浮動達標」用（跟面板的部位設定同一份；沒設定的部位用預設）
+      return send(res, 200, { mode: a.mode || 'off', rules, chars: a.chars || {}, rollProfiles: db.settings.rollProfiles || {} });
     }
     if (req.method === 'POST' && url.pathname === '/api/gear-log') {
       const e = JSON.parse(await readBody(req));
