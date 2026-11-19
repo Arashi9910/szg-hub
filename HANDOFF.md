@@ -10,7 +10,14 @@
   3. `python3 tools/make-public.py <私人repo路徑> <公開repo路徑>` 產生公開版（會拿掉 REMOTE／TOKEN／Tailscale，新增的程式檔要加進 `tools/make-public.py` 的 FILES）
   4. 更新公開 repo 的 README（公開版 README 獨立維護），commit 後 `git -c push.negotiate=true push`
   5. 在使用者面板分頁（http://127.0.0.1:8787/）執行 `/api/update/check` → `/api/update/apply` 套用；遊戲分頁約 2 分鐘內自動換新腳本
-- 測試：`tests/`（e2e_smoke、e2e_guild、e2e_guild_auto、e2e_switch、e2e_forge、e2e_guild_sell、e2e_agent_gate、e2e_bag_guild、e2e_board_group、e2e_view_group、e2e_split、e2e_jobs_clear、e2e_ov_switch）；原本寫在 `/home/claude/test`（mockgame.js 模擬遊戲、harness.py 共用工具、e2e_smoke.py 冒煙測試，`python3 e2e_smoke.py`）。harness 會把私人 repo 複製到 /tmp/hub 當測試中控，並先 `POST /api/settings {"autoUpdate":false}`，否則會被 GitHub 版本蓋掉。2026-11-18 舊測試檔隨舊工作階段消失，已重寫；**之後要放進 repo 才不會再不見**。
+- **測試環境（全部在私人 repo 的 `tests/`，make-public 不會複製）**：
+  - 新工作階段重建：`git clone` 私人 repo 到 `/home/claude/szg-hub`、公開 repo 到 `/home/claude/szg-hub-public`；需要 Node.js（目前 v22）、Python 3、`pip install --break-system-packages playwright && playwright install chromium`。
+  - `mockgame.js`＝模擬遊戲（port 9900，3 個帳號 A1／A2／A3、4 隻角色 c1 本尊劍士／c2 本尊小號／c3 弓箭分身／c4 倉庫分身）；`harness.py` 的 `Env()` 會把私人 repo 複製到 `/tmp/hub` 當測試中控（port 8787，先關 autoUpdate），用 Playwright 模擬每個 Chrome 設定檔跑竄改猴腳本。log 在 `/tmp/mockgame.log`、`/tmp/hub.log`。
+  - **注意 8787 port**：測試中控和使用者的中控同 port，但使用者的中控在他自己電腦上（透過 Chrome 的 127.0.0.1:8787），不會衝突；在雲端工作區跑測試只會用到 /tmp/hub。
+  - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab 偶爾不穩，重跑一次就過。
+  - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
+  - 測試清單（26 支）：smoke、agent_gate、bag_give、board_group、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
+- **實機驗證**：使用者的 Chrome（Claude in Chrome）開 http://127.0.0.1:8787/ 用 javascript 呼叫 API 看資料；做完要關掉自己開的分頁。不要直接開 play.szg08.com（會導到 /game/、中控腳本會在那個分頁跑），讀遊戲程式碼從 https://play.szg08.com/robots.txt 分頁 `fetch('/game/game.js')`，輸出只取識別字或計數（整段原始碼會被輸出過濾擋掉）。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定；**公會倉庫相關功能只做私人版**（公開版其他人做法可能不同），之後用程式標記讓 make-public 移除。
 
 - **新增工作種類時**：在 server.js 的 `KIND_MIN_AGENT` 登記最低腳本版本（私人種類寫在私人區塊裡），否則舊腳本的分頁會拿到工作然後「未知的工作類型」失敗。遊戲分頁有時會卡在舊腳本好幾版（Tampermonkey 快取），只能請使用者手動重新整理那個分頁。
@@ -43,17 +50,20 @@
 
 - **派工分組（v0.29）**：settings.boards = {A, B}（舊的 settings.board 當 A），settings.charGroup 覆寫分組（預設帳號角色清單第 1 隻＝A）；`boardGroup()` 自動＝有兩隻角色的帳號中目前角色多的那組。saveBoard 要存「當下那一份」並在 boardPending 期間讓 poll 保留本機設定（v0.29.1 修過一次被 poll 蓋掉的 bug）。看板只顯示該組角色（含沒同步過的，用 accountChars 補），非目前角色＝背景掛機，套用時略過。v0.29.2 裝備、交易分頁共用檢視組別 `ui.vg`（localStorage viewGroup；`snapsV()`／`allGear(true)`／`wearers()` 只看該組）。使用者不想看到兩組混在一起。使用者玩法：切換角色後另一隻在背景掛機，偶爾收菜。
 
-## 待辦（使用者已同意的方向）
-1. 派工工廠圖持續依使用者回饋調整（操作手感、動畫）
-2. ~~公會倉庫串接~~（v0.25 完成；v0.26 自動存入）。v0.26.1 工廠圖公倉節點（pos.guild、線 key `bag>guild`、`flyIcon()` 共用飛行動畫）。v0.28 公倉整理：裝備浮動篩選＋`guildSell` 工作（由某角色每批領出 50 件→inventoryQuote/Sell，遊戲不能直接從公倉賣）。2026-11-18 使用者把 11 隻角色背包的 361 件裝備全部存進公倉。v0.28.4 背包分頁「存進公倉」（公開版的擴充點 `bagExtraActions`／`bagActHooks`，私人區塊實作；存入直接 approve）。之後可加：依職業一鍵分配、公倉裝備同名合併檢視、不及格上架市場
-3. ~~強化工坊~~（v0.27：「強化」分頁、`forge` 工作、`/api/forge` 結果；agent 用衝之前／之後的裝備狀態算每件結果，不依賴 lastArtisan 格式；私人版 `forgeExtra` 補上公倉來源，執行時先領出）。2026-11-18 使用者第一次實衝成功（18 件馬爾斯黑拳套、手套攻擊卷軸60%，+5×1 +4×6 +3×8 +2×3，900 萬），結果記錄正確；v0.28.3 結果顯示 +幾分布與增加素質
-4. ~~分流~~（v0.30：強化結果下的分流區塊，用現有的 lock／sell／give 工作＋私人版 guildDeposit；`POST /api/forge/split` 標已分流；settings.splitRule 記住選擇）。還沒做：不及格上架市場
-5. 之後：打技能書路線（4 轉，使用者進度未到）
+## 待辦（2026-11-20 更新）
+- 進行中／待回覆：
+  - 使用者說「有些裝備圖片消失了」，查不到缺圖，問他哪一頁＋截圖，還沒回覆。
+  - 楓幣收入 v0.39：遊戲 sessionReport.money 是淨額，含不含交易／給楓幣還沒證實（佐藤天司本次 -646 萬，原因未查）。
+  - 公倉楓幣／點數的提領稅金（拿到 95% 或公倉多扣）真實遊戲還沒實際操作過。
+- 使用者還沒選的 UI 建議：① 派工兩條工具列合併 ② 工廠圖連線穿過節點 ③ 背包頁整體重做 ④ 強化素質改數字方塊、結果改表格 ⑤「A組／B組／全部／自動」檢視切換和角色選擇器的分工講清楚 ⑥ 地圖頁紀錄改表格。
+- 舊待辦：公倉裝備依職業一鍵分配、公倉同名裝備合併檢視、不及格裝備上架市場、4 轉技能書路線（使用者進度未到）、派工工廠圖依回饋持續調整。
 
 ## 使用者偏好
 - 清單選取要「點整列」就能選（`tr.pickrow`＋勾選框的 data-*pick 屬性，共用點選／Shift 選一段的處理），不要只能點小勾選框
 - 繁體中文；先給結論；介面要一眼看懂、操作直覺，喜歡有「自動工廠」感的視覺
 - 會動到遊戲資料、金錢、不可逆的操作要先確認；藥水會自動買，不需要提醒
+- 「可以操作存取道具，不要動到楓幣」：我自己測試時不碰楓幣／點數；楓幣點數功能一律要使用者確認
+- 派工分 A／B 兩組，不要混在一起；公開版不放個人資料、Tailscale
 
 ## 升級時間（v0.31.0）
 - 快照 `char.nextXp`（遊戲 `c.nextXp` 精確值，沒有時退回畫面算的 expNeed）、`nextXpExact`。
