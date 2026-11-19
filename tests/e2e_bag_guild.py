@@ -19,6 +19,7 @@ async def main():
         d.on('dialog', lambda dl: asyncio.ensure_future(dl.accept()))
         await d.goto(HUB + '/'); await d.wait_for_timeout(1500)
         await d.click('nav button[data-tab=bag]'); await d.wait_for_timeout(1000)
+        if not await d.eval_on_selector('#bCharBox', 'e => e.open'): await d.click('#bCharBox summary')
         await d.click('.ccard[data-bchar="c1"]'); await d.wait_for_timeout(400)  # 只看本尊劍士
         await d.fill('#bSearch', '手套'); await d.wait_for_timeout(500)
         await d.click('[data-bquick="all"]'); await d.wait_for_timeout(300)

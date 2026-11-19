@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-19（v0.34.1）
+最後更新：2026-11-19（v0.35.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -94,4 +94,10 @@
   - 控制室風格改版（灰階、讀數列、需要處理加公倉快滿／知識王）先 `git stash`（ui-controlroom-wip），使用者說先處理功能，之後再接回。
   - ⚠ 讀遊戲原始碼時：開 https://play.szg08.com/ 首頁會被導到 /game/（中控腳本會跑），要從 /robots.txt 這類靜態頁面 fetch('/game/game.js')。
 - v0.34.1：使用者更正——防具、手套只看四屬（力敏智幸），不看物攻魔攻；武器照舊。公倉楓幣／點數加提領（batches[0].op='withdraw'，agent 檢查公倉餘額、記錄身上前後差＝扣稅後實拿；mock 提領扣 taxPercent）；使用者要「全部確認」也能確認 guildMoney（面板確認框列出存入／提領合計）。面板切到提領或建立提領前會 loadGuild(true)（公倉餘額可能幾秒前的）。真實遊戲還沒實際存取過楓幣／點數，提領扣稅方式（拿到 95% 或公倉多扣）未證實。
+- v0.35.0 介面改版第一步（使用者要的順序：總覽 → 公倉 → 背包）：
+  - 總覽：stash 的控制室改版接回（石墨灰 :root、`--accent-fill`、SZG Num 數字字型 base64 內嵌、讀數列 `.gauges`、需要處理燈號＋公倉快滿／知識王，server `alertSummary()` 進 /api/data.alerts）。
+  - 圖示：Lucide（ISC）內嵌 `ICONS` + `ic(name)`、靜態 `<span data-ic>` 用 `fillIcons()`。從 lucide-static 取 svg 內層 path（注意不要把外層 <svg> 一起抓進來）。
+  - 公倉：`#gStatus` 狀態列（renderGuildStatus）、`.g-xfer` 三欄（左 `#gxBagOut` renderGuildBag／ui.gx，中 `#gxDeposit`＋`#gwBar`，右 `#gwOut`）、`#gRulesDrawer`（執行＋存入規則）、`#gMoneyDrawer`（楓幣點數）；Esc 關抽屜。存入（gxDepositPlan）與領取都直接 approve。測試 `tests/e2e_guild_xfer.py`；其他公倉測試要先點 `#gRulesOpen`／`#gMoneyOpen`。
+  - 背包：角色卡收進 `<details id="bCharBox">`（localStorage bagCharsOpen）。
+  - 參考：遊戲倉庫「背包與倉庫並排、中間按鈕搬移」（Opsive Storage Menu、Expressobits inventory transfer）、漸進揭露（少用設定收進抽屜）、GitLab 設定頁摘要。
 

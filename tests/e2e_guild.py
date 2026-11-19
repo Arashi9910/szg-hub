@@ -47,9 +47,10 @@ async def main():
         await dash.click('#gwRefresh')
         await wait_jobs('guildView')
         await dash.wait_for_timeout(4500)
-        check('測試公會' in await dash.inner_text('#gwInfo'), '面板顯示公會名稱與容量：' + (await dash.inner_text('#gwInfo'))[:60])
+        check('測試公會' in await dash.inner_text('#gStatus') and '500' in await dash.inner_text('#gStatus'), '狀態列顯示公會名稱與容量：' + ' '.join((await dash.inner_text('#gStatus')).split())[:60])
 
         print('2. 存入：工地手套（物防浮動 ≥ 0）＋手套攻擊卷軸，每隻保留 2 張')
+        await dash.click('#gRulesOpen'); await dash.wait_for_timeout(500)
         await dash.click('#gdPickBox summary')
         await dash.fill('#gdQ', '工地手套'); await dash.wait_for_timeout(300)
         await dash.click('#gdPickShown')
@@ -72,6 +73,7 @@ async def main():
             want_scroll += max(0, c['inventory'].get('i2040801', 0) - 2)
         check(f'符合 {len(want_uids)} 件' in prev, f'預覽的符合件數正確（{len(want_uids)} 件）')
         await dash.click('#gdCreate'); await dash.wait_for_timeout(800)
+        await dash.keyboard.press('Escape')
         jobs = [j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'guildDeposit']
         check(jobs and all(j['status'] == 'pending' for j in jobs), f'建立 {len(jobs)} 個存入工作，等待確認')
         hub_json('POST', '/api/jobs/approve-all')

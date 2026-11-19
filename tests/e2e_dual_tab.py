@@ -91,6 +91,7 @@ async def main():
         for tab in ['bag', 'trade', 'board', 'maps', 'forge', 'guild', 'gear', 'market', 'quiz']:
             await dash.click(f'nav button[data-tab={tab}]'); await dash.wait_for_timeout(700)
         await dash.click('nav button[data-tab=bag]'); await dash.wait_for_timeout(800)
+        if not await dash.eval_on_selector('#bCharBox', 'e => e.open'): await dash.click('#bCharBox summary')
         card = await dash.locator('.ccard[data-bchar="c2"]').inner_text()
         check('在線' in card, '背包角色卡：本尊小號顯示在線（有分頁）')
         check(not errs, '面板各分頁都沒有 JS 錯誤' + ('：' + errs[0] if errs else ''))

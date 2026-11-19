@@ -73,6 +73,8 @@ async def main():
         ctx = await env.browser.new_context(); env.contexts.append(ctx)
         d = await ctx.new_page(); errs = []; d.on('pageerror', lambda e: errs.append(str(e)))
         await d.goto(HUB + '/'); await d.wait_for_timeout(1200); await d.click('nav button[data-tab=guild]'); await d.wait_for_timeout(1500)
+        check('自動存入：每' in await d.inner_text('#gStatus'), '狀態列顯示自動存入中：' + ' '.join((await d.inner_text('#gStatus')).split())[:80])
+        await d.click('#gRulesOpen'); await d.wait_for_timeout(600)
         check(await d.eval_on_selector('#gaMode', 'e => e.value') == 'deposit', '面板顯示「自動存入」模式')
         await d.wait_for_timeout(400)
         check(await d.is_checked('[data-gdcat="卷軸"]'), '存入選單的「所有卷軸」是勾的')

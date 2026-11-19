@@ -26,6 +26,7 @@ async def main():
         d.on('dialog', lambda dl: asyncio.ensure_future(dl.accept()))
         await d.goto(HUB + '/'); await d.wait_for_timeout(1500)
         await d.click('nav button[data-tab=guild]'); await d.wait_for_timeout(1500)
+        await d.click('#gRulesOpen'); await d.wait_for_timeout(600)
 
         print('1. 新手引導')
         check(await d.eval_on_selector('#gGuideBox', 'e => e.open'), '還沒設定時引導是展開的')
@@ -65,6 +66,8 @@ async def main():
         msg = (r['log'] or [{}])[-1].get('msg', '')
         check('試跑' in msg and '弓箭分身' not in msg and ('本尊劍士' in msg or '倉庫分身' in msg), '試跑紀錄：' + msg[:120])
         await d.reload(); await d.wait_for_timeout(2000); await d.click('nav button[data-tab=guild]'); await d.wait_for_timeout(1500)
+        await d.click('#gRulesOpen'); await d.wait_for_timeout(600)
+        if not await d.locator('[data-gdchar="c1"]').count(): await d.click('#gdCharsCustom'); await d.wait_for_timeout(300)
         check(await d.is_checked('[data-gdchar="c1"]') and not await d.is_checked('[data-gdchar="c3"]'), '重新整理後角色選擇保留')
         check('1/4' in await d.inner_text('#gSetupState') or '2/4' in await d.inner_text('#gSetupState'), '引導進度更新：' + await d.inner_text('#gSetupState'))
         check(not errs, '面板沒有 JS 錯誤' + ('：' + errs[0] if errs else ''))

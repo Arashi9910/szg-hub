@@ -88,10 +88,13 @@ async def main():
 
         print('4. 公倉存入規則：依部位基準達標')
         await d.click('nav button[data-tab=guild]'); await d.wait_for_timeout(800)
+        await d.click('#gRulesOpen'); await d.wait_for_timeout(500)
         await d.click('[data-gdpreset="good"]'); await d.wait_for_timeout(1200)
         dep = hub_json('GET', '/api/data')['settings']['guildDep']
         check(dep['conds'] == [{'k': '_pass', 'min': ''}], f'快速套用改用部位基準：{dep["conds"]}')
         check('依部位基準達標' in await d.inner_text('#gdSummary'), '摘要寫出依部位基準達標')
+        await d.keyboard.press('Escape')
+        check('依部位基準達標' in await d.inner_text('#gStatus'), '狀態列的規則摘要也更新')
 
         print('5. 公倉分頁：卷軸／消耗／其他')
         http('GET', f'{MOCK}/__mock/additem?acct=A1&char=c1&key=i2000001&qty=20'); await asyncio.sleep(5)
@@ -108,6 +111,7 @@ async def main():
         check('卷軸' in scr and '橘色藥水' not in scr, '卷軸分頁只有卷軸')
 
         print('6. 存楓幣、點數：建立後待確認，「全部確認」也可以確認')
+        await d.click('#gMoneyOpen'); await d.wait_for_timeout(500)
         await d.fill('[data-gmm="c1"]', '1000000'); await d.fill('[data-gmc="c1"]', '300')
         check('楓幣 1,000,000' in await d.inner_text('#gmSum'), '合計即時更新')
         before_money = mock_state()['accounts']['A1']['chars']['c1']['money']
@@ -127,6 +131,7 @@ async def main():
 
         print('7. 從公倉提領：扣稅、紀錄寫出實際拿到多少')
         await d.wait_for_timeout(3500)
+        await d.click('#gMoneyOpen'); await d.wait_for_timeout(500)
         await d.click('[data-gmop="withdraw"]'); await d.wait_for_timeout(400)
         check('建立提領工作' in await d.inner_text('#gmCreate'), '切到提領模式')
         await d.fill('[data-gmm="c3"]', '200000'); await d.fill('[data-gmc="c3"]', '100')
