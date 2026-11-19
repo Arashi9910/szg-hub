@@ -2,6 +2,7 @@
 import asyncio, json, os, subprocess, sys, time
 SHARE = 'http://127.0.0.1:9911/'
 os.environ['SZG_QUIZ_SHARE_URL'] = SHARE
+os.environ['SZG_QUIZ_VERIFY_MS'] = '4000'  # 面板答案等遊戲確認的時間（正式 30 分鐘）
 from harness import Env, hub_json, http, HUB, HERE
 
 ok = True
@@ -46,6 +47,13 @@ async def main():
             check('轉職要去哪裡找導師？' in qs, '遊戲公布的正解有上傳')
             check('面板猜的題目' not in qs, '自己在面板猜的不上傳')
             check(not any('本尊劍士' in json.dumps(r, ensure_ascii=False) for r in rows), '試算表裡沒有角色名稱')
+            hub_json('POST', '/api/quiz/learn', {'q': '面板答了但沒選項的舊題', 'options': [], 'answer': '乙', 'by': '面板'})
+            post(B, [{'key': '面板答了但沒選項的舊題', 'q': '面板答了但沒選項的舊題', 'options': ['甲', '乙'], 'answer': '甲'}])
+            await asyncio.sleep(4.5); hub_json('POST', '/api/quiz/share/sync')
+            rows = json.loads(http('GET', SHARE + '__sheet')[1]); qs = [r[1] for r in rows[1:]]
+            check('面板猜的題目' in qs, '面板選的答案放過確認時間（沒被遊戲更正）→ 上傳')
+            row = next((r for r in rows[1:] if r[1] == '面板答了但沒選項的舊題'), None)
+            votes = json.loads(row[5]) if row else {}; check('乙' in votes and len(votes['乙']) == 1, f'沒存選項的：從共享題庫補選項後上傳（投自己的答案）：{row and row[3:6]}')
 
             print('3. 別人答過的題目：下載後直接能用')
             hub_json('POST', '/api/quiz/unknown', {'q': '最強的怪物是？', 'options': ['嫩寶', '殭屍菇菇', '巴洛古', '綠水靈']})
@@ -62,7 +70,7 @@ async def main():
             await d.goto(HUB + '/'); await d.wait_for_timeout(1500)
             await d.click('nav button[data-tab=quiz]'); await d.wait_for_timeout(1500)
             t = await d.inner_text('#qsStatus')
-            check('共享題庫' in t and '已貢獻 1 題' in t, '狀態：' + t)
+            check('共享題庫' in t and '已貢獻 3 題' in t, '狀態：' + t)
             await d.click('#qsOn'); await d.wait_for_timeout(1500)
             qz = hub_json('GET', '/api/quiz')
             check(qz['share']['on'] is False and not any(v == '巴洛古' for v in qz['answers'].values()), '關掉之後：不用共享題庫的答案')
