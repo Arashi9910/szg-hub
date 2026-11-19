@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-19（v0.36.0）
+最後更新：2026-11-19（v0.37.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -106,4 +106,5 @@
   3. 共用角色選擇器 `charPickHTML(id)`＋`CP[id]={get,set}`，spec {mode: all|A|B|tab|custom, ids}；as/mk 存 charSpec＋展開的 chars map（cpMapSync 動態同步，資料沒載入時不寫）；guildDep.charMode。類別順序 BAG_KIND_ORDER 裝備、卷軸、消耗、其他；裝備頁 #fJudge、公倉背包欄 #gxJudge。
   4. 部位設定：拿掉 slotStats 編輯器，穿戴對照 `statLineJ` 全部素質＋要看的加粗；條件 `_rollOk`／`_rollScore`（dashboard condVal、agent rollProf/ROLLP、market.js 由 server 注入 rollProfile）。`/api/autosell?v=` 沒帶或 < 0.36.0 的腳本拿不到用 _roll 條件的規則（舊腳本會當 0 全賣）。
   - 測試：新增 e2e_bag_give、e2e_filters、e2e_rollsell；刪除 e2e_bag_guild（功能移除）。
+- v0.37.0：開關統一成 `input[type=checkbox].sw`（CSS 滑動開關，.pre＝試跑橘色）；總覽自動化改 `.auto-tile`＋`data-autotog`（AUTO_TOG 七個可切換；gear/mklist 開啟時 confirm 選直接或試跑，沒角色／規則會 alert 帶去設定）。`select[data-seg]`＋option data-short 由 `enhanceSegs()` 產生 `.mode-seg` 分段按鈕（select 隱藏，按鈕改值後觸發 change；測試要看 `.mode-seg` 不要看 select 是否可見）。表情符號換 Lucide（ic()／data-ic＋fillIcons()，renderAll 結尾會跑）。
 

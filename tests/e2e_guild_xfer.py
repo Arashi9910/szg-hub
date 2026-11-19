@@ -74,10 +74,10 @@ async def main():
 
         print('5. 抽屜')
         await d.click('#gRulesOpen'); await d.wait_for_timeout(400)
-        check(await d.is_visible('#gaMode') and await d.is_visible('[data-gdpreset="good"]'), '存入規則抽屜有自動存入、快速套用')
+        check(await d.is_visible('#gRulesDrawer .mode-seg') and await d.is_visible('[data-gdpreset="good"]'), '存入規則抽屜有自動存入、快速套用')
         await d.keyboard.press('Escape'); await d.wait_for_timeout(200)
         await d.click('#gMoneyOpen'); await d.wait_for_timeout(400)
-        check(await d.is_visible('#gmOp') and not await d.is_visible('#gaMode'), '楓幣／點數抽屜，一次只開一個')
+        check(await d.is_visible('#gmOp') and not await d.is_visible('#gRulesDrawer .mode-seg'), '楓幣／點數抽屜，一次只開一個')
         await d.click('[data-gclose="gMoneyDrawer"]'); await d.wait_for_timeout(200)
         check(not await d.is_visible('#gmOp'), '按關閉收起來')
 
