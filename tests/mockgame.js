@@ -354,6 +354,14 @@ http.createServer((req, res) => {
   if (url.pathname === '/api/catalog') return send(res, 200, catalog);
   // 測試控制：查看／重設狀態
   if (url.pathname === '/__mock/state') return send(res, 200, { accounts, guild });
+  // 測試控制：/__mock/session?acct=A1&char=c1&money=120000&activeMs=7200000&earned=9000000 設定本次掛機報告與累計賺得
+  if (url.pathname === '/__mock/session') {
+    const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
+    if (!c) return send(res, 404, { error: 'no char' });
+    const n = k => Number(url.searchParams.get(k) || 0);
+    c.earned = n('earned'); c.sessionReport = { startedAt: new Date(Date.now() - n('activeMs')).toISOString(), money: n('money'), xp: 0, activeMs: n('activeMs') };
+    return send(res, 200, { ok: true });
+  }
   // 測試控制：/__mock/additem?acct=A1&char=c1&key=i2000001&qty=20
   if (url.pathname === '/__mock/additem') {
     const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
