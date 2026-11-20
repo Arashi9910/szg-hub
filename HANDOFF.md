@@ -16,7 +16,7 @@
   - **注意 8787 port**：測試中控和使用者的中控同 port，但使用者的中控在他自己電腦上（透過 Chrome 的 127.0.0.1:8787），不會衝突；在雲端工作區跑測試只會用到 /tmp/hub。
   - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab 偶爾不穩，重跑一次就過。
   - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
-  - 測試清單（35 支）：smoke、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
+  - 測試清單（36 支）：smoke、pipe、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
 - **實機驗證**：使用者的 Chrome（Claude in Chrome）開 http://127.0.0.1:8787/ 用 javascript 呼叫 API 看資料；做完要關掉自己開的分頁。不要直接開 play.szg08.com（會導到 /game/、中控腳本會在那個分頁跑），讀遊戲程式碼從 https://play.szg08.com/robots.txt 分頁 `fetch('/game/game.js')`，輸出只取識別字或計數（整段原始碼會被輸出過濾擋掉）。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定；**公會倉庫相關功能只做私人版**（公開版其他人做法可能不同），之後用程式標記讓 make-public 移除。
 
@@ -30,6 +30,7 @@
 - `dashboard.html` 面板（單一檔案）
 - `market.js` 市場行情／自動上架；`extdb.js` 外部「冒險資料庫」（題庫、圖示、道具說明，執行時下載）
 - `update.js` 自動更新；`quiz-bank.json` 內建題庫
+- `pipeline3d.mjs` 派工「流水線」3D 視圖；`three-bundle.mjs` three.js r187＋OrbitControls／EffectComposer／UnrealBloomPass／OutputPass／CSS2DRenderer 用 esbuild 打成一個 ESM（約 790KB，重建：`npm i three esbuild`，entry 匯出這幾個，`esbuild --bundle --format=esm --minify`）。用 .mjs 是因為更新器只對 .js 跑 `node --check`（CommonJS 會把 ESM 判錯）。
 
 ## 遊戲 API 重點（/api/game）
 - 需要 `X-Game-Version` 標頭（頁面 fetch 會加）；非 sync 動作要 requestId；「存檔忙碌」要重試（agent 的 `gameRetry`）
@@ -159,3 +160,8 @@
   - 組隊：settings.parties = [{id, name, members（第一位隊長）, map}]。/api/party/apply → `applyParties()`：每個隊員一個 party 工作（BAG_KINDS，KIND_MIN_AGENT 0.46.0），隊伍已經是這幾個人（partyMap 判斷）就 ops=false 只換圖＋start；db.partyRuns[runId]={leader, members, code…}。agent `runPartyJob`：ops 時先 partyLeave（sync 看 party.code）→ leader partyCreate → code（回應或再 sync 的 party.code）POST /api/party/code → member 每 3 秒 GET /api/party/run 等 code（最多 150 秒；隊長工作失敗就回 error）→ partyJoin → 換圖（不同才換）→ start。
   - 面板 #party：#ptPool（還沒分隊）、#ptCards（.pt-card data-ptdrop、.pt-mem／.pt-chip data-ptchar 可拖曳＝HTML5 DnD dataTransfer 'text/szg-pt'，或點選 ui.pt.sel 再點卡片）、👑 data-ptlead 設隊長、#ptImport（遊戲目前隊伍，大家同一張圖才設地圖）、#ptSuggest（planGroups()：從 runPlanner 抽出來共用，只排有分頁的角色）、ptStatus（套用中／失敗／已就位／要套用的差異）、ptLive（全隊近 3 分合計、出發前比較）、ptEstimate（groupEstimate 試算）。
   - mock：隊伍改成動態 parties（partyCreate／Join／Leave，c.partyCode），MOCK_PARTY 變成一開始的隊伍；simulate 找不到怪物時不再丟 500。測試 `tests/e2e_party.py`。
+- v0.47.0 組隊為主的派工＋全身照＋3D 流水線（使用者：「派工能不能跟組隊結合？卡片只有名字難看，人物那邊有全身照」→ 選「組隊為主」；「派工主要是看特效、看自動化賞心悅目，也希望更直覺，用 three.js 做成有特色的視覺流水線」）：
+  - 全身照：遊戲頁面全域 `MapleAppearance`（appearance.js）`key(c,'attack')`、`load(c,'attack')` → {stand: 78×78 站姿 GIF 的 blob URL}。agent `uploadAvatar`／`avatarTick`（開頁 20 秒後、之後每 5 分鐘；key 沒變就不傳，GM `avatarKey:<id>`；同帳號沒分頁的角色 30 分鐘 sync 一次再傳）→ POST /api/avatar {charId, key, gif(base64)} → data/avatars/<id>.gif，GET /api/avatar/<id>；/api/data.avatars = {id: 時間}。面板 `avatarImg(id)`（還沒有就 👤）；組隊卡片隊員改成直立小卡（全身照＋名字＋等級＋地圖＋近 3 分），角色池 chip 有小頭像。mock：MOCK_APPEARANCE=1 放一張 40×40 的 GIF。
+  - 組隊套用帶自動販售：ptApply 把派工看板（A、B 都找）那張圖的 sell 範本一起送；server party 工作 `sell`，agent runPartyJob 換圖後 `autoSell`。KIND_MIN_AGENT.party → 0.47.0（舊分頁會先重新整理）。
+  - 流水線：派工檢視多一個「✨ 流水線」（ui.board.view='pipe'，#bdPipe）。dashboard `pipeModel()`：每個組隊（S.parties）一座平台，沒排進隊伍、在看板地圖或有分頁的該組角色各一座小平台 → 地圖站（看板上的圖＋平台所在的圖，顏色＝路線）→ 經驗／商店／背包。管線粒子數量和速度跟著 expLive（對數）；狀態色：ok 藍、移動中黃、待套用橘、打王紅、背景灰。掉落（pollLoot 在 pipe 檢視時改呼叫 pipeLoot）變成沿管線飛的光球＋CSS2D 道具圖示（外部圖片不能當 WebGL 貼圖）。點隊伍→組隊分頁（卡片閃一下）、點地圖站→自動販售設定、點經驗／背包→總覽／背包。鏡頭依內容自動對準，使用者轉過就記在 localStorage p3dCam，「⟲ 視角」重設。看不到（換分頁、視窗隱藏）就不畫。沒有 WebGL 時顯示「改看工廠圖」。window.__pipe（frames、orbs）給測試用。
+  - 測試 `tests/e2e_pipe.py`（headless SwiftShader 約 1 fps，所以斷言不靠動畫時間）。

@@ -463,6 +463,8 @@ async function sync(){
   document.getElementById('who').textContent = j.character.name + ' Lv' + j.character.lv + ' 楓幣 ' + j.character.money.toLocaleString();
   document.getElementById('st').textContent = 'EXP ' + j.character.xp + ' [12.50%]\\n平均每小時經驗 120,000\\n你的遊戲 ID：' + (window.__code || '');
 }
+// 模擬遊戲的 appearance.js（MOCK_APPEARANCE=1）：站姿 GIF 用一張 40×40 的小人代替
+${process.env.MOCK_APPEARANCE ? "window.MapleAppearance = { key: (c, k) => 'ap:' + c.id + ':' + (c.lv || 0) + ':' + k, load: async c => ({ key: 'x', stand: 'data:image/gif;base64,R0lGODlhKAAoAIEAAAAAAPrSqjx43CgoPCH5BAEAAAAALAAAAAAoACgAQAiuAAEIHEiwoMGDCBMeDMCwocOHDBVKLAjx4cSLAgVo3MixI0aJAgaIHBlypEgBHydWdJhS4cqXLQ92nMkxpkyaNG0eNCkSAM8BOiVaDIrwJUSiAo1WRApAKUumOHNCjepxKtWNTAFcrZn1p0+eWQV69Rq27EeYZp0GCKs2ItK2Dd/CXStXLVunZpuuNLsVq9WtWftqDCyYcF/DgP9eDTsWLGOwZLtCdizZ5FfLEwMCADs=' }) };" : ''}
 fetch('/api/account').then(r => r.json()).then(a => { window.__code = a.playerCode; if (!sessionStorage.getItem('mapleCharacter')) sessionStorage.setItem('mapleCharacter', a.activeCharacterId); sync(); setInterval(sync, ${Number(process.env.MOCK_SYNC_MS) || 3000}); });
 </script></body></html>`;
 

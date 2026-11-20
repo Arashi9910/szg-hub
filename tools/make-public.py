@@ -5,7 +5,7 @@
 import sys, os, shutil, json
 
 src, dst = sys.argv[1], sys.argv[2]
-FILES = ['server.js', 'market.js', 'extdb.js', 'update.js', 'agent.js', 'dashboard.html', 'szg-hub.user.js', 'version.json', 'quiz-bank.json', 'start.bat']
+FILES = ['server.js', 'market.js', 'extdb.js', 'update.js', 'agent.js', 'dashboard.html', 'szg-hub.user.js', 'version.json', 'quiz-bank.json', 'start.bat', 'pipeline3d.mjs', 'three-bundle.mjs']
 
 def edit(text, pairs, name):
     for a, b in pairs:
