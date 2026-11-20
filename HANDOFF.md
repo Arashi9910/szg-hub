@@ -16,7 +16,7 @@
   - **注意 8787 port**：測試中控和使用者的中控同 port，但使用者的中控在他自己電腦上（透過 Chrome 的 127.0.0.1:8787），不會衝突；在雲端工作區跑測試只會用到 /tmp/hub。
   - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab 偶爾不穩，重跑一次就過。
   - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
-  - 測試清單（36 支）：smoke、pipe、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
+  - 測試清單（36 支）：smoke、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
 - **實機驗證**：使用者的 Chrome（Claude in Chrome）開 http://127.0.0.1:8787/ 用 javascript 呼叫 API 看資料；做完要關掉自己開的分頁。不要直接開 play.szg08.com（會導到 /game/、中控腳本會在那個分頁跑），讀遊戲程式碼從 https://play.szg08.com/robots.txt 分頁 `fetch('/game/game.js')`，輸出只取識別字或計數（整段原始碼會被輸出過濾擋掉）。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定；**公會倉庫相關功能只做私人版**（公開版其他人做法可能不同），之後用程式標記讓 make-public 移除。
 
@@ -30,7 +30,6 @@
 - `dashboard.html` 面板（單一檔案）
 - `market.js` 市場行情／自動上架；`extdb.js` 外部「冒險資料庫」（題庫、圖示、道具說明，執行時下載）
 - `update.js` 自動更新；`quiz-bank.json` 內建題庫
-- `pipeline3d.mjs` 派工「流水線」3D 視圖；`three-bundle.mjs` three.js r187＋OrbitControls／EffectComposer／UnrealBloomPass／OutputPass／CSS2DRenderer 用 esbuild 打成一個 ESM（約 790KB，重建：`npm i three esbuild`，entry 匯出這幾個，`esbuild --bundle --format=esm --minify`）。用 .mjs 是因為更新器只對 .js 跑 `node --check`（CommonJS 會把 ESM 判錯）。
 
 ## 遊戲 API 重點（/api/game）
 - 需要 `X-Game-Version` 標頭（頁面 fetch 會加）；非 sync 動作要 requestId；「存檔忙碌」要重試（agent 的 `gameRetry`）
@@ -168,3 +167,4 @@
 - v0.47.1：使用者實機 14 座平台排成一長條、名字疊在一起 → 平台每欄最多 6 座、多欄錯開，鏡頭改由上往下（fit 依欄數和列數）。
 - v0.47.2：實機 19 個分頁換到 0.47 後全身照仍是 0 張（appearance.js 確認是 globalThis.MapleAppearance、load 回 {stand: GIF blob URL}）。改用 W.fetch 讀 blob，並加 POST /api/avatar/diag、GET /api/avatar-diag（記憶體）回報每隻失敗在哪一步（noMA／key／load／nostand／blob／b64／post）。
 - v0.47.3：avatar-diag 回報全部是「blob:Failed to fetch」（頁面讀 load() 的 blob: 網址失敗，可能是 CSP 或快取已 revoke）。改成直接 `W.fetch('/api/appearance?' + MA.key(c) + '&action=stand')`（appearance.js 的 fetchPart 就是這樣抓；key(c) 是 URLSearchParams 字串），不再呼叫 load。mock 有 /api/appearance（harness 對這個路徑用二進位轉送）。
+- v0.48.0：使用者覺得 3D 流水線「構想還行但太吃資源」，要回 2D、但一樣顯示人物圖，總覽也要。→ 拿掉 pipeline3d.mjs／three-bundle.mjs、server 路由、派工「流水線」按鈕（localStorage boardView='pipe' 自動改回 factory；更新器不會刪舊檔，使用者資料夾裡可能還留著那兩個檔，無害）。`avatarSrc`／`avatarImg(id, cls)` 移到 `let DATA` 後面（總覽先用到）；全身照出現在：總覽角色欄（.ava.ov 40px）、工廠圖角色節點（.ava.fn 52px，預設節點間距 84→100）、清單角色卡（.ava.bc）、組隊卡片／池。測試 e2e_pipe 改名 `tests/e2e_avatar.py`。3D 版做法（three.js 打包、bloom、CSS2D 掉落圖示）留在 git 歷史 v0.47.x，如果之後想要輕量版可以參考。

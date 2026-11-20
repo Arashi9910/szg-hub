@@ -1,4 +1,4 @@
-"""角色全身照上傳＋組隊卡片顯示、組隊套用帶派工看板的自動販售範本、派工「流水線」3D 視圖載入與互動"""
+"""角色全身照上傳，總覽／派工工廠圖／清單／組隊卡片顯示全身照；組隊套用帶派工看板的自動販售範本"""
 import asyncio, json, os, sys, time
 os.environ['MOCK_APPEARANCE'] = '1'
 from harness import Env, hub_json, http, MOCK
@@ -54,34 +54,21 @@ async def main():
             mc = mock_char(a, c); ms = (mc.get('autoSell') or {}).get('maps', {}).get(MAP)
             check(mc['map'] == MAP and ms and ms['enabled'] and sorted(ms['itemIds']) == sell['itemIds'], f'{c} 換到 {MAP} 並套用看板的自動販售（{ms}）')
 
-        print('3. 派工「流水線」3D')
-        await d.click('nav button[data-tab=board]'); await d.wait_for_timeout(500)
-        await d.click('#bdViewSeg [data-bview2=pipe]')
-        frames = 0
-        for _ in range(30):
-            await d.wait_for_timeout(500)
-            frames = await d.evaluate('window.__pipe ? window.__pipe.frames : -1')
-            if frames > 10: break
-        err = await d.evaluate('ui.pipe.err')
-        check(frames > 10, f'3D 場景在跑（{frames} 格）' + (f'：{err}' if err else ''))
-        await d.evaluate('poll(true)'); await d.wait_for_timeout(1500)
-        lbl = await d.inner_text('#bdPipe3d')
-        check('測試隊' in lbl and '經驗' in lbl and '商店' in lbl, '標籤有隊伍名稱、經驗、商店')
-        check('隊伍 1' in (await d.inner_text('#bdPipeHud')).replace('\n', ' '), 'HUD 顯示隊伍數')
-        r = await d.evaluate("window.__pipe.loot({map: '%s', name: '測試掉落', qty: 3, sold: true, goal: false})" % MAP)
-        check(r is True, '掉落光球出現（沿著地圖→商店的管線飛）')
-        seen = 0
-        for _ in range(15):
-            seen = await d.locator('.p3d-loot').count()
-            if seen: break
-            await d.wait_for_timeout(200)
-        check(seen >= 1, '掉落圖示畫在畫面上')
-        await d.screenshot(path='/tmp/pipe3d.png')
-        await d.evaluate("pipePick({type: 'pod', key: 'pt:pA'})"); await d.wait_for_timeout(800)
-        check(await d.evaluate("document.querySelector('nav button.on').dataset.tab") == 'party', '點隊伍平台 → 跳到組隊分頁')
-        await d.click('nav button[data-tab=board]'); await d.wait_for_timeout(500)
-        await d.evaluate("pipePick({type: 'station', key: '%s'})" % MAP); await d.wait_for_timeout(500)
-        check(await d.is_visible('#bdSell'), '點地圖站 → 打開自動販售設定')
+        print('3. 總覽、派工顯示全身照（2D）')
+        await d.evaluate("localStorage.setItem('boardView', 'pipe')")
+        await d.goto('http://127.0.0.1:8787/'); await d.wait_for_timeout(2000)
+        n = await d.locator('#overview table.ov img.ava.ov').count()
+        check(n >= 2, f'總覽角色欄有 {n} 張全身照')
+        await d.click('nav button[data-tab=board]'); await d.wait_for_timeout(1500)
+        check(await d.evaluate('ui.board.view') == 'factory', '舊的「流水線」設定自動改回工廠圖')
+        check(await d.locator('[data-bview2=pipe]').count() == 0, '沒有 3D 流水線按鈕')
+        n = await d.locator('#bdFactory .fnode img.ava.fn').count()
+        check(n >= 2, f'工廠圖角色節點有 {n} 張全身照')
+        await d.click('#bdViewSeg [data-bview2=list]'); await d.wait_for_timeout(800)
+        await d.click('#bdViewSeg [data-bview2=factory]'); await d.wait_for_timeout(800)
+        await d.screenshot(path='/tmp/fac_ava.png')
+        s3, _ = http('GET', 'http://127.0.0.1:8787/three-bundle.mjs')
+        check(s3 == 404, '3D 檔案已移除')
         check(not errs, '面板沒有 JS 錯誤' + ('：' + errs[0] if errs else ''))
     if not ok: print('\n'.join(env.logs[-25:]))
     print('全部通過' if ok else '有失敗'); sys.exit(0 if ok else 1)
