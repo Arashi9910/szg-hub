@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-21（v0.44.1）
+最後更新：2026-11-21（v0.45.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -16,7 +16,7 @@
   - **注意 8787 port**：測試中控和使用者的中控同 port，但使用者的中控在他自己電腦上（透過 Chrome 的 127.0.0.1:8787），不會衝突；在雲端工作區跑測試只會用到 /tmp/hub。
   - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab 偶爾不穩，重跑一次就過。
   - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
-  - 測試清單（33 支）：smoke、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
+  - 測試清單（34 支）：smoke、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
 - **實機驗證**：使用者的 Chrome（Claude in Chrome）開 http://127.0.0.1:8787/ 用 javascript 呼叫 API 看資料；做完要關掉自己開的分頁。不要直接開 play.szg08.com（會導到 /game/、中控腳本會在那個分頁跑），讀遊戲程式碼從 https://play.szg08.com/robots.txt 分頁 `fetch('/game/game.js')`，輸出只取識別字或計數（整段原始碼會被輸出過濾擋掉）。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定；**公會倉庫相關功能只做私人版**（公開版其他人做法可能不同），之後用程式標記讓 make-public 移除。
 
@@ -152,3 +152,4 @@
 - v0.43.4 賣出「報價單有 28 項，比選擇的 13 項多，已停止」（使用者轉述別人回報，背包有變動時發生）：推測送出的 id 對不上（掛機撿東西改變堆疊）時遊戲沒產生新報價，回應裡是角色身上舊的 inventoryQuote（或同角色同時有別的報價）。agent `safeQuote(charId, category, ids)`：報價前 sync 記下舊報價 id → 報價 → 一定要是新 id、category 相同、每列 uid 都在選的清單裡（不對就等一下重試一次，第二次才報錯）。賣出道具改用剛同步的背包「依 key 重新挑所有沒鎖的堆疊」（以前用工作裡的舊 uid，uid 是流水號可能對到別的東西）。三個地方都改：背包賣出、撿到裝備自動賣、公倉賣出。mock：inventoryQuote 存在 c.inventoryQuote、id 有任何一個對不上就不產生新報價；/__mock/restack。測試 `tests/e2e_sell_race.py`。
 - v0.44.0 死掉自動原地復活：idlePolicy.autoRevive（預設開，/api/idle-policy 回 autoRevive !== false）、reviveMaxPerHour（預設 6）。agent idleTick → `reviveTick`：目前角色 hp<=0；同帳號沒有自己分頁的角色（characters 清單沒 hp 時，沒在掛機的每 2 分鐘 sync 一次確認）→ `revive` → 回應的 character.auto 是 false 就 start → 自己的頁面關掉 #deathDialog。每隻每小時次數存 GM `revives:<id>`，超過上限就 idle-log kind:'reviveLimit'（一小時通知一次），總覽「需要處理」列「死太多次」。idle-log 多存 kind。mock：`revive`、/__mock/die。測試 `tests/e2e_revive.py`。
 - v0.44.1：使用者要求每小時復活上限可設到 9999（#ipReviveMax max 9999，預設 6 不變）。
+- v0.45.0 派工空地圖自動移除（使用者要求「地圖沒有接點時自動刪除」）：dashboard `boardPruneEmpty()`（poll 每次跑，在 boardSyncFromGame 之後）。地圖「有人」＝看板 assign 指到它（不分組、不含 __pool），或該組角色的實際地圖是它（assign 是 __pool 的不算），或角色有進行中的打王工作而 boss.back 是它。沒人就在 settings.boardEmpty[組][地圖] 記開始時間，超過 S.boardPruneMin（預設 10 分，可小數，測試用 0.3）就從 lanes 移除，sell／goals 保留，紀錄寫進 boardSyncLog。開關 S.boardPrune（預設開，#bdPrune 在 #bdSyncBox）。不能存在 board 物件裡：boardCfg() 只複製固定欄位，saveBoard 會洗掉。測試 `tests/e2e_board_prune.py`。
