@@ -310,11 +310,14 @@ function handle(a, body) {
       break;
     }
     case 'inventoryQuote': {
+      // 真實遊戲（2026-11-20 實測）：報價單存在 character.inventoryQuote，賣完也不清掉；rows 每列有 uid、kind、key
+      // 送來的 id 都對不上時（背包剛好在變動）不產生新報價，回應裡還是上一張
       const ids = new Set(body.ids || []); const rows = [];
-      if (body.category === 'equip') for (const g of c.equipmentBag) { if (ids.has(g.uid) && !g.locked) rows.push({ uid: g.uid, name: g.name, qty: 1, price: 100 }); }
-      else for (const s of c.inventoryStacks) if (ids.has(s.uid) && !s.locked) rows.push({ uid: s.uid, key: s.key, name: items[s.key].name, qty: s.qty, price: items[s.key].sellPrice * s.qty });
-      const q = { id: newUid('q'), rows, total: rows.reduce((t, r) => t + r.price, 0), charId: c.id };
-      quotes[q.id] = q; return { ...sessionView(a, c.id), quote: q };
+      if (body.category === 'equip') for (const g of c.equipmentBag) { if (ids.has(g.uid) && !g.locked) rows.push({ uid: g.uid, kind: 'gear', key: g.key, name: g.name, qty: 1, price: 100 }); }
+      else for (const s of c.inventoryStacks) if (ids.has(s.uid) && !s.locked) rows.push({ uid: s.uid, kind: 'item', key: s.key, name: items[s.key].name, qty: s.qty, price: items[s.key].sellPrice * s.qty });
+      if (!rows.length || rows.length < ids.size) return { ...sessionView(a, c.id), summary: { events: [] } };
+      const q = { id: newUid('q'), characterId: c.id, category: body.category, rows, total: rows.reduce((t, r) => t + r.price, 0), expiresAt: Date.now() + 60000, charId: c.id };
+      quotes[q.id] = q; c.inventoryQuote = { ...q }; return { ...sessionView(a, c.id), summary: { events: [] } };
     }
     case 'inventorySell': {
       const q = quotes[body.quoteId]; if (!q || q.charId !== c.id) fail('報價已過期');
@@ -491,6 +494,13 @@ http.createServer((req, res) => {
       if (!l.qty) c._stall.listings = c._stall.listings.filter(x => x !== l);
     }
     return send(res, 200, { ok: true, listings: c._stall.listings.map(({ gear, ...l }) => l) });
+  }
+  // 測試控制：/__mock/restack?acct=A1&char=c1 模擬撿東西造成堆疊重排（每一疊換新的 uid）
+  if (url.pathname === '/__mock/restack') {
+    const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
+    if (!c) return send(res, 404, { error: 'no char' });
+    c.inventoryStacks = c.inventoryStacks.map(s => ({ ...s, uid: newUid('s') }));
+    return send(res, 200, { ok: true });
   }
   if (url.pathname === '/__mock/luck') { scrollQueue = (url.searchParams.get('seq') || '').split(',').filter(x => x !== '').map(Number); return send(res, 200, { ok: true, n: scrollQueue.length }); }
   if (url.pathname === '/api/game' && req.method === 'POST') {
