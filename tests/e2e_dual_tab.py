@@ -26,7 +26,7 @@ async def main():
         p1 = await env.open_account('A1'); await env.open_account('A2')
         await env.wait_chars(2)
         print('1. 右下角「＋ 開 本尊小號 的分頁」')
-        btn = p1.locator('#szg-hub-open [data-szgopen="c2"]')
+        btn = p1.locator('#szg-hub-open [data-szgopen="c2"]:not([data-szghas])')
         await btn.wait_for(timeout=15000)
         check('本尊小號' in await btn.inner_text(), '本尊劍士的分頁顯示「＋ 開 本尊小號 的分頁」')
         async with env.acct_ctx['A1'].expect_page() as pi:
@@ -37,7 +37,7 @@ async def main():
         check(await wait(lambda: fresh('c2'), 25), '新分頁開成本尊小號，中控收到它的資料')
         check('szgChar' not in p2.url and await p2.evaluate("sessionStorage.getItem('mapleCharacter')") == 'c2', '網址參數用完就拿掉，分頁記住自己是本尊小號')
         await asyncio.sleep(6)
-        check(await p1.locator('#szg-hub-open').count() == 0, '另一隻有分頁了，按鈕自動消失')
+        check(await p1.locator('#szg-hub-open [data-szgopen="c2"][data-szghas]').count() == 1, '另一隻有分頁了，按鈕變成「本尊小號 已開」（不會整個消失）')
         check(fresh('c1', 70000) and fresh('c2', 70000) and not hub_json('GET', '/api/data')['chars']['c1'].get('idleOffline'), '兩隻同時在線、資料都即時')
         tabs = hub_json('GET', '/api/data')['tabs']
         check({'c1', 'c2'} <= set(tabs), f'中控記得兩隻都有分頁：{sorted(tabs)}')
@@ -101,7 +101,7 @@ async def main():
         await asyncio.sleep(2)
         # 伺服器 90 秒內還記得（背景分頁會被瀏覽器放慢），按鈕在下一輪就回來
         await asyncio.sleep(6)
-        check(await p1.locator('#szg-hub-open [data-szgopen="c2"]').count() == 1, '本尊劍士的分頁重新顯示「＋ 開 本尊小號 的分頁」')
+        check(await p1.locator('#szg-hub-open [data-szgopen="c2"]:not([data-szghas])').count() == 1, '本尊劍士的分頁重新顯示「＋ 開 本尊小號 的分頁」')
         print('6b. 本尊劍士的分頁按 F5（模擬離開時標記沒來得及清掉）')
         await p1.evaluate("""window.addEventListener('pagehide', () => localStorage.setItem('__gm:charTab:c1', JSON.stringify({ page: 'old', tab: sessionStorage.getItem('szgTabId'), at: Date.now(), hidden: false })))""")
         await p1.reload(); await asyncio.sleep(8)
