@@ -16,7 +16,7 @@
   - **注意 8787 port**：測試中控和使用者的中控同 port，但使用者的中控在他自己電腦上（透過 Chrome 的 127.0.0.1:8787），不會衝突；在雲端工作區跑測試只會用到 /tmp/hub。
   - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab 偶爾不穩，重跑一次就過。
   - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
-  - 測試清單（36 支）：smoke、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
+  - 測試清單（37 支）：smoke、dex、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
 - **實機驗證**：使用者的 Chrome（Claude in Chrome）開 http://127.0.0.1:8787/ 用 javascript 呼叫 API 看資料；做完要關掉自己開的分頁。不要直接開 play.szg08.com（會導到 /game/、中控腳本會在那個分頁跑），讀遊戲程式碼從 https://play.szg08.com/robots.txt 分頁 `fetch('/game/game.js')`，輸出只取識別字或計數（整段原始碼會被輸出過濾擋掉）。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定；**公會倉庫相關功能只做私人版**（公開版其他人做法可能不同），之後用程式標記讓 make-public 移除。
 
@@ -168,3 +168,7 @@
 - v0.47.2：實機 19 個分頁換到 0.47 後全身照仍是 0 張（appearance.js 確認是 globalThis.MapleAppearance、load 回 {stand: GIF blob URL}）。改用 W.fetch 讀 blob，並加 POST /api/avatar/diag、GET /api/avatar-diag（記憶體）回報每隻失敗在哪一步（noMA／key／load／nostand／blob／b64／post）。
 - v0.47.3：avatar-diag 回報全部是「blob:Failed to fetch」（頁面讀 load() 的 blob: 網址失敗，可能是 CSP 或快取已 revoke）。改成直接 `W.fetch('/api/appearance?' + MA.key(c) + '&action=stand')`（appearance.js 的 fetchPart 就是這樣抓；key(c) 是 URLSearchParams 字串），不再呼叫 load。mock 有 /api/appearance（harness 對這個路徑用二進位轉送）。
 - v0.48.0：使用者覺得 3D 流水線「構想還行但太吃資源」，要回 2D、但一樣顯示人物圖，總覽也要。→ 拿掉 pipeline3d.mjs／three-bundle.mjs、server 路由、派工「流水線」按鈕（localStorage boardView='pipe' 自動改回 factory；更新器不會刪舊檔，使用者資料夾裡可能還留著那兩個檔，無害）。`avatarSrc`／`avatarImg(id, cls)` 移到 `let DATA` 後面（總覽先用到）；全身照出現在：總覽角色欄（.ava.ov 40px）、工廠圖角色節點（.ava.fn 52px，預設節點間距 84→100）、清單角色卡（.ava.bc）、組隊卡片／池。測試 e2e_pipe 改名 `tests/e2e_avatar.py`。3D 版做法（three.js 打包、bloom、CSS2D 掉落圖示）留在 git 歷史 v0.47.x，如果之後想要輕量版可以參考。
+- v0.49.0 裝備圖鑑（使用者：新分頁顯示所有裝備，基本素質＋浮動，依職業、等級分類；選某職業時全職業也要顯示）：
+  - 資料：agent uploadWorld（版本前綴 w5）多送 `equipment`＝[id, 名稱, equipmentType, subCategory|category, reqLevel, reqJob(位元，0 全職業、-1 一件初心者), 標準素質{inc*}, tuc, [reqSTR,DEX,INT,LUK]]，排除 meta.cash；`statNames`。真實 catalog.equipment 1035 件，素質在 meta.incX（mock 是 base）。
+  - 浮動範圍是推估：用使用者 24 隻角色約 3,600 筆 cleanStats−baseStats 對出 `±max(1, ceil(標準×10%))`，物攻／魔攻最多 ±5（PAD 85 有 405 筆，最大 5），其他最多 ±10（PDD 132 最大 10）。遊戲程式碼裡沒有規則（伺服器端擲骰）。函式 `dexFloat`。
+  - 面板 #dex：職業 seg（全部／全職業＝只 reqJob 0／各職業＝含全職業）、等級（區間按鈕、自訂最低最高、「我的角色可穿」＝有角色等級夠且職業位元符合）、部位 chip（武器合一類，點了再展開武器種類）、搜尋、排序（等級／部位／攻擊）、只看我有的（snaps 的 gear itemId 計數）。設定存 localStorage 'dex'；一次顯示 120 件，「再顯示」加 240。測試 `tests/e2e_dex.py`。
