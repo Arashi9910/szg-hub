@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-20（v0.41.2）
+最後更新：2026-11-20（v0.42.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -16,7 +16,7 @@
   - **注意 8787 port**：測試中控和使用者的中控同 port，但使用者的中控在他自己電腦上（透過 Chrome 的 127.0.0.1:8787），不會衝突；在雲端工作區跑測試只會用到 /tmp/hub。
   - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab 偶爾不穩，重跑一次就過。
   - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
-  - 測試清單（30 支）：smoke、agent_gate、bag_give、board_group、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
+  - 測試清單（31 支）：smoke、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
 - **實機驗證**：使用者的 Chrome（Claude in Chrome）開 http://127.0.0.1:8787/ 用 javascript 呼叫 API 看資料；做完要關掉自己開的分頁。不要直接開 play.szg08.com（會導到 /game/、中控腳本會在那個分頁跑），讀遊戲程式碼從 https://play.szg08.com/robots.txt 分頁 `fetch('/game/game.js')`，輸出只取識別字或計數（整段原始碼會被輸出過濾擋掉）。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定；**公會倉庫相關功能只做私人版**（公開版其他人做法可能不同），之後用程式標記讓 make-public 移除。
 
@@ -138,3 +138,6 @@
   - 面板改版：#bossLive（進行中血條）、#bossGrid（王 × 出發單位總表，格子 .bc ok／busy／cd／skip，滑鼠看原因；名字共同前綴省略）、設定收進 #bossSetBox（摘要 #bossSetSum）。
   - 快速擊殺：12 秒內沒看到王就查一次 bossRespawns，已冷卻＝打死（不再誤判「王不在」）。
   - 使用者覺得原本 UI 太亂、操作麻煩；改版後待他回饋。我在 17:22 把 boss.mode 關掉並替 7 隻角色重開掛機，要他確認後再開。
+- v0.42.0 派工與遊戲雙向同步（使用者常直接在遊戲裡設定，看板抓不到）：
+  - 看板資料：assign＝**還沒套用**的派工（套用後就刪掉），角色顯示位置＝assign 或「實際地圖（在看板上的話）」；sell＝每張圖的販售範本。
+  - dashboard `boardSyncFromGame()`（poll 每次跑；S.boardSync !== false 預設開）：比對 settings.boardSeen[角色]＝{map, sell:{地圖: sellKey}}（存在設定裡，中控沒開時的變化也抓得到）。角色所在地圖不在看板→放進「練功」；遊戲換了圖（和 seen 不同）且有不同的 assign→刪掉 assign（以遊戲為準）；某張圖的 autoSellAll 和 seen 不同→更新 sell 範本（第一次同步只補沒有的範本）。改的是角色所屬組別（charGroup）的看板。有打王工作的角色跳過。boardPending（看板正在存）時跳過這輪。紀錄 settings.boardSyncLog（30 筆），工具列 #bdSyncBox（#bdSync 開關＋最近紀錄）。測試 `tests/e2e_board_sync.py`。
