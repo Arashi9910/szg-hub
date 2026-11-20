@@ -268,7 +268,10 @@ function handle(a, body) {
     }
     case 'start': c.auto = true; c.until = now + 24 * 3600e3; c._simAt = now; addLog(c, '開始掛機'); break;
     case 'stop': c.auto = false; addLog(c, '暫停掛機'); break;
-    case 'map': if (!maps[body.map]) fail('沒有這張地圖'); c.map = body.map; addLog(c, '前往 ' + maps[body.map].name); break;
+    case 'map': if (!maps[body.map]) fail('沒有這張地圖'); c.map = body.map; addLog(c, '前往 ' + maps[body.map].name);
+      // 真實遊戲（2026-11-20 實測）：換地圖會停止掛機（MOCK_MAP_STOPS_IDLE=1 模擬）
+      if (process.env.MOCK_MAP_STOPS_IDLE === '1' && c.auto) { c.auto = false; c.until = now; }
+      break;
     case 'autoSell':
       if (body.map !== c.map) fail('只能設定角色目前所在地圖的自動販售');
       c.autoSell.maps[body.map] = { enabled: !!(body.config && body.config.enabled), itemIds: ((body.config && body.config.itemIds) || []).map(Number) };

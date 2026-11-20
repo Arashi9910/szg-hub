@@ -2,6 +2,7 @@
 import asyncio, os, sys, time, json
 os.environ['MOCK_BOSS_DPS'] = '300'
 os.environ['MOCK_BOSS_RESPAWN_MS'] = '3600000'
+os.environ['MOCK_MAP_STOPS_IDLE'] = '1'   # 真實遊戲換地圖會停止掛機
 os.environ['MOCK_PARTY'] = 'c3,c4'
 from harness import Env, hub_json, http, MOCK
 
@@ -53,6 +54,7 @@ async def main():
         log = hub_json('GET', '/api/boss')['log']
         check(sum(1 for l in log if '打死了' in l['msg']) >= 1, '紀錄有「打死了」')
         check(mock_char('A2', 'c3')['map'] == homes['c3'] and mock_char('A3', 'c4')['map'] == homes['c4'], '兩隻都回到各自原本的地圖')
+        check(mock_char('A2', 'c3')['auto'] and mock_char('A3', 'c4')['auto'], '兩隻都重新開始掛機')
         s = summ()
         check(all(next(r for r in s[c]['rows'] if r['mob'] == 'mBoss1')['cooling'] for c in ('c3', 'c4') if s[c]['rows']), '共用的王變成冷卻中')
         print('4. 面板')
@@ -61,8 +63,8 @@ async def main():
         dash.on('pageerror', lambda e: errs.append(str(e)))
         await dash.goto('http://127.0.0.1:8787/'); await dash.wait_for_timeout(1500)
         await dash.click('nav button[data-tab="maps"]'); await dash.wait_for_timeout(2500)
-        txt = await dash.inner_text('#bossTable')
-        check('隊伍（2 人一起出發' in txt and '跟著隊友' in txt, '面板把同隊的放在一起')
+        txt = await dash.inner_text('#bossGrid')
+        check('隊伍' in txt and '*' in txt and '跟著隊友' in txt, '面板把同隊的放在同一欄')
         await dash.screenshot(path='/tmp/boss_party.png')
         check(not errs, '面板沒有 JS 錯誤' + ('：' + errs[0] if errs else ''))
     if not ok: print('\n'.join(env.logs[-30:]))

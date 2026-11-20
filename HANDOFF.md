@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-20（v0.41.1）
+最後更新：2026-11-20（v0.41.2）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -38,7 +38,7 @@
 - 所有 /api/game 回應都是「整份狀態放最上層」（character、characters、tradeEligible…）＋ `summary`；頁面把它存成 `mapleSessionView = {state: 回應}`
 - 批次衝卷（神匠之魂，2026-11-18 讀遊戲程式碼核對）：單件 `{type:'artisanScroll', uid, item, count(≤10), stopAfterSuccesses(0=不停), expectedSlots: g.slots, stopOnFail}`；多件把 `uid` 換成 `uids:[2～10]`。**每衝 1 次**扣 1 張卷軸＋10 萬楓幣（ARTISAN_FEE），失敗也扣格；卷軸要在同一隻角色身上，適用條件 `catalog.scrolls[id].target === gear.type`；詛咒卷軸失敗可能讓裝備消失。多件時遊戲要求**名稱、key、剩餘次數相同而且沒鎖定**。結果在 `character.lastArtisan`（單件 `{uid, attempts:[bool], successes, destroyed, slots, fee, stop}`；多件 `{multi:true, gear, selected, scroll, rate, items:[{attempts, successes, destroyed, slots, stop}], successes, lost, fee, stop}`；前者是讀遊戲程式碼推的，還沒實際衝過）。目錄 `catalog.scrolls[key] = {name, target, rate, cursed(失敗消失 %), stats}`。單次 `{type:'scroll', item, target, uid}`
 - 公會倉庫（2026-11-18 實際存取 1 張卷軸核對）：`guildWarehouseView`、`guildWarehouseBatch {op:'deposit'|'withdraw', items:[{kind:'item', item:key, qty} | {kind:'gear', uid}](≤100), characterId}`。回應在 `summary.guildWarehouse = {guildName, mesos, cashPoints, items:{key:qty}, gear:[], capacity:{gear:500, items:500}, taxPercent:5}`；同步回應不會帶公倉內容。**單次請求另有伺服器上限**：98 種、10,658 張卷軸一次送會回「請求過大」（門檻不明，遊戲畫面只限 100 項），agent 會自動切半重送。楓幣／點數是另外的 `guildWarehouseMesos`、`guildWarehouseCash`，格式 `{type, op:'deposit'|'withdraw', amount, characterId}`（2026-11-19 從 /game/game.js 讀到；提領時遊戲畫面會跳稅金確認，taxPercent 5）。使用者規則：我自己操作時不要動楓幣；v0.34 起有「存楓幣／點數」功能，但一律要使用者逐一確認。鎖定裝備、任務道具、不可交易的不能存。公會名「佐藤商會」，11 個帳號都在裡面
-- **野王（2026-11-20 讀 game.js＋實際資料核對）**：19 張野王地圖（catalog.maps[].bossSpawns：{mobId, minSeconds, maxSeconds}；多數有 `<地圖>_noboss` 版本）。王是**每隻角色一份**（instanceId `solo:角色:地圖`），同隊伍共用（`party:隊伍:地圖`，roster 列成員）。`{type:'sync', fullSync:true, includeBossRespawns:true, characterId}` 回 `bossRespawns:[{map, mapName, mob, name, instanceId, roster, scopeVersion, deadline, spawned, available}]`：available＝王已死、可付費重生（冷卻中，deadline＝預計重生時間，伺服器時間）；deadline 0 或已過且 available=false＝進地圖就會出現。戰鬥中的怪在同步回應最上層 `enemies:[{id, hp, maxHp, spawnId, damageBy…}]`。遊戲畫面寫「離開首領地圖，首領血量與冷卻會保留」。其他：`bossTimers`（最上層）、`character.bossCooldowns`、`bossCombatLocked`、`{type:'escapeBoss'}`（離開首領地圖）；`{type:'bossRespawn'}` 是付費重生（10 點或 1000 萬楓幣），**不用**。角色死亡判斷用 character.hp<=0（還沒實際遇過）。
+- **野王（2026-11-20 讀 game.js＋實際資料核對）**：19 張野王地圖（catalog.maps[].bossSpawns：{mobId, minSeconds, maxSeconds}；多數有 `<地圖>_noboss` 版本）。王是**每隻角色一份**（instanceId `solo:角色:地圖`），同隊伍共用（`party:隊伍:地圖`，roster 列成員）。`{type:'sync', fullSync:true, includeBossRespawns:true, characterId}` 回 `bossRespawns:[{map, mapName, mob, name, instanceId, roster, scopeVersion, deadline, spawned, available}]`：available＝王已死、可付費重生（冷卻中，deadline＝預計重生時間，伺服器時間）；deadline 0 或已過且 available=false＝進地圖就會出現。戰鬥中的怪在同步回應最上層 `enemies:[{id, hp, maxHp, spawnId, damageBy…}]`。遊戲畫面寫「離開首領地圖，首領血量與冷卻會保留」。其他：`bossTimers`（最上層）、`character.bossCooldowns`、`bossCombatLocked`、`{type:'escapeBoss'}`（離開首領地圖）；`{type:'bossRespawn'}` 是付費重生（10 點或 1000 萬楓幣），**不用**。角色死亡判斷用 character.hp<=0（還沒實際遇過）。**換地圖（type:'map'）會停止掛機**（auto=false、until=換圖時間；2026-11-20 使用者實際打王發現，7 隻打完回原圖都沒在掛機）→ 換圖後要 `{type:'start'}`。
 - **自由市場攤位**：商品欄位只有 id、kind、key、name、icon、category、qty、price、description（**沒有上架時間**、遊戲不會自己到期）。下架 `{type:'marketCancel', listingId, characterId}`，東西回到該角色背包。
 - 戰鬥事件在 sync 回應 `summary.events`（actor、damage、effectiveDamage、lines、skill、mob、killed）；冒險紀錄 `character.log`（「撿取：X × n」「自動販售：X × n，獲得 N 楓幣」）
 - 目錄 `/api/catalog`：maps、mobs、mapDrops、drops、autoSellDrops（每張圖可販售的掉落）、skills、fourth（4 轉技能書：level、fee、bookDrops、books；技能書在背包「消耗」分頁）
@@ -132,3 +132,9 @@
   - 待實機確認：真實遊戲打王時角色會不會優先打王、王死後 enemies 是否立刻消失、角色倒下的欄位、隊伍共用時兩隻同時被派的情況、marketCancel 回應裡的裝備 uid。第一次實際出動請使用者確認後只用一隻角色、一隻王試。
 - v0.41.1 野王以隊伍為單位：server `partyMap()` 從各角色快照的 `party.party`（{code, members:[{id, name, lv, map, auto, leader, self…}]}，30 分鐘內、2 人以上）建「角色→隊伍代碼」；`bossUnitOf()`；`bossTick` 以 unit 為單位：勾了其中一隻＝整隊（有分頁、在掛機、沒工作的 `bossAvail`）一起出發打同一隻王，預估用 DPS 加總，任一隊員還在打王就整隊等；每人一個 boss 工作（batches[0].boss.party＝隊員名字），各自回自己的 home。/api/boss 的 chars 多 party、partyDps、picked（on＝隊伍有人被勾）。面板 .boss-grp 同隊放一起。mock：環境變數 MOCK_PARTY=c3,c4（王改成依 instanceId 存在 bossStore）。測試 `tests/e2e_boss_party.py`。
   - 2026-11-20 使用者的隊伍：嵐思＋嵐濕、打幣9＋打幣10、打幣12＋盜賊；隆司、起司各自一人一隊（一人隊伍當單人處理）。
+- v0.41.2 打王修正（第一次實際使用的回饋）：
+  - 實測：首輪 7 隻 30 秒內打死（因為「掛機續掛」剛好在首領地圖重開掛機），回原圖後沒在掛機；第二輪王血量 100% 不動、3 分鐘後放棄。修正：runBossJob 到首領地圖、回原圖後都 `start`；打王中 character.auto=false 每 20 秒再 start。mock 環境變數 MOCK_MAP_STOPS_IDLE=1 模擬換圖停掛機（boss 測試有開）。
+  - 即時進度：agent 每 4 秒 POST /api/boss/hp；server `bossHpTrack`（記憶體）＋`bossLive()` → /api/boss 的 `live:[{instanceId, mob, name, mapName, names, startedAt, hp, maxHp, hpAt, perMin, etaSec, msg}]`；面板有進行中時每 3 秒重抓。
+  - 面板改版：#bossLive（進行中血條）、#bossGrid（王 × 出發單位總表，格子 .bc ok／busy／cd／skip，滑鼠看原因；名字共同前綴省略）、設定收進 #bossSetBox（摘要 #bossSetSum）。
+  - 快速擊殺：12 秒內沒看到王就查一次 bossRespawns，已冷卻＝打死（不再誤判「王不在」）。
+  - 使用者覺得原本 UI 太亂、操作麻煩；改版後待他回饋。我在 17:22 把 boss.mode 關掉並替 7 隻角色重開掛機，要他確認後再開。
