@@ -165,3 +165,4 @@
   - 組隊套用帶自動販售：ptApply 把派工看板（A、B 都找）那張圖的 sell 範本一起送；server party 工作 `sell`，agent runPartyJob 換圖後 `autoSell`。KIND_MIN_AGENT.party → 0.47.0（舊分頁會先重新整理）。
   - 流水線：派工檢視多一個「✨ 流水線」（ui.board.view='pipe'，#bdPipe）。dashboard `pipeModel()`：每個組隊（S.parties）一座平台，沒排進隊伍、在看板地圖或有分頁的該組角色各一座小平台 → 地圖站（看板上的圖＋平台所在的圖，顏色＝路線）→ 經驗／商店／背包。管線粒子數量和速度跟著 expLive（對數）；狀態色：ok 藍、移動中黃、待套用橘、打王紅、背景灰。掉落（pollLoot 在 pipe 檢視時改呼叫 pipeLoot）變成沿管線飛的光球＋CSS2D 道具圖示（外部圖片不能當 WebGL 貼圖）。點隊伍→組隊分頁（卡片閃一下）、點地圖站→自動販售設定、點經驗／背包→總覽／背包。鏡頭依內容自動對準，使用者轉過就記在 localStorage p3dCam，「⟲ 視角」重設。看不到（換分頁、視窗隱藏）就不畫。沒有 WebGL 時顯示「改看工廠圖」。window.__pipe（frames、orbs）給測試用。
   - 測試 `tests/e2e_pipe.py`（headless SwiftShader 約 1 fps，所以斷言不靠動畫時間）。
+- v0.47.1：使用者實機 14 座平台排成一長條、名字疊在一起 → 平台每欄最多 6 座、多欄錯開，鏡頭改由上往下（fit 依欄數和列數）。
