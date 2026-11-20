@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-20（v0.42.1）
+最後更新：2026-11-20（v0.43.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -141,3 +141,6 @@
 - v0.42.0 派工與遊戲雙向同步（使用者常直接在遊戲裡設定，看板抓不到）：
   - 看板資料：assign＝**還沒套用**的派工（套用後就刪掉），角色顯示位置＝assign 或「實際地圖（在看板上的話）」；sell＝每張圖的販售範本。
   - dashboard `boardSyncFromGame()`（poll 每次跑；S.boardSync !== false 預設開）：比對 settings.boardSeen[角色]＝{map, sell:{地圖: sellKey}}（存在設定裡，中控沒開時的變化也抓得到）。角色所在地圖不在看板→放進「練功」；遊戲換了圖（和 seen 不同）且有不同的 assign→刪掉 assign（以遊戲為準）；某張圖的 autoSellAll 和 seen 不同→更新 sell 範本（第一次同步只補沒有的範本）。改的是角色所屬組別（charGroup）的看板。有打王工作的角色跳過。boardPending（看板正在存）時跳過這輪。紀錄 settings.boardSyncLog（30 筆），工具列 #bdSyncBox（#bdSync 開關＋最近紀錄）。測試 `tests/e2e_board_sync.py`。
+- v0.43.0（使用者實測打王回饋）：
+  - 發呆原因：開司等幾個分頁還在跑 0.41.1 舊腳本（沒有換圖後 start），Tampermonkey 快取；19:10 時嵐司 0.41.1、打幣9 0.41.2、嵐濕／打幣1 0.42.0。KIND_MIN_AGENT.boss 提到 0.43.0 → 舊腳本分頁接到打王工作會先重新整理換新腳本。
+  - 掛機設定組合（2026-11-20 讀 game.js）：遊戲有 3 套「掛機設定」（藥水、技能、自動復活、目標等），`{type:'settingsPreset', slot: 1|2|3}`，目前那套在 `character.settingsSlot`（沒設定過＝沒有這個欄位＝1）；遊戲說明「三套各自獨立，第一次切到沒用過的那一套是空白的」。settings.boss.presetBoss（0＝不切換）、presetTrain（0＝換回出發前那套）；runBossJob 到首領地圖先 settingsPreset 再 start，回練功圖同樣先切再 start。快照多 char.settingsSlot。mock 的 settingsPreset 記在 c.presetLog（e2e_boss 檢查順序）。

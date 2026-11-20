@@ -276,6 +276,8 @@ function handle(a, body) {
       if (body.map !== c.map) fail('只能設定角色目前所在地圖的自動販售');
       c.autoSell.maps[body.map] = { enabled: !!(body.config && body.config.enabled), itemIds: ((body.config && body.config.itemIds) || []).map(Number) };
       break;
+    // 掛機設定組合 1／2／3（真實遊戲：character.settingsSlot，沒設定過＝1）
+    case 'settingsPreset': { const n = Number(body.slot); if (![1, 2, 3].includes(n)) fail('設定組合只有 1、2、3'); c.settingsSlot = n; (c.presetLog || (c.presetLog = [])).push({ n, map: c.map, auto: c.auto }); break; }
     case 'marketConfig': c._stall = c._stall || { listings: [], proceeds: 0, history: [] }; c._stall.title = body.title || ''; c._stall.open = body.open !== false; break;
     case 'marketList': {
       const st = stallOf(c); if (!st) fail('還沒有攤位');

@@ -46,7 +46,7 @@ async def main():
 
         print('3. 自動：出發打死王，回原本的地圖')
         home = mock_char('A2', 'c3')['map']
-        hub_json('POST', '/api/settings', {'boss': {'mode': 'auto', 'chars': {'c3': True}, 'mobs': ['mBoss1'], 'estMax': 15, 'visitMax': 1}})
+        hub_json('POST', '/api/settings', {'boss': {'mode': 'auto', 'chars': {'c3': True}, 'mobs': ['mBoss1'], 'estMax': 15, 'visitMax': 1, 'presetBoss': 2, 'presetTrain': 0}})
         hub_json('POST', '/api/boss/run-now')
         jobs = [j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'boss']
         check(len(jobs) == 1 and jobs[0]['batches'][0]['boss']['mob'] == 'mBoss1', '建立 1 個打紅寶王的工作')
@@ -57,6 +57,9 @@ async def main():
         c = mock_char('A2', 'c3')
         check(c['map'] == home, f'回到原本的地圖（{c["map"]}）')
         check(c['auto'], '回去後有重新開始掛機（真實遊戲換地圖會停止掛機）')
+        pl = [(x['n'], x['map']) for x in c.get('presetLog', [])]
+        check(pl == [(2, 'gms104000400'), (1, home)], f'到首領地圖換掛機設定 2、回練功圖換回出發前的設定 1（{pl}）')
+        check(c.get('settingsSlot') == 1, '最後是設定 1')
         c3, _ = boss_char('c3')
         r1 = next(r for r in c3['rows'] if r['mob'] == 'mBoss1')
         check(r1['cooling'] and r1['remainMs'] > 50 * 60 * 1000, '紅寶王變成冷卻中（約 60 分鐘後重生）')
