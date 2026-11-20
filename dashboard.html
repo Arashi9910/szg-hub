@@ -395,6 +395,9 @@
   .pet-show { display: none; background: none; border: 0; color: var(--dim); cursor: pointer; font: inherit; font-size: 12px; padding: 4px 12px; }
   .pet-card.off .pet-stage, .pet-card.off .pet-hide { display: none; } .pet-card.off .pet-show { display: block; }
   .ov-auto { padding: 8px 12px; }
+  .hpbar { display: inline-block; width: 90px; height: 7px; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; vertical-align: middle; overflow: hidden; }
+  .hpbar i { display: block; height: 100%; background: var(--bad); }
+  table.boss-t td { padding-top: 3px; padding-bottom: 3px; }
   .ov-auto-hd { display: flex; gap: 10px; align-items: baseline; margin-bottom: 6px; }
   .ov-auto-list { display: flex; flex-wrap: wrap; gap: 6px; }
   .auto-chip { display: inline-flex; gap: 6px; align-items: center; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 4px 9px; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
@@ -612,6 +615,21 @@
   <!-- 地圖 -->
   <section id="maps">
     <div class="card" id="wMissing" style="display:none"><span class="warn">還沒有地圖資料：打開任一個遊戲分頁（腳本 v0.14 以上），約 10 秒後會自動上傳。</span></div>
+    <div class="card" id="bossCard">
+      <h3>輪流打野王</h3>
+      <div class="bar">
+        <span>模式</span><select id="bossMode" data-seg><option value="off" data-short="關">關閉</option><option value="preview" data-short="試跑">試跑（只記錄會去打哪隻）</option><option value="auto" data-short="自動出發">自動出發</option></select>
+        <span>預估超過</span><input type="number" id="bossEst" min="1" max="240" style="width:60px"><span>分鐘打不死的不去</span>
+        <span>每次最多打</span><input type="number" id="bossVisit" min="1" max="240" style="width:60px"><span>分鐘</span>
+        <button class="btn" id="bossRun">立即檢查</button><span class="dim" id="bossMsg"></span>
+      </div>
+      <div class="bar"><span>角色</span><span id="bossChars"></span></div>
+      <div class="bar"><span>要打的王</span><label><input type="checkbox" class="sw" id="bossAllMobs"> 全部</label><span class="chips" id="bossMobs"></span></div>
+      <div class="dim">每分鐘檢查一次：勾選的角色<b>在掛機、而且有自己的遊戲分頁</b>時，挑一隻已經重生的王（預估最快打死的先去），換到那張地圖、看王的血條打到死，再換回原本的地圖。
+        時間到、角色倒下、或 3 分鐘血量都沒降，也會先回原地圖；王的血量遊戲會保留，30 分鐘後再去接著打。預估用的是角色的實戰 DPS（總覽那欄），還沒有 DPS 的不會因為預估被略過。不會使用付費重生。同一個隊伍的角色共用同一份王。</div>
+      <div id="bossTable" style="margin-top:8px"></div>
+      <details><summary>紀錄</summary><div id="bossLog"></div></details>
+    </div>
     <div class="card">
       <h3>選角色</h3>
       <div class="bar"><button class="btn" id="mpAll">全選</button><button class="btn" id="mpNone">清除</button><button class="btn" id="mpActive">只選有分頁的</button><span class="dim" id="mpSelInfo"></span></div>
@@ -670,7 +688,14 @@
       </div>
       <div id="mkTable"></div>
     </div>
-    <div class="card"><h3>我的攤位</h3><div id="mkStalls"></div>
+    <div class="card"><h3>我的攤位</h3>
+      <div class="bar" id="mkDelistBar">
+        <span>逾時下架</span><select id="mkDelistMode" data-seg><option value="off" data-short="關">關閉</option><option value="preview" data-short="試跑">試跑（只記錄會下架什麼）</option><option value="auto" data-short="自動下架">自動下架</option></select>
+        <span>上架超過</span><input type="number" id="mkDelistH" min="1" max="720" style="width:60px"><span>小時沒賣出就下架回背包</span>
+      </div>
+      <div class="dim" style="margin-bottom:8px">遊戲的商品沒有上架時間，中控從<b>第一次看到它在攤位上</b>開始計時（約 5 分鐘回報一次）；有人買走一部分就重新計時。下架的東西回到那隻角色的背包，而且<b>之後不再自動上架</b>，要恢復請在下面的清單按「恢復」。</div>
+      <div id="mkStalls"></div>
+      <details id="mkBlockedBox"><summary class="dim">逾時下架過、不再自動上架的東西</summary><div id="mkBlocked"></div></details>
       <details><summary class="dim">最近成交（所有帳號）</summary><div id="mkSales"></div></details></div>
     <div class="card" id="mkAuto">
       <h3>自動上架</h3>
@@ -1116,6 +1141,8 @@ function autoItems() {
     { k: 'guild', name: '公倉自動存入', st: ga.mode === 'deposit' ? 'on' : ga.mode === 'preview' ? 'pre' : 'off', desc: ga.mode && ga.mode !== 'off' ? `每 ${Math.max(10, ga.everyMin || 30)} 分` : '關閉', last: A.guild, go: 'guild' },
     { k: 'mkscan', name: '市場行情掃描', st: 'on', desc: `每 ${mk.scanHours} 小時`, last: A.market && A.market.lastScan ? { at: A.market.lastScan, msg: '完整掃描' } : null, go: 'market' },
     { k: 'mklist', name: '自動上架', st: mk.mode === 'auto' ? 'on' : mk.mode === 'preview' ? 'pre' : 'off', desc: mk.mode !== 'off' ? `${nChars(mk.chars)} 隻角色・${(mk.rules || []).length} 條規則` : '關閉', last: A.market && A.market.list, go: 'market' },
+    { k: 'delist', name: '攤位逾時下架', st: mk.delistMode === 'auto' ? 'on' : mk.delistMode === 'preview' ? 'pre' : 'off', desc: mk.delistMode && mk.delistMode !== 'off' ? `超過 ${mk.delistHours || 24} 小時沒賣出` : '關閉', go: 'market' },
+    { k: 'boss', name: '輪流打野王', st: (S.boss || {}).mode === 'auto' ? 'on' : (S.boss || {}).mode === 'preview' ? 'pre' : 'off', desc: (S.boss || {}).mode && S.boss.mode !== 'off' ? `${nChars((S.boss || {}).chars)} 隻角色・${Array.isArray((S.boss || {}).mobs) ? S.boss.mobs.length + ' 隻王' : '全部的王'}` : '關閉', last: A.boss, go: 'maps' },
     { k: 'claim', name: '自動領攤位收益', st: mk.autoClaim ? 'on' : 'off', desc: mk.autoClaim ? '開' : '關閉', go: 'market' },
     { k: 'quiz', name: '知識王自動作答', st: S.quizAuto ? 'on' : 'off', desc: S.quizAuto ? '每 45 秒檢查' : '關閉', last: A.quiz, go: 'quiz' },
     { k: 'board', name: '遊戲自動販售', st: boardSell ? 'on' : 'off', desc: boardSell ? `${boardSell} 隻角色在目前地圖開著` : '沒有角色開著', go: 'board' },
@@ -2718,9 +2745,15 @@ function renderMarket() {
   const st = (MK.stalls || []).slice().sort((a, b) => cmp(a.name, b.name));
   $('#mkStalls').innerHTML = st.length ? `<table><thead><tr><th class="nosort">角色</th><th class="nosort">攤位</th><th class="nosort num">上架</th><th class="nosort num">待領收益</th><th class="nosort">商品</th><th class="nosort">更新</th></tr></thead><tbody>${st.map(x =>
     `<tr><td>${esc(x.name)}</td><td>${x.exists ? `${esc(x.title)} ${x.open ? '<span class="good">營業中</span>' : '<span class="warn">暫停</span>'}` : '<span class="dim">沒有攤位</span>'}</td><td class="num">${x.exists ? `${x.count}/50` : '—'}</td><td class="num">${x.proceeds ? fmt(x.proceeds) : '<span class="dim">0</span>'}</td>
-     <td class="wrap dim" title="${esc((x.listings || []).map(l => `${l.name}×${l.qty} @${l.price}`).join('\n'))}">${esc((x.listings || []).slice(0, 4).map(l => `${l.name}×${l.qty} @${short(l.price)}`).join('、'))}${(x.listings || []).length > 4 ? ' …' : ''}</td><td class="dim">${ago(Date.now() - x.at)}</td></tr>`).join('')}</tbody></table>` : '<div class="dim">遊戲分頁開著約 1 分鐘後會回報。</div>';
+     <td class="wrap dim" title="${esc((x.listings || []).map(l => { const f = ((MK.age || {})[x.charId] || {})[l.id]; return `${l.name}×${l.qty} @${l.price}${f ? `（${hm(Date.now() - f)}）` : ''}`; }).join('\n'))}">${esc((x.listings || []).slice(0, 4).map(l => `${l.name}×${l.qty} @${short(l.price)}`).join('、'))}${(x.listings || []).length > 4 ? ' …' : ''}</td><td class="dim">${ago(Date.now() - x.at)}</td></tr>`).join('')}</tbody></table>` : '<div class="dim">遊戲分頁開著約 1 分鐘後會回報。</div>';
   const sales = (MK.sales || []).slice().sort((a, b) => b.time - a.time).slice(0, 60);
   $('#mkSales').innerHTML = sales.length ? sales.map(x => `<div><span class="dim">${clock(x.time)}</span> ${esc(charNameOf(x.charId))} 賣出 ${esc(x.name)} × ${x.qty}，${fmt(x.total)}（稅後 ${fmt(x.net)}）　買家 ${esc(x.buyer)}</div>`).join('') : '<span class="dim">還沒有紀錄</span>';
+  const dc = mkCfg(), bar = $('#mkDelistBar');
+  if (!bar.contains(document.activeElement)) { $('#mkDelistMode').value = dc.delistMode || 'off'; $('#mkDelistH').value = dc.delistHours || 24; enhanceSegs(bar); }
+  const bl = MK.blocked || [];
+  $('#mkBlockedBox').querySelector('summary').textContent = `逾時下架過、不再自動上架的東西（${bl.length}）`;
+  $('#mkBlocked').innerHTML = bl.length ? `<table><thead><tr><th class="nosort">物品</th><th class="nosort">角色</th><th class="nosort">下架時間</th><th class="nosort"><button class="btn sm" data-mkunblock="*">全部恢復</button></th></tr></thead><tbody>${bl.map(b =>
+    `<tr><td>${esc(b.name)}${b.k.startsWith('g:') ? ' <span class="dim">（這一件）</span>' : ''}</td><td>${esc(b.charName || '')}</td><td class="dim">${clock(b.at)}</td><td><button class="btn sm" data-mkunblock="${esc(b.k)}">恢復自動上架</button></td></tr>`).join('')}</tbody></table>` : '<span class="dim">沒有</span>';
   renderMkAuto();
 }
 function charNameOf(id) { const s = DATA.chars[id]; if (s) return s.char.name; for (const x of snaps()) { const c = (x.accountChars || []).find(c => c.id === id); if (c) return c.name; } return id; }
@@ -2782,7 +2815,7 @@ function renderMkAuto(force) {
   const logs = (MK && MK.log || []).slice().reverse().slice(0, 60);
   $('#mkLog').innerHTML = logs.length ? logs.map(l => `<div><span class="dim">${clock(l.at)}</span> ${esc(l.name)}：${esc(l.msg)}</div>`).join('') : '<span class="dim">還沒有紀錄</span>';
   if (!force && (box.contains(document.activeElement) && document.activeElement.tagName !== 'BUTTON' || (ui.pickOpen || '').startsWith('mr'))) return;
-  $('#mkMode').value = c.mode;
+  $('#mkMode').value = c.mode; enhanceSegs(box);
   $('#mkChars').innerHTML = charPickHTML('mk');
   cpMapSync(c.charSpec, c.chars, chars => saveMk({ chars }));
   $('#mkRules').innerHTML = c.rules.length ? c.rules.map(mkRuleHTML).join('') : '<div class="dim" style="margin:8px 0">還沒有規則。</div>';
@@ -2793,6 +2826,10 @@ document.addEventListener('click', async e => {
   if (t.dataset && t.dataset.mksort) { const k = t.dataset.mksort; ui.mkSort = { key: k, dir: ui.mkSort.key === k ? -ui.mkSort.dir : (k === 'name' || k === 'kind' ? 1 : -1) }; renderMarket(); return; }
   const row = t.closest && t.closest('[data-mkrow]');
   if (row) { const id = row.dataset.mkrow; if (ui.mkOpen.has(id)) ui.mkOpen.delete(id); else ui.mkOpen.add(id); renderMarket(); return; }
+  if (t.dataset && t.dataset.mkunblock) {
+    if (t.dataset.mkunblock === '*' && !confirm('全部恢復自動上架？')) return;
+    await api('/api/market/unblock', { k: t.dataset.mkunblock }); await loadMarket(); renderMarket(); return;
+  }
   if (t.id === 'mkScanNow') { const r = await api('/api/market/scan-now'); $('#mkScanInfo').textContent = `已排入 ${r.added} 項，開著的遊戲分頁會陸續掃描…`; await loadMarket(); return; }
   if (!t.closest || !t.closest('#mkAuto')) return;
   const c = mkCfg();
@@ -2819,6 +2856,11 @@ document.addEventListener('change', async e => {
   if (t.id === 'mkSanity') { await saveMk({ sanityMult: Math.min(1e6, Math.max(10, Number(t.value) || 1000)) }); return; }
   if (t.id === 'mkScanH') { await saveMk({ scanHours: Math.min(24, Math.max(1, Number(t.value) || 3)) }); return; }
   if (t.id === 'mkAutoClaim') { await saveMk({ autoClaim: t.checked }); return; }
+  if (t.id === 'mkDelistMode') {
+    if (t.value === 'auto' && !confirm(`開啟後，攤位上超過 ${mkCfg().delistHours || 24} 小時沒賣出的商品會自動下架回背包，而且之後不再自動上架。確定開啟？`)) { t.value = mkCfg().delistMode || 'off'; enhanceSegs(); return; }
+    await saveMk({ delistMode: t.value }); return;
+  }
+  if (t.id === 'mkDelistH') { await saveMk({ delistHours: Math.min(720, Math.max(1, Number(t.value) || 24)) }); return; }
   if (!t.closest || !t.closest('#mkAuto')) return;
   if (t.id === 'mkMode') {
     if (t.value === 'auto' && !confirm('開啟自動上架後，符合規則的物品會依定價直接上架到攤位（可以在遊戲裡下架取回）。建議先用「試跑」確認價格。確定開啟？')) { t.value = mkCfg().mode; return; }
@@ -2832,6 +2874,76 @@ document.addEventListener('change', async e => {
 });
 document.addEventListener('input', e => { if (e.target.id === 'mkSearch') renderMarket(); });
 
+
+// ================= 輪流打野王 =================
+let BOSS = null, bossLoadAt = 0;
+const bossCfg = () => ({ mode: 'off', chars: {}, mobs: null, estMax: 15, visitMax: 20, ...(S.boss || {}) });
+function saveBoss(patch) { return saveSettings({ boss: { ...bossCfg(), ...patch } }); }
+async function loadBoss(force) {
+  if (!force && BOSS && Date.now() - bossLoadAt < 8000) return;
+  bossLoadAt = Date.now();
+  try { BOSS = await (await fetch('/api/boss')).json(); } catch (_) {}
+}
+// 所有野王（有角色回報過就用回報的，否則用地圖資料）
+function bossList() {
+  const m = new Map();
+  for (const c of (BOSS && BOSS.chars) || []) for (const r of c.rows) if (!m.has(r.mob)) m.set(r.mob, { mob: r.mob, name: r.name, lv: r.lv, mapName: r.mapName });
+  if (!m.size && WORLD) for (const mp of WORLD.maps) for (const id of mp.boss || []) { const x = WORLD.mobs.find(o => o.id === id); if (x && !m.has(id)) m.set(id, { mob: id, name: x.name, lv: x.lv, mapName: mp.name }); }
+  return [...m.values()].sort((a, b) => (a.lv || 0) - (b.lv || 0));
+}
+function renderBoss(force) {
+  const card = $('#bossCard'); if (!card) return;
+  const c = bossCfg();
+  const editing = card.contains(document.activeElement) && document.activeElement.tagName === 'INPUT' && document.activeElement.type === 'number';
+  if (force || !editing) {
+    $('#bossMode').value = c.mode; $('#bossEst').value = c.estMax; $('#bossVisit').value = c.visitMax;
+    $('#bossChars').innerHTML = charPickHTML('boss', { noFuture: true });
+    cpMapSync(c.charSpec, c.chars, chars => saveBoss({ chars }));
+    const all = !Array.isArray(c.mobs), sel = new Set(c.mobs || []);
+    $('#bossAllMobs').checked = all;
+    $('#bossMobs').innerHTML = all ? '<span class="dim sm">所有野王都會輪流打；取消「全部」可以只勾幾隻</span>' : bossList().map(b => `<label title="${esc(b.mapName)}"><input type="checkbox" data-bossmob="${esc(b.mob)}" ${sel.has(b.mob) ? 'checked' : ''}>${esc(b.name)} <span class="dim sm">Lv${b.lv || '?'}</span></label>`).join('') || '<span class="dim">還沒有野王資料</span>';
+    enhanceSegs(card);
+  }
+  const chars = ((BOSS && BOSS.chars) || []).filter(x => x.on);
+  const pctBar = r => { const p = r.maxHp ? Math.max(0, Math.min(100, r.hp / r.maxHp * 100)) : 100; return `<span class="hpbar" title="${fmt(r.hp)} / ${fmt(r.maxHp)}"><i style="width:${p.toFixed(1)}%"></i></span> <span class="sm ${r.hpKnown ? '' : 'dim'}">${r.hpKnown ? p.toFixed(1) + '%' : '滿血'}</span>`; };
+  const RES = { killed: '打死了', timeout: '時間到', dead: '倒下', absent: '王不在', stuck: '打不動', moved: '被換圖', cooling: '冷卻中', error: '出錯' };
+  let h = '';
+  if (!chars.length) h = '<div class="dim">還沒有勾選角色。</div>';
+  for (const x of chars) {
+    const job = x.job && ['approved', 'running'].includes(x.job.status) ? x.job : null, jb = job && job.batches[0].boss;
+    const why = !x.tab ? '<span class="warn">沒有自己的遊戲分頁，不會出發</span>' : !x.auto ? '<span class="warn">沒在掛機，不會出發</span>' : !x.at ? '<span class="dim">等遊戲分頁回報王的狀態（約 1 分鐘）</span>' : '';
+    h += `<div style="margin:10px 0 4px"><b>${esc(x.name)}</b> <span class="dim">Lv${x.lv}・${esc(x.mapName || x.map || '')}・實戰 DPS ${x.dps ? short(x.dps) : '—'}${x.at ? '・王的狀態 ' + ago(Date.now() - x.at) : ''}</span> ${why}
+      ${job ? `<span class="good">打王中：${esc(jb.name)}（${esc(job.lastMsg || '前往中')}）</span>` : ''}</div>`;
+    const rows = x.rows.filter(r => r.selected);
+    if (!rows.length) { h += '<div class="dim">（沒有野王資料）</div>'; continue; }
+    rows.sort((a, b) => (b.ready - a.ready) || (a.remainMs - b.remainMs) || (a.lv - b.lv));
+    h += `<table class="boss-t"><thead><tr><th class="nosort">王</th><th class="nosort">地圖</th><th class="nosort">狀態</th><th class="nosort">血量</th><th class="nosort num">預估</th><th class="nosort">備註</th></tr></thead><tbody>${rows.map(r => {
+      const busy = jb && jb.mob === r.mob;
+      const st = busy ? '<b class="good">打王中</b>' : r.cooling ? `<span class="dim">${hm(r.remainMs)} 後重生</span>` : '<span class="good">已重生</span>';
+      const note = r.skip && !r.cooling ? `<span class="warn">${esc(r.skip)}</span>` : r.last ? `<span class="dim">上次 ${clock(r.last.at)} ${esc(RES[r.last.result] || r.last.result)}</span>` : '';
+      return `<tr><td>${esc(r.name)} <span class="dim sm">Lv${r.lv || '?'}</span>${r.party ? ' <span class="dim sm" title="同隊伍共用同一份王">隊伍</span>' : ''}</td><td class="dim">${esc(r.mapName)}</td><td>${st}</td><td>${pctBar(r)}</td><td class="num">${r.estSec != null ? Math.max(1, Math.ceil(r.estSec / 60)) + ' 分' : '<span class="dim">—</span>'}</td><td>${note}</td></tr>`;
+    }).join('')}</tbody></table>`;
+  }
+  $('#bossTable').innerHTML = h;
+  const logs = ((BOSS && BOSS.log) || []).slice().reverse().slice(0, 80);
+  $('#bossLog').innerHTML = logs.length ? logs.map(l => `<div><span class="dim">${clock(l.at)}</span> ${esc(l.name)}：${esc(l.msg)}</div>`).join('') : '<span class="dim">還沒有紀錄</span>';
+}
+document.addEventListener('change', async e => {
+  const t = e.target; if (!t.closest || !t.closest('#bossCard')) return;
+  if (t.id === 'bossMode') {
+    if (t.value === 'auto' && !confirm('開啟後，勾選的角色會自動換到野王的地圖打王，打完（或時間到）再換回原本的地圖。建議先用「試跑」看紀錄確認會去打哪幾隻。確定開啟？')) { t.value = bossCfg().mode; enhanceSegs($('#bossCard')); return; }
+    await saveBoss({ mode: t.value }); $('#bossMsg').textContent = '已儲存'; return;
+  }
+  if (t.id === 'bossEst') { await saveBoss({ estMax: Math.min(240, Math.max(1, Number(t.value) || 15)) }); return; }
+  if (t.id === 'bossVisit') { await saveBoss({ visitMax: Math.min(240, Math.max(1, Number(t.value) || 20)) }); return; }
+  if (t.id === 'bossAllMobs') { await saveBoss({ mobs: t.checked ? null : bossList().map(b => b.mob) }); renderBoss(true); return; }
+  if (t.dataset.bossmob) { const set = new Set(bossCfg().mobs || []); if (t.checked) set.add(t.dataset.bossmob); else set.delete(t.dataset.bossmob); await saveBoss({ mobs: [...set] }); await loadBoss(true); renderBoss(); return; }
+});
+document.addEventListener('click', async e => {
+  if (e.target.id !== 'bossRun') return;
+  $('#bossMsg').textContent = '檢查中…';
+  try { BOSS = await api('/api/boss/run-now'); bossLoadAt = Date.now(); $('#bossMsg').textContent = '已檢查'; renderBoss(); } catch (err) { $('#bossMsg').textContent = '失敗：' + err.message; }
+});
 
 // ================= 地圖／怪物／掉落／組隊 =================
 let WORLD = null;
@@ -4110,6 +4222,7 @@ function cpMapSync(spec, map, save) {
   if (want.length !== have.length || want.some(id => !map[id])) save(Object.fromEntries(want.map(i => [i, true])));
 }
 CP.as = { get: () => asCfg().charSpec || cpFromMap(asCfg().chars), set: async spec => { await saveAS({ charSpec: spec, chars: Object.fromEntries(cpIds(spec).map(i => [i, true])) }); renderAS(true); } };
+CP.boss = { get: () => bossCfg().charSpec || cpFromMap(bossCfg().chars), set: async spec => { await saveBoss({ charSpec: spec, chars: Object.fromEntries(cpIds(spec).map(i => [i, true])) }); renderBoss(true); } };
 CP.mk = { get: () => mkCfg().charSpec || cpFromMap(mkCfg().chars), set: async spec => { await saveMk({ charSpec: spec, chars: Object.fromEntries(cpIds(spec).map(i => [i, true])) }); renderMkAuto(true); } };
 CP.gd = { get: () => { const d = gdState(); return d.charMode && d.charMode !== 'custom' ? { mode: d.charMode } : d.chars ? { mode: 'custom', ids: [...d.chars] } : { mode: 'all' }; },
   set: spec => { const d = gdState(); d.charMode = spec.mode; d.chars = spec.mode === 'all' ? null : new Set(cpIds(spec)); gdSave(); renderGuildDeposit(); } };
@@ -4945,7 +5058,7 @@ function renderAll() {
   if (active === 'bag') renderBag();
   if (active === 'quiz') loadQuiz().then(renderQuiz);
   if (active === 'market') loadMarket().then(renderMarket);
-  if (active === 'maps') renderMaps();
+  if (active === 'maps') { renderMaps(); loadBoss().then(() => renderBoss()); }
   if (active === 'board') renderBoard();
   if (active === 'forge') renderForge();
   if (active === 'board') facGuildTick();

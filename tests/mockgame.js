@@ -43,10 +43,15 @@ const mobs = [
   { id: 'm100100', msId: 100100, name: '嫩寶', lv: 1, hp: 8, xp: 3, money: 5, defense: 0 },
   { id: 'm1210100', msId: 1210100, name: '綠水靈', lv: 6, hp: 50, xp: 12, money: 20, defense: 2 },
   { id: 'm1210101', msId: 1210101, name: '紅寶', lv: 12, hp: 150, xp: 30, money: 45, defense: 5 },
+  // 野王（2026-11-20 對照真實遊戲：地圖的 bossSpawns、同步的 enemies／bossRespawns）
+  { id: 'mBoss1', msId: 2220000, name: '紅寶王', lv: 20, hp: 3000, xp: 500, money: 500, defense: 10, isBoss: true },
+  { id: 'mBoss2', msId: 6130101, name: '蘑菇王', lv: 60, hp: 900000000, xp: 5000, money: 5000, defense: 30, isBoss: true },
 ];
 const maps = {
   gms100010000: { id: 'gms100010000', msId: 100010000, name: '弓箭手村北邊山丘', region: '維多利亞島', minLevel: 1, mobIds: ['m100100', 'm1210100'] },
   gms104040000: { id: 'gms104040000', msId: 104040000, name: '射手訓練場', region: '維多利亞島', minLevel: 10, mobIds: ['m1210101'] },
+  gms104000400: { id: 'gms104000400', msId: 104000400, name: '海岸草叢3', region: '維多利亞島', minLevel: 1, mobIds: ['m1210101', 'mBoss1'], bossSpawns: [{ mobId: 'mBoss1', minSeconds: 1200, maxSeconds: 1200 }] },
+  gms100000005: { id: 'gms100000005', msId: 100000005, name: '蘑菇王棲息地', region: '維多利亞島', minLevel: 1, mobIds: ['m100100', 'mBoss2'], bossSpawns: [{ mobId: 'mBoss2', minSeconds: 1800, maxSeconds: 1800 }] },
   gms990040001: { id: 'gms990040001', msId: 990040001, name: '傷害測試場 1', region: '測試', minLevel: 1, mobIds: [] },
 };
 const drops = {
@@ -132,10 +137,11 @@ function simulate(c, now) {
   const last = c._simAt || now; c._simAt = now;
   if (!c.auto || (c.until && now > c.until)) { if (c.auto && c.until && now > c.until) c.auto = false; return []; }
   const map = maps[c.map]; if (!map || !map.mobIds.length) return [];
-  const evs = [];
+  const evs = bossTick(c, map, now - last);
+  const normal = map.mobIds.filter(id => !(mobs.find(m => m.id === id) || {}).isBoss); if (!normal.length) return evs;
   const swings = Math.min(20, Math.max(1, Math.round((now - last) / 1000)));
   for (let i = 0; i < swings; i++) {
-    const mob = mobs.find(m => m.id === map.mobIds[rnd(map.mobIds.length)]);
+    const mob = mobs.find(m => m.id === normal[rnd(normal.length)]);
     const dmg = 50 + rnd(150) + c.lv * 3; const killed = Math.random() < 0.5;
     evs.push({ eventId: 'ev' + (++eventSeq), actor: c.id, kind: 'attack', damage: dmg, effectiveDamage: Math.min(dmg, mob.hp), lines: [{ damage: dmg, critical: Math.random() < 0.1 }], skill: 1001004, mob: mob.id, killed, at: now - (swings - i) * 1000, map: c.map });
     if (!killed) continue;
@@ -156,8 +162,55 @@ function simulate(c, now) {
   return evs;
 }
 
+// ---------------- 野王 ----------------
+// 每隻角色自己一份（真實遊戲：instanceId solo:角色:地圖；同隊的話是 party:…，這裡不模擬隊伍）
+// c._boss[mob] = { hp, deadline }：deadline > 現在＝冷卻中；王的血量離開地圖後保留
+const BOSS_DPS = () => Number(process.env.MOCK_BOSS_DPS || 600);
+const bossMapOf = mob => Object.values(maps).find(m => (m.bossSpawns || []).some(b => b.mobId === mob));
+function bossRec(c, mob) { const b = (c._boss || (c._boss = {}))[mob] || (c._boss[mob] = { hp: mobs.find(m => m.id === mob).hp, deadline: 0 }); return b; }
+function bossTick(c, map, ms) {
+  const evs = [];
+  for (const sp of map.bossSpawns || []) {
+    const b = bossRec(c, sp.mobId), now = Date.now();
+    if (b.deadline > now) continue;
+    const dmg = Math.round(BOSS_DPS() * Math.min(ms, 20000) / 1000); if (dmg <= 0) continue;
+    b.hp = Math.max(0, b.hp - dmg);
+    const killed = b.hp <= 0;
+    evs.push({ eventId: 'ev' + (++eventSeq), actor: c.id, kind: 'attack', damage: dmg, effectiveDamage: dmg, lines: [{ damage: dmg }], skill: 1001004, mob: sp.mobId, killed, at: now, map: c.map });
+    if (killed) {
+      const mob = mobs.find(m => m.id === sp.mobId);
+      b.deadline = now + Number(process.env.MOCK_BOSS_RESPAWN_MS || sp.minSeconds * 1000); b.hp = mob.hp;
+      c.xp += mob.xp; c.money += mob.money; addLog(c, `擊敗首領：${mob.name}`);
+    }
+  }
+  return evs;
+}
+function enemiesOf(c) {
+  const map = maps[c.map]; if (!map) return [];
+  const out = map.mobIds.filter(id => !(mobs.find(m => m.id === id) || {}).isBoss).map((id, i) => { const m = mobs.find(x => x.id === id); return { id, hp: m.hp, maxHp: m.hp, spawnId: 'sp' + i }; });
+  for (const sp of map.bossSpawns || []) { const b = bossRec(c, sp.mobId); if (b.deadline <= Date.now()) out.push({ id: sp.mobId, hp: b.hp, maxHp: mobs.find(m => m.id === sp.mobId).hp, spawnId: 'boss-' + sp.mobId }); }
+  return out;
+}
+function bossRespawnsOf(c) {
+  const now = Date.now();
+  return Object.values(maps).filter(m => (m.bossSpawns || []).length).map(m => {
+    const mob = m.bossSpawns[0].mobId, b = (c._boss || {})[mob], cd = !!(b && b.deadline > now);
+    return { map: m.id, mapName: m.name, mob, name: mobs.find(x => x.id === mob).name, instanceId: `solo:${c.id}:${m.id}`, roster: c.id, scopeVersion: 1, deadline: b ? b.deadline : 0, spawned: !cd && c.map === m.id, available: cd };
+  });
+}
+
+// ---------------- 自由市場（攤位） ----------------
+let listingSeq = 0;
+function stallOf(c) { return c._stall || null; }
+function marketView(a, c) {
+  const st = stallOf(c);
+  return { characterId: c.id, products: [], productsHasMore: false, stalls: [], selected: null,
+    sellInventory: { inventory: { ...c.inventory } }, eligibleItems: tradeEligible(a, c.id).items, eligibleGear: c.equipmentBag.filter(g => !g.locked).map(g => g.uid),
+    mine: st ? { id: 'stall-' + c.id, title: st.title, open: st.open, count: st.listings.length, listings: st.listings.map(({ gear, ...l }) => l), proceeds: st.proceeds, history: st.history.slice(-30) } : null };
+}
+
 // ---------------- 遊戲 API ----------------
-const strip = c => { const { _simAt, ...rest } = c; return rest; };
+const strip = c => { const { _simAt, _boss, _stall, ...rest } = c; return rest; };
 // 回應裡的 character：請求指定的角色（同一個帳號開兩個分頁時，每個分頁拿到自己的角色）
 function sessionView(a, cid) {
   const c = a.chars[cid] || a.chars[a.active];
@@ -198,9 +251,10 @@ function handle(a, body) {
       if (body.characterId && a.chars[body.characterId]) a.active = body.characterId;
       let evs = [];
       for (const x of Object.values(a.chars)) evs = evs.concat(simulate(x, now));
-      const res = { ...sessionView(a, c.id), summary: { events: evs }, tradeEligible: tradeEligible(a, c.id) };
+      const res = { ...sessionView(a, c.id), summary: { events: evs }, tradeEligible: tradeEligible(a, c.id), enemies: enemiesOf(c), bossTimers: {} };
       if (body.tradeOnly) res.trade = null;
-      if (body.includeMarket) res.market = { products: [], hasMore: false, stall: { products: [], pending: 0, history: [] } };
+      if (body.includeMarket) res.market = marketView(a, c);
+      if (body.includeBossRespawns) res.bossRespawns = bossRespawnsOf(c);
       return res;
     }
     case 'start': c.auto = true; c.until = now + 24 * 3600e3; c._simAt = now; addLog(c, '開始掛機'); break;
@@ -210,6 +264,30 @@ function handle(a, body) {
       if (body.map !== c.map) fail('只能設定角色目前所在地圖的自動販售');
       c.autoSell.maps[body.map] = { enabled: !!(body.config && body.config.enabled), itemIds: ((body.config && body.config.itemIds) || []).map(Number) };
       break;
+    case 'marketConfig': c._stall = c._stall || { listings: [], proceeds: 0, history: [] }; c._stall.title = body.title || ''; c._stall.open = body.open !== false; break;
+    case 'marketList': {
+      const st = stallOf(c); if (!st) fail('還沒有攤位');
+      if (st.listings.length >= 50) fail('攤位已滿');
+      if (body.kind === 'gear') {
+        const i = c.equipmentBag.findIndex(g => g.uid === body.uid); if (i < 0) fail('找不到裝備');
+        const g = c.equipmentBag.splice(i, 1)[0];
+        st.listings.push({ id: 'L' + (++listingSeq), kind: 'gear', key: g.key, name: g.name, qty: 1, price: body.price, gear: g });
+      } else {
+        const have = c.inventory[body.item] || 0, qty = Number(body.qty) || 0; if (qty <= 0 || have < qty) fail('數量不足');
+        c.inventory[body.item] = have - qty;
+        st.listings.push({ id: 'L' + (++listingSeq), kind: 'item', key: body.item, name: items[body.item].name, qty, price: body.price });
+      }
+      break;
+    }
+    case 'marketCancel': {
+      // 真實遊戲：下架商品取回至「目前角色」背包（characterId）
+      const st = stallOf(c); const i = st ? st.listings.findIndex(l => l.id === body.listingId) : -1; if (i < 0) fail('找不到這個商品');
+      const l = st.listings.splice(i, 1)[0];
+      if (l.kind === 'gear') c.equipmentBag.push(l.gear); else c.inventory[l.key] = (c.inventory[l.key] || 0) + l.qty;
+      addLog(c, `下架：${l.name} × ${l.qty}`);
+      break;
+    }
+    case 'marketClaim': { const st = stallOf(c); if (st) { c.money += st.proceeds; st.proceeds = 0; } break; }
     case 'switch': if (!a.chars[body.characterId]) fail('沒有這隻角色'); a.active = body.characterId; break;
     case 'inventoryLock': {
       const ids = new Set(body.ids || []);
@@ -376,6 +454,29 @@ http.createServer((req, res) => {
     const clean = Object.fromEntries((url.searchParams.get('clean') || '').split(',').filter(Boolean).map(x => { const [k, v] = x.split(':'); return [k, Number(v)]; }));
     const g = makeGear(url.searchParams.get('key'), { stats: { ...clean }, cleanStats: clean });
     c.equipmentBag.push(g); return send(res, 200, { ok: true, uid: g.uid });
+  }
+  // 測試控制：/__mock/boss?acct=A1&char=c1&mob=mBoss1&cd=60000&hp=500 設定野王（cd＝幾毫秒後重生，0＝在場上）
+  if (url.pathname === '/__mock/boss') {
+    const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
+    if (!c) return send(res, 404, { error: 'no char' });
+    const b = bossRec(c, url.searchParams.get('mob'));
+    if (url.searchParams.has('cd')) b.deadline = Number(url.searchParams.get('cd')) > 0 ? Date.now() + Number(url.searchParams.get('cd')) : 0;
+    if (url.searchParams.has('hp')) b.hp = Number(url.searchParams.get('hp'));
+    return send(res, 200, { ok: true, boss: b });
+  }
+  // 測試控制：/__mock/stall?acct=A1&char=c1 開攤位；&sell=L1&qty=3 模擬別人買走 3 個
+  if (url.pathname === '/__mock/stall') {
+    const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
+    if (!c) return send(res, 404, { error: 'no char' });
+    c._stall = c._stall || { title: c.name + '的小攤', open: true, listings: [], proceeds: 0, history: [] };
+    const id = url.searchParams.get('sell');
+    if (id) {
+      const l = c._stall.listings.find(x => x.id === id); if (!l) return send(res, 404, { error: 'no listing' });
+      const q = Math.min(l.qty, Number(url.searchParams.get('qty') || 1)); l.qty -= q; c._stall.proceeds += q * l.price;
+      c._stall.history.push({ time: Date.now(), name: l.name, qty: q, price: l.price, buyer: '路人' });
+      if (!l.qty) c._stall.listings = c._stall.listings.filter(x => x !== l);
+    }
+    return send(res, 200, { ok: true, listings: c._stall.listings.map(({ gear, ...l }) => l) });
   }
   if (url.pathname === '/__mock/luck') { scrollQueue = (url.searchParams.get('seq') || '').split(',').filter(x => x !== '').map(Number); return send(res, 200, { ok: true, n: scrollQueue.length }); }
   if (url.pathname === '/api/game' && req.method === 'POST') {

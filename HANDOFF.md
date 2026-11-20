@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-20（v0.40.0）
+最後更新：2026-11-20（v0.41.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -16,7 +16,7 @@
   - **注意 8787 port**：測試中控和使用者的中控同 port，但使用者的中控在他自己電腦上（透過 Chrome 的 127.0.0.1:8787），不會衝突；在雲端工作區跑測試只會用到 /tmp/hub。
   - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab 偶爾不穩，重跑一次就過。
   - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
-  - 測試清單（27 支）：smoke、agent_gate、bag_give、board_group、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
+  - 測試清單（29 支）：smoke、agent_gate、bag_give、board_group、boss、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
 - **實機驗證**：使用者的 Chrome（Claude in Chrome）開 http://127.0.0.1:8787/ 用 javascript 呼叫 API 看資料；做完要關掉自己開的分頁。不要直接開 play.szg08.com（會導到 /game/、中控腳本會在那個分頁跑），讀遊戲程式碼從 https://play.szg08.com/robots.txt 分頁 `fetch('/game/game.js')`，輸出只取識別字或計數（整段原始碼會被輸出過濾擋掉）。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定；**公會倉庫相關功能只做私人版**（公開版其他人做法可能不同），之後用程式標記讓 make-public 移除。
 
@@ -38,6 +38,8 @@
 - 所有 /api/game 回應都是「整份狀態放最上層」（character、characters、tradeEligible…）＋ `summary`；頁面把它存成 `mapleSessionView = {state: 回應}`
 - 批次衝卷（神匠之魂，2026-11-18 讀遊戲程式碼核對）：單件 `{type:'artisanScroll', uid, item, count(≤10), stopAfterSuccesses(0=不停), expectedSlots: g.slots, stopOnFail}`；多件把 `uid` 換成 `uids:[2～10]`。**每衝 1 次**扣 1 張卷軸＋10 萬楓幣（ARTISAN_FEE），失敗也扣格；卷軸要在同一隻角色身上，適用條件 `catalog.scrolls[id].target === gear.type`；詛咒卷軸失敗可能讓裝備消失。多件時遊戲要求**名稱、key、剩餘次數相同而且沒鎖定**。結果在 `character.lastArtisan`（單件 `{uid, attempts:[bool], successes, destroyed, slots, fee, stop}`；多件 `{multi:true, gear, selected, scroll, rate, items:[{attempts, successes, destroyed, slots, stop}], successes, lost, fee, stop}`；前者是讀遊戲程式碼推的，還沒實際衝過）。目錄 `catalog.scrolls[key] = {name, target, rate, cursed(失敗消失 %), stats}`。單次 `{type:'scroll', item, target, uid}`
 - 公會倉庫（2026-11-18 實際存取 1 張卷軸核對）：`guildWarehouseView`、`guildWarehouseBatch {op:'deposit'|'withdraw', items:[{kind:'item', item:key, qty} | {kind:'gear', uid}](≤100), characterId}`。回應在 `summary.guildWarehouse = {guildName, mesos, cashPoints, items:{key:qty}, gear:[], capacity:{gear:500, items:500}, taxPercent:5}`；同步回應不會帶公倉內容。**單次請求另有伺服器上限**：98 種、10,658 張卷軸一次送會回「請求過大」（門檻不明，遊戲畫面只限 100 項），agent 會自動切半重送。楓幣／點數是另外的 `guildWarehouseMesos`、`guildWarehouseCash`，格式 `{type, op:'deposit'|'withdraw', amount, characterId}`（2026-11-19 從 /game/game.js 讀到；提領時遊戲畫面會跳稅金確認，taxPercent 5）。使用者規則：我自己操作時不要動楓幣；v0.34 起有「存楓幣／點數」功能，但一律要使用者逐一確認。鎖定裝備、任務道具、不可交易的不能存。公會名「佐藤商會」，11 個帳號都在裡面
+- **野王（2026-11-20 讀 game.js＋實際資料核對）**：19 張野王地圖（catalog.maps[].bossSpawns：{mobId, minSeconds, maxSeconds}；多數有 `<地圖>_noboss` 版本）。王是**每隻角色一份**（instanceId `solo:角色:地圖`），同隊伍共用（`party:隊伍:地圖`，roster 列成員）。`{type:'sync', fullSync:true, includeBossRespawns:true, characterId}` 回 `bossRespawns:[{map, mapName, mob, name, instanceId, roster, scopeVersion, deadline, spawned, available}]`：available＝王已死、可付費重生（冷卻中，deadline＝預計重生時間，伺服器時間）；deadline 0 或已過且 available=false＝進地圖就會出現。戰鬥中的怪在同步回應最上層 `enemies:[{id, hp, maxHp, spawnId, damageBy…}]`。遊戲畫面寫「離開首領地圖，首領血量與冷卻會保留」。其他：`bossTimers`（最上層）、`character.bossCooldowns`、`bossCombatLocked`、`{type:'escapeBoss'}`（離開首領地圖）；`{type:'bossRespawn'}` 是付費重生（10 點或 1000 萬楓幣），**不用**。角色死亡判斷用 character.hp<=0（還沒實際遇過）。
+- **自由市場攤位**：商品欄位只有 id、kind、key、name、icon、category、qty、price、description（**沒有上架時間**、遊戲不會自己到期）。下架 `{type:'marketCancel', listingId, characterId}`，東西回到該角色背包。
 - 戰鬥事件在 sync 回應 `summary.events`（actor、damage、effectiveDamage、lines、skill、mob、killed）；冒險紀錄 `character.log`（「撿取：X × n」「自動販售：X × n，獲得 N 楓幣」）
 - 目錄 `/api/catalog`：maps、mobs、mapDrops、drops、autoSellDrops（每張圖可販售的掉落）、skills、fourth（4 轉技能書：level、fee、bookDrops、books；技能書在背包「消耗」分頁）
 - 傷害測試稻草人地圖 gms990040001／gms990040002（單人，產生 character.dpsReport）
@@ -122,3 +124,9 @@
 - v0.39.0 楓幣收入：遊戲 `state.character.earned`（主控台累計賺得）與 `character.sessionReport`（money、xp、activeMs、startedAt、stoppedAt…，也有 soldItems／soldGear／purchased／used）；agent 快照 `char.earned`、`char.session`。dashboard `mesoRate(c)`＝session.money÷activeMs（≥10 分鐘才算），總覽讀數「楓幣收入／時」（只加掛機中的）、「合計賺得」（session.money 加總＋累計）；表格欄 mrate。mock `/__mock/session`，測試 `tests/e2e_income.py`。表格排序：null 一律排最後。v0.39.1：session.startedAt 是毫秒數字；session.money 是淨額（會是負的）；short() 支援負數。
   - 注意：使用者的 Chrome 登入多個 Google 帳號，直接開網址會跳 /u/5/ 顯示找不到；中控（Node、不帶 cookie）存取正常。
 - v0.40.0 總覽小怪：素材在 `tools/pets/<怪物>/<動作>_<n>.png`（slime、mush，動作 stand／move／jump／hit1／die1），`python3 tools/build-pets.py` 轉 base64 寫進 dashboard.html 的 `// <pets-data>` 區塊（換圖或加怪物就重跑）。程式 `PET_DEF`（名字、速度、台詞）、`petsInit/petTick/petClick`，#ovPetsCard；原圖臉朝左，往右走用 scaleX(-1)。點擊：連點 5 下（1.5 秒內）倒下 3 秒後隨機位置復活，其他隨機被打退／跳／逃跑／愛心。localStorage ovPets=0 收起。使用者說素材「先暫時放置」，之後可能換。測試 `tests/e2e_pets.py`。
+- v0.41.0 輪流打野王＋攤位逾時下架：
+  - 野王：settings.boss `{mode: off|preview|auto, chars, charSpec, mobs: null=全部|[mob], estMax 分, visitMax 分}`；db.boss `{state:{角色:{at, offset(伺服器時間差), list}}, hp:{instanceId:{hp,maxHp,at}}, last:{角色|mob:{at,result}}, home:{角色:原地圖}, homeName, log, seen}`。server `bossTick()` 每分鐘：角色要有自己的分頁、在掛機、沒有進行中的工作、狀態 20 分鐘內；`bossRows()` 算 ready／cooling／預估（hp÷實戰 DPS w60）／skip（沒勾、冷卻、預估超過 estMax、30 分鐘內失敗過 BOSS_RETRY_MS）；同 instanceId 不重複派；預估快的先。工作 kind `boss`（BAG_KINDS，KIND_MIN_AGENT 0.41.0，直接 approved）。API：GET /api/boss、/api/boss/need、POST /api/boss/state、/hp、/result、/run-now。
+  - agent：`bossStateTick`（中控說需要時每 4 分鐘 fullSync 回報，開頁 15 秒後第一次）；`runBossJob`：同步確認王（冷卻就不去）→ 原地圖用剛同步到的 character.map（頁面的 mapleSessionView 可能是舊的，實測踩過）→ map → 每 4 秒 sync 看 enemies 的王血量，結果 killed／timeout／dead／absent（45 秒沒看到王）／stuck（3 分鐘血沒降）／moved（被換圖就不帶回）→ 回原地圖（失敗就 escapeBoss 再試）→ 回報 hp（打死清掉）與 result。
+  - 面板：地圖頁 #bossCard（CP.boss 角色選擇器，預設不勾任何角色；#bossMobs 王清單；#bossTable 狀態、血條 .hpbar、預估、備註）；總覽自動化磁磚 boss、delist（只顯示，不能直接開，避免誤開）。
+  - 逾時下架：market.js `trackAge`（m.age[角色][listingId] = {first, qty}，數量變少重新計時；不管開關都在記，所以開啟時已經累積）；settings.market.delistMode／delistHours；reportStall 回 `delist` 清單 → agent stallTick `delistOverdue`（marketCancel，裝備比對下架前後背包找新 uid）→ POST /api/market/delisted 記進 m.blocked（'i:道具key'／'g:裝備uid'），plan() 略過。/api/market/unblock {k|'*'}。攤位每 5 分鐘回報一次（GM 值 testStallMs 只給測試縮短），檢查間隔改 20 秒。
+  - 待實機確認：真實遊戲打王時角色會不會優先打王、王死後 enemies 是否立刻消失、角色倒下的欄位、隊伍共用時兩隻同時被派的情況、marketCancel 回應裡的裝備 uid。第一次實際出動請使用者確認後只用一隻角色、一隻王試。
