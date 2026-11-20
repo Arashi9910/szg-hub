@@ -171,4 +171,4 @@
 - v0.49.0 裝備圖鑑（使用者：新分頁顯示所有裝備，基本素質＋浮動，依職業、等級分類；選某職業時全職業也要顯示）：
   - 資料：agent uploadWorld（版本前綴 w5）多送 `equipment`＝[id, 名稱, equipmentType, subCategory|category, reqLevel, reqJob(位元，0 全職業、-1 一件初心者), 標準素質{inc*}, tuc, [reqSTR,DEX,INT,LUK]]，排除 meta.cash；`statNames`。真實 catalog.equipment 1035 件，素質在 meta.incX（mock 是 base）。
   - 浮動範圍是推估：用使用者 24 隻角色約 3,600 筆 cleanStats−baseStats 對出 `±max(1, ceil(標準×10%))`，物攻／魔攻最多 ±5（PAD 85 有 405 筆，最大 5），其他最多 ±10（PDD 132 最大 10）。遊戲程式碼裡沒有規則（伺服器端擲骰）。函式 `dexFloat`。
-  - 面板 #dex：職業 seg（全部／全職業＝只 reqJob 0／各職業＝含全職業）、等級（區間按鈕、自訂最低最高、「我的角色可穿」＝有角色等級夠且職業位元符合）、部位 chip（武器合一類，點了再展開武器種類）、搜尋、排序（等級／部位／攻擊）、只看我有的（snaps 的 gear itemId 計數）。設定存 localStorage 'dex'；一次顯示 120 件，「再顯示」加 240。測試 `tests/e2e_dex.py`。
+  - 面板 #dex：職業 seg（全部／全職業＝只 reqJob 0／各職業＝只該職業，v0.49.1 使用者要求不混全職業）、等級（區間按鈕、自訂最低最高、「我的角色可穿」＝有角色等級夠且職業位元符合）、部位 chip（武器合一類，點了再展開武器種類）、搜尋、排序（等級／部位／攻擊）、只看我有的（snaps 的 gear itemId 計數）。設定存 localStorage 'dex'；一次顯示 120 件，「再顯示」加 240。測試 `tests/e2e_dex.py`。

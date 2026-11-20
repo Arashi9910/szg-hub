@@ -1,4 +1,4 @@
-"""裝備圖鑑：遊戲分頁上傳裝備目錄、職業（全職業一起列）、等級、部位、搜尋、只看我有的、浮動範圍"""
+"""裝備圖鑑：遊戲分頁上傳裝備目錄、職業（選職業不混全職業）、等級、部位、搜尋、只看我有的、浮動範圍"""
 import asyncio, sys, time
 from harness import Env, hub_json
 
@@ -33,7 +33,7 @@ async def main():
         check(len(allN) == len(eq), f'全部：{len(allN)} 件')
         await d.click('[data-dexjob="4"]'); await d.wait_for_timeout(300)
         n = await names()
-        check('戰鬥弓' in n and '工地手套' in n and '劍' not in n, f'弓箭手：弓＋全職業手套，沒有劍（{n}）')
+        check(n == ['戰鬥弓'], f'弓箭手：只有弓，不混全職業（{n}）')
         await d.click('[data-dexjob="common"]'); await d.wait_for_timeout(300)
         n = await names()
         check('工地手套' in n and '戰鬥弓' not in n and '劍' not in n, f'全職業：只有全職業裝備（{n}）')
