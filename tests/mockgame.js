@@ -167,7 +167,16 @@ function simulate(c, now) {
 // c._boss[mob] = { hp, deadline }：deadline > 現在＝冷卻中；王的血量離開地圖後保留
 const BOSS_DPS = () => Number(process.env.MOCK_BOSS_DPS || 600);
 const bossMapOf = mob => Object.values(maps).find(m => (m.bossSpawns || []).some(b => b.mobId === mob));
-function bossRec(c, mob) { const b = (c._boss || (c._boss = {}))[mob] || (c._boss[mob] = { hp: mobs.find(m => m.id === mob).hp, deadline: 0 }); return b; }
+// 隊伍：MOCK_PARTY=c3,c4 讓這幾隻同隊（真實遊戲：同隊伍共用同一份王，instanceId party:隊伍代碼:地圖）
+const PARTY = (process.env.MOCK_PARTY || '').split(',').filter(Boolean);
+const bossStore = {};
+const instOf = (c, mapId) => PARTY.includes(c.id) ? `party:PTEST:${mapId}` : `solo:${c.id}:${mapId}`;
+function bossRec(c, mob) { const k = instOf(c, bossMapOf(mob).id) + '|' + mob; return bossStore[k] || (bossStore[k] = { hp: mobs.find(m => m.id === mob).hp, deadline: 0 }); }
+function charById(id) { for (const a of Object.values(accounts)) if (a.chars[id]) return a.chars[id]; return null; }
+function partyOf(c) {
+  if (!PARTY.includes(c.id)) return null;
+  return { code: 'PTEST', leader: PARTY[0], notice: '', messages: [], members: PARTY.map(charById).filter(Boolean).map(m => ({ id: m.id, name: m.name, lv: m.lv, job: m.job, map: m.map, auto: m.auto, hp: m.hp, maxhp: m.maxhp, leader: m.id === PARTY[0], self: m.id === c.id })) };
+}
 function bossTick(c, map, ms) {
   const evs = [];
   for (const sp of map.bossSpawns || []) {
@@ -194,8 +203,8 @@ function enemiesOf(c) {
 function bossRespawnsOf(c) {
   const now = Date.now();
   return Object.values(maps).filter(m => (m.bossSpawns || []).length).map(m => {
-    const mob = m.bossSpawns[0].mobId, b = (c._boss || {})[mob], cd = !!(b && b.deadline > now);
-    return { map: m.id, mapName: m.name, mob, name: mobs.find(x => x.id === mob).name, instanceId: `solo:${c.id}:${m.id}`, roster: c.id, scopeVersion: 1, deadline: b ? b.deadline : 0, spawned: !cd && c.map === m.id, available: cd };
+    const mob = m.bossSpawns[0].mobId, b = bossStore[instOf(c, m.id) + '|' + mob], cd = !!(b && b.deadline > now);
+    return { map: m.id, mapName: m.name, mob, name: mobs.find(x => x.id === mob).name, instanceId: instOf(c, m.id), roster: PARTY.includes(c.id) ? PARTY.join(',') : c.id, scopeVersion: 1, deadline: b ? b.deadline : 0, spawned: !cd && c.map === m.id, available: cd };
   });
 }
 
@@ -214,7 +223,7 @@ const strip = c => { const { _simAt, _boss, _stall, ...rest } = c; return rest; 
 // 回應裡的 character：請求指定的角色（同一個帳號開兩個分頁時，每個分頁拿到自己的角色）
 function sessionView(a, cid) {
   const c = a.chars[cid] || a.chars[a.active];
-  return { serverTime: Date.now(), cashPoints: a.cashPoints, character: strip(c), characters: Object.values(a.chars).map(x => ({ id: x.id, name: x.name, lv: x.lv, job: x.job, auto: x.auto })), party: null, knowledge: { ready: false, remaining: 0 } };
+  return { serverTime: Date.now(), cashPoints: a.cashPoints, character: strip(c), characters: Object.values(a.chars).map(x => ({ id: x.id, name: x.name, lv: x.lv, job: x.job, auto: x.auto })), party: partyOf(c), knowledge: { ready: false, remaining: 0 } };
 }
 function tradeEligible(a, cid) {
   const c = a.chars[cid] || a.chars[a.active];

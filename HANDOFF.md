@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-20（v0.41.0）
+最後更新：2026-11-20（v0.41.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -16,7 +16,7 @@
   - **注意 8787 port**：測試中控和使用者的中控同 port，但使用者的中控在他自己電腦上（透過 Chrome 的 127.0.0.1:8787），不會衝突；在雲端工作區跑測試只會用到 /tmp/hub。
   - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab 偶爾不穩，重跑一次就過。
   - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
-  - 測試清單（29 支）：smoke、agent_gate、bag_give、board_group、boss、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
+  - 測試清單（30 支）：smoke、agent_gate、bag_give、board_group、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
 - **實機驗證**：使用者的 Chrome（Claude in Chrome）開 http://127.0.0.1:8787/ 用 javascript 呼叫 API 看資料；做完要關掉自己開的分頁。不要直接開 play.szg08.com（會導到 /game/、中控腳本會在那個分頁跑），讀遊戲程式碼從 https://play.szg08.com/robots.txt 分頁 `fetch('/game/game.js')`，輸出只取識別字或計數（整段原始碼會被輸出過濾擋掉）。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定；**公會倉庫相關功能只做私人版**（公開版其他人做法可能不同），之後用程式標記讓 make-public 移除。
 
@@ -130,3 +130,5 @@
   - 面板：地圖頁 #bossCard（CP.boss 角色選擇器，預設不勾任何角色；#bossMobs 王清單；#bossTable 狀態、血條 .hpbar、預估、備註）；總覽自動化磁磚 boss、delist（只顯示，不能直接開，避免誤開）。
   - 逾時下架：market.js `trackAge`（m.age[角色][listingId] = {first, qty}，數量變少重新計時；不管開關都在記，所以開啟時已經累積）；settings.market.delistMode／delistHours；reportStall 回 `delist` 清單 → agent stallTick `delistOverdue`（marketCancel，裝備比對下架前後背包找新 uid）→ POST /api/market/delisted 記進 m.blocked（'i:道具key'／'g:裝備uid'），plan() 略過。/api/market/unblock {k|'*'}。攤位每 5 分鐘回報一次（GM 值 testStallMs 只給測試縮短），檢查間隔改 20 秒。
   - 待實機確認：真實遊戲打王時角色會不會優先打王、王死後 enemies 是否立刻消失、角色倒下的欄位、隊伍共用時兩隻同時被派的情況、marketCancel 回應裡的裝備 uid。第一次實際出動請使用者確認後只用一隻角色、一隻王試。
+- v0.41.1 野王以隊伍為單位：server `partyMap()` 從各角色快照的 `party.party`（{code, members:[{id, name, lv, map, auto, leader, self…}]}，30 分鐘內、2 人以上）建「角色→隊伍代碼」；`bossUnitOf()`；`bossTick` 以 unit 為單位：勾了其中一隻＝整隊（有分頁、在掛機、沒工作的 `bossAvail`）一起出發打同一隻王，預估用 DPS 加總，任一隊員還在打王就整隊等；每人一個 boss 工作（batches[0].boss.party＝隊員名字），各自回自己的 home。/api/boss 的 chars 多 party、partyDps、picked（on＝隊伍有人被勾）。面板 .boss-grp 同隊放一起。mock：環境變數 MOCK_PARTY=c3,c4（王改成依 instanceId 存在 bossStore）。測試 `tests/e2e_boss_party.py`。
+  - 2026-11-20 使用者的隊伍：嵐思＋嵐濕、打幣9＋打幣10、打幣12＋盜賊；隆司、起司各自一人一隊（一人隊伍當單人處理）。
