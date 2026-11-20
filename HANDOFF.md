@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-21（v0.44.0）
+最後更新：2026-11-21（v0.44.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -151,3 +151,4 @@
 - v0.43.3：打王的分頁在 runBossJob 迴圈裡（agentRunning）不會來 /api/agent 問工作 → 90 秒後中控以為分頁不見（tabs 沒有它），routeOf 把工作轉給同帳號另一個分頁，那邊一直回報「等待 某某 的遊戲分頁」蓋掉 lastMsg（實機 20:17 看到）。新增 GET /api/agent/beat（只 seenTab），agent 在 agentRunning 時每 20 秒打一次。e2e_boss 有檢查。
 - v0.43.4 賣出「報價單有 28 項，比選擇的 13 項多，已停止」（使用者轉述別人回報，背包有變動時發生）：推測送出的 id 對不上（掛機撿東西改變堆疊）時遊戲沒產生新報價，回應裡是角色身上舊的 inventoryQuote（或同角色同時有別的報價）。agent `safeQuote(charId, category, ids)`：報價前 sync 記下舊報價 id → 報價 → 一定要是新 id、category 相同、每列 uid 都在選的清單裡（不對就等一下重試一次，第二次才報錯）。賣出道具改用剛同步的背包「依 key 重新挑所有沒鎖的堆疊」（以前用工作裡的舊 uid，uid 是流水號可能對到別的東西）。三個地方都改：背包賣出、撿到裝備自動賣、公倉賣出。mock：inventoryQuote 存在 c.inventoryQuote、id 有任何一個對不上就不產生新報價；/__mock/restack。測試 `tests/e2e_sell_race.py`。
 - v0.44.0 死掉自動原地復活：idlePolicy.autoRevive（預設開，/api/idle-policy 回 autoRevive !== false）、reviveMaxPerHour（預設 6）。agent idleTick → `reviveTick`：目前角色 hp<=0；同帳號沒有自己分頁的角色（characters 清單沒 hp 時，沒在掛機的每 2 分鐘 sync 一次確認）→ `revive` → 回應的 character.auto 是 false 就 start → 自己的頁面關掉 #deathDialog。每隻每小時次數存 GM `revives:<id>`，超過上限就 idle-log kind:'reviveLimit'（一小時通知一次），總覽「需要處理」列「死太多次」。idle-log 多存 kind。mock：`revive`、/__mock/die。測試 `tests/e2e_revive.py`。
+- v0.44.1：使用者要求每小時復活上限可設到 9999（#ipReviveMax max 9999，預設 6 不變）。
