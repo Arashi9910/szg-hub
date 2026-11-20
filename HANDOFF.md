@@ -167,3 +167,4 @@
   - 測試 `tests/e2e_pipe.py`（headless SwiftShader 約 1 fps，所以斷言不靠動畫時間）。
 - v0.47.1：使用者實機 14 座平台排成一長條、名字疊在一起 → 平台每欄最多 6 座、多欄錯開，鏡頭改由上往下（fit 依欄數和列數）。
 - v0.47.2：實機 19 個分頁換到 0.47 後全身照仍是 0 張（appearance.js 確認是 globalThis.MapleAppearance、load 回 {stand: GIF blob URL}）。改用 W.fetch 讀 blob，並加 POST /api/avatar/diag、GET /api/avatar-diag（記憶體）回報每隻失敗在哪一步（noMA／key／load／nostand／blob／b64／post）。
+- v0.47.3：avatar-diag 回報全部是「blob:Failed to fetch」（頁面讀 load() 的 blob: 網址失敗，可能是 CSP 或快取已 revoke）。改成直接 `W.fetch('/api/appearance?' + MA.key(c) + '&action=stand')`（appearance.js 的 fetchPart 就是這樣抓；key(c) 是 URLSearchParams 字串），不再呼叫 load。mock 有 /api/appearance（harness 對這個路徑用二進位轉送）。

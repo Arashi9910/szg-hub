@@ -445,6 +445,7 @@ function handle(a, body) {
   return { ...sessionView(a, c.id), summary: { events: [] } };
 }
 
+const MOCK_AVA_GIF = 'R0lGODlhKAAoAIEAAAAAAPrSqjx43CgoPCH5BAEAAAAALAAAAAAoACgAQAiuAAEIHEiwoMGDCBMeDMCwocOHDBVKLAjx4cSLAgVo3MixI0aJAgaIHBlypEgBHydWdJhS4cqXLQ92nMkxpkyaNG0eNCkSAM8BOiVaDIrwJUSiAo1WRApAKUumOHNCjepxKtWNTAFcrZn1p0+eWQV69Rq27EeYZp0GCKs2ItK2Dd/CXStXLVunZpuuNLsVq9WtWftqDCyYcF/DgP9eDTsWLGOwZLtCdizZ5FfLEwMCADs=';
 // ---------------- 頁面 ----------------
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>上漲谷（模擬）</title></head><body>
 <h3>上漲谷模擬遊戲</h3><div id="who"></div><pre id="st"></pre>
@@ -464,7 +465,7 @@ async function sync(){
   document.getElementById('st').textContent = 'EXP ' + j.character.xp + ' [12.50%]\\n平均每小時經驗 120,000\\n你的遊戲 ID：' + (window.__code || '');
 }
 // 模擬遊戲的 appearance.js（MOCK_APPEARANCE=1）：站姿 GIF 用一張 40×40 的小人代替
-${process.env.MOCK_APPEARANCE ? "window.MapleAppearance = { key: (c, k) => 'ap:' + c.id + ':' + (c.lv || 0) + ':' + k, load: async c => ({ key: 'x', stand: 'data:image/gif;base64,R0lGODlhKAAoAIEAAAAAAPrSqjx43CgoPCH5BAEAAAAALAAAAAAoACgAQAiuAAEIHEiwoMGDCBMeDMCwocOHDBVKLAjx4cSLAgVo3MixI0aJAgaIHBlypEgBHydWdJhS4cqXLQ92nMkxpkyaNG0eNCkSAM8BOiVaDIrwJUSiAo1WRApAKUumOHNCjepxKtWNTAFcrZn1p0+eWQV69Rq27EeYZp0GCKs2ItK2Dd/CXStXLVunZpuuNLsVq9WtWftqDCyYcF/DgP9eDTsWLGOwZLtCdizZ5FfLEwMCADs=' }) };" : ''}
+${process.env.MOCK_APPEARANCE ? "window.MapleAppearance = { key: c => 'id=' + c.id + '&lv=' + (c.lv || 0) + '&v=72', load: async c => ({ key: 'x', stand: 'blob:not-readable' }) };" : ''}
 fetch('/api/account').then(r => r.json()).then(a => { window.__code = a.playerCode; if (!sessionStorage.getItem('mapleCharacter')) sessionStorage.setItem('mapleCharacter', a.activeCharacterId); sync(); setInterval(sync, ${Number(process.env.MOCK_SYNC_MS) || 3000}); });
 </script></body></html>`;
 
@@ -478,6 +479,8 @@ http.createServer((req, res) => {
   const a = acctOf(req);
   if (!a) return send(res, 404, { error: '沒有這個帳號' });
   if (url.pathname.startsWith('/game')) return send(res, 200, PAGE, 'text/html; charset=utf-8');
+  // 外觀圖（真實遊戲 appearance.js 的 fetchPart：/api/appearance?<外觀參數>&action=stand|attack…）
+  if (url.pathname === '/api/appearance') { if (url.searchParams.get('action') !== 'stand') return send(res, 404, { error: 'mock only has stand' }); res.writeHead(200, { 'Content-Type': 'image/gif' }); return res.end(Buffer.from(MOCK_AVA_GIF, 'base64')); }
   if (url.pathname === '/api/account') return send(res, 200, { playerCode: a.code, activeCharacterId: a.active, characterIds: Object.keys(a.chars), status: 'ok' });
   if (url.pathname === '/api/catalog') return send(res, 200, catalog);
   // 測試控制：查看／重設狀態

@@ -128,6 +128,13 @@ const GM_xmlhttpRequest = o => { window.__gmx({ method: o.method, url: o.url, he
             path = req.url.split('play.szg08.com', 1)[1]
             hdr = {k: v for k, v in req.headers.items() if k.lower() in ('content-type', 'x-game-version')}
             hdr['x-acct'] = acct
+            if path.startswith('/api/appearance'):  # 二進位（站姿 GIF），不經過文字解碼
+                def get_bytes():
+                    try:
+                        with urllib.request.urlopen(urllib.request.Request(MOCK + path, headers=hdr), timeout=10) as x: return x.status, x.read()
+                    except urllib.error.HTTPError as e: return e.code, e.read()
+                s, b = await asyncio.to_thread(get_bytes)
+                return await r.fulfill(status=s, body=b, content_type='image/gif')
             s, t = await asyncio.to_thread(http, req.method, MOCK + path, None, hdr) if not req.post_data else \
                 await asyncio.to_thread(lambda: http_raw(req.method, MOCK + path, req.post_data, hdr))
             await r.fulfill(status=s, body=t, content_type='text/html; charset=utf-8' if path.startswith('/game') else 'application/json; charset=utf-8')
