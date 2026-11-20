@@ -114,6 +114,7 @@ addAccount('A1', 'A1B2C3D4E5F6', [
 ]);
 addAccount('A2', 'B2C3D4E5F6A1', [makeChar('c3', '弓箭分身', 'hunter', 32, 'gms104040000', { auto: true, until: Date.now() + 8 * 3600e3, gear: { weapon: makeGear('e1452002') } })]);
 addAccount('A3', 'C3D4E5F6A1B2', [makeChar('c4', '倉庫分身', 'swordman', 20, 'gms100010000', { auto: true, until: Date.now() + 8 * 3600e3 })]);
+setTimeout(() => initParty(), 0); // 隊伍在帳號建好後才建
 // 每隻角色背包放幾件裝備、幾疊道具
 for (const a of Object.values(accounts)) for (const c of Object.values(a.chars)) {
   c.equipmentBag.push(makeGear('e1082002'), makeGear('e1082002'), makeGear('e1082002'), makeGear('e1082149'), makeGear('e1082149'), makeGear('e1040002'));
@@ -141,7 +142,8 @@ function simulate(c, now) {
   const normal = map.mobIds.filter(id => !(mobs.find(m => m.id === id) || {}).isBoss); if (!normal.length) return evs;
   const swings = Math.min(20, Math.max(1, Math.round((now - last) / 1000)));
   for (let i = 0; i < swings; i++) {
-    const mob = mobs.find(m => m.id === normal[rnd(normal.length)]);
+    const pickId = normal[rnd(normal.length)], mob = mobs.find(m => m.id === pickId);
+    if (!mob) { console.error('[mock] 找不到怪物', JSON.stringify({ map: c.map, pickId, normal, n: normal.length })); continue; }
     const dmg = 50 + rnd(150) + c.lv * 3; const killed = Math.random() < 0.5;
     evs.push({ eventId: 'ev' + (++eventSeq), actor: c.id, kind: 'attack', damage: dmg, effectiveDamage: Math.min(dmg, mob.hp), lines: [{ damage: dmg, critical: Math.random() < 0.1 }], skill: 1001004, mob: mob.id, killed, at: now - (swings - i) * 1000, map: c.map });
     if (!killed) continue;
@@ -167,15 +169,30 @@ function simulate(c, now) {
 // c._boss[mob] = { hp, deadline }：deadline > 現在＝冷卻中；王的血量離開地圖後保留
 const BOSS_DPS = () => Number(process.env.MOCK_BOSS_DPS || 600);
 const bossMapOf = mob => Object.values(maps).find(m => (m.bossSpawns || []).some(b => b.mobId === mob));
-// 隊伍：MOCK_PARTY=c3,c4 讓這幾隻同隊（真實遊戲：同隊伍共用同一份王，instanceId party:隊伍代碼:地圖）
-const PARTY = (process.env.MOCK_PARTY || '').split(',').filter(Boolean);
+// 隊伍（真實遊戲：partyCreate／partyJoin {code}／partyLeave；同步回應最上層 party = {code, leader, members}；最多 6 人；
+// 同隊伍共用同一份王，instanceId party:隊伍代碼:地圖）。MOCK_PARTY=c3,c4 一開始就讓這幾隻同隊
+const parties = {}; // code → { leader, members: [角色 id] }
+let partySeq = 0;
 const bossStore = {};
-const instOf = (c, mapId) => PARTY.includes(c.id) ? `party:PTEST:${mapId}` : `solo:${c.id}:${mapId}`;
+const instOf = (c, mapId) => c.partyCode && parties[c.partyCode] ? `party:${c.partyCode}:${mapId}` : `solo:${c.id}:${mapId}`;
 function bossRec(c, mob) { const k = instOf(c, bossMapOf(mob).id) + '|' + mob; return bossStore[k] || (bossStore[k] = { hp: mobs.find(m => m.id === mob).hp, deadline: 0 }); }
+function partyLeave(c) {
+  const p = parties[c.partyCode]; c.partyCode = '';
+  if (!p) return;
+  p.members = p.members.filter(x => x !== c.id);
+  if (!p.members.length) { for (const k of Object.keys(parties)) if (parties[k] === p) delete parties[k]; }
+  else if (p.leader === c.id) p.leader = p.members[0];
+}
 function charById(id) { for (const a of Object.values(accounts)) if (a.chars[id]) return a.chars[id]; return null; }
 function partyOf(c) {
-  if (!PARTY.includes(c.id)) return null;
-  return { code: 'PTEST', leader: PARTY[0], notice: '', messages: [], members: PARTY.map(charById).filter(Boolean).map(m => ({ id: m.id, name: m.name, lv: m.lv, job: m.job, map: m.map, auto: m.auto, hp: m.hp, maxhp: m.maxhp, leader: m.id === PARTY[0], self: m.id === c.id })) };
+  const p = parties[c.partyCode]; if (!p) return null;
+  return { code: c.partyCode, leader: p.leader, notice: '', messages: [], members: p.members.map(charById).filter(Boolean).map(m => ({ id: m.id, name: m.name, lv: m.lv, job: m.job, map: m.map, auto: m.auto, hp: m.hp, maxhp: m.maxhp, leader: m.id === p.leader, self: m.id === c.id })) };
+}
+// 一開始的隊伍（帳號建好之後）
+function initParty() {
+  const ids = (process.env.MOCK_PARTY || '').split(',').filter(Boolean); if (ids.length < 2) return;
+  parties.PTEST00000AA = { leader: ids[0], members: ids.slice() };
+  for (const id of ids) { const c = charById(id); if (c) c.partyCode = 'PTEST00000AA'; }
 }
 function bossTick(c, map, ms) {
   const evs = [];
@@ -204,7 +221,7 @@ function bossRespawnsOf(c) {
   const now = Date.now();
   return Object.values(maps).filter(m => (m.bossSpawns || []).length).map(m => {
     const mob = m.bossSpawns[0].mobId, b = bossStore[instOf(c, m.id) + '|' + mob], cd = !!(b && b.deadline > now);
-    return { map: m.id, mapName: m.name, mob, name: mobs.find(x => x.id === mob).name, instanceId: instOf(c, m.id), roster: PARTY.includes(c.id) ? PARTY.join(',') : c.id, scopeVersion: 1, deadline: b ? b.deadline : 0, spawned: !cd && c.map === m.id, available: cd };
+    return { map: m.id, mapName: m.name, mob, name: mobs.find(x => x.id === mob).name, instanceId: instOf(c, m.id), roster: c.partyCode && parties[c.partyCode] ? parties[c.partyCode].members.join(',') : c.id, scopeVersion: 1, deadline: b ? b.deadline : 0, spawned: !cd && c.map === m.id, available: cd };
   });
 }
 
@@ -280,6 +297,18 @@ function handle(a, body) {
     case 'settingsPreset': { const n = Number(body.slot); if (![1, 2, 3].includes(n)) fail('設定組合只有 1、2、3'); c.settingsSlot = n; (c.presetLog || (c.presetLog = [])).push({ n, map: c.map, auto: c.auto }); break; }
     // 死亡／原地復活（真實遊戲：死亡＝hp <= 0，{type:'revive'}；這裡復活後停止掛機，讓中控要再開始）
     case 'revive': if (c.hp > 0) fail('角色沒有死亡'); c.hp = c.maxhp; c.revives = (c.revives || 0) + 1; addLog(c, '原地復活'); break;
+    case 'partyCreate': {
+      if (c.partyCode) fail('已經在隊伍裡，請先離開');
+      const code = ('P' + String(++partySeq).padStart(5, '0') + Math.random().toString(16).slice(2, 8)).toUpperCase().slice(0, 12);
+      parties[code] = { leader: c.id, members: [c.id] }; c.partyCode = code; break;
+    }
+    case 'partyJoin': {
+      if (c.partyCode) fail('已經在隊伍裡，請先離開');
+      const code = String(body.code || '').toUpperCase(), p = parties[code]; if (!p) fail('找不到這個隊伍');
+      if (p.members.length >= 6) fail('隊伍已滿');
+      p.members.push(c.id); c.partyCode = code; break;
+    }
+    case 'partyLeave': if (!c.partyCode) fail('不在隊伍裡'); partyLeave(c); break;
     case 'marketConfig': c._stall = c._stall || { listings: [], proceeds: 0, history: [] }; c._stall.title = body.title || ''; c._stall.open = body.open !== false; break;
     case 'marketList': {
       const st = stallOf(c); if (!st) fail('還沒有攤位');
