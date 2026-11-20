@@ -278,6 +278,8 @@ function handle(a, body) {
       break;
     // 掛機設定組合 1／2／3（真實遊戲：character.settingsSlot，沒設定過＝1）
     case 'settingsPreset': { const n = Number(body.slot); if (![1, 2, 3].includes(n)) fail('設定組合只有 1、2、3'); c.settingsSlot = n; (c.presetLog || (c.presetLog = [])).push({ n, map: c.map, auto: c.auto }); break; }
+    // 死亡／原地復活（真實遊戲：死亡＝hp <= 0，{type:'revive'}；這裡復活後停止掛機，讓中控要再開始）
+    case 'revive': if (c.hp > 0) fail('角色沒有死亡'); c.hp = c.maxhp; c.revives = (c.revives || 0) + 1; addLog(c, '原地復活'); break;
     case 'marketConfig': c._stall = c._stall || { listings: [], proceeds: 0, history: [] }; c._stall.title = body.title || ''; c._stall.open = body.open !== false; break;
     case 'marketList': {
       const st = stallOf(c); if (!st) fail('還沒有攤位');
@@ -501,6 +503,12 @@ http.createServer((req, res) => {
     if (!c) return send(res, 404, { error: 'no char' });
     c.inventoryStacks = c.inventoryStacks.map(s => ({ ...s, uid: newUid('s') }));
     return send(res, 200, { ok: true });
+  }
+  // 測試控制：/__mock/die?acct=A1&char=c1 讓角色死亡（hp 0、停止掛機）
+  if (url.pathname === '/__mock/die') {
+    const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
+    if (!c) return send(res, 404, { error: 'no char' });
+    c.hp = 0; c.auto = false; addLog(c, '角色死亡'); return send(res, 200, { ok: true });
   }
   if (url.pathname === '/__mock/luck') { scrollQueue = (url.searchParams.get('seq') || '').split(',').filter(x => x !== '').map(Number); return send(res, 200, { ok: true, n: scrollQueue.length }); }
   if (url.pathname === '/api/game' && req.method === 'POST') {
