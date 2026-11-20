@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-20（v0.43.2）
+最後更新：2026-11-20（v0.43.3）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -146,3 +146,4 @@
   - 掛機設定組合（2026-11-20 讀 game.js）：遊戲有 3 套「掛機設定」（藥水、技能、自動復活、目標等），`{type:'settingsPreset', slot: 1|2|3}`，目前那套在 `character.settingsSlot`（沒設定過＝沒有這個欄位＝1）；遊戲說明「三套各自獨立，第一次切到沒用過的那一套是空白的」。settings.boss.presetBoss（0＝不切換）、presetTrain（0＝換回出發前那套）；runBossJob 到首領地圖先 settingsPreset 再 start，回練功圖同樣先切再 start。快照多 char.settingsSlot。mock 的 settingsPreset 記在 c.presetLog（e2e_boss 檢查順序）。
 - v0.43.1 開分頁按鈕（有人回報「第二隻的分頁關掉後，右下角開分頁的選項消失、開不回來」）：模擬環境三種情境（按鈕開→關、直接開新分頁自動換→關→A 重新整理、關掉第一個分頁）都重現不出來。推測是真實 Tampermonkey 關視窗時 pagehide 的 GM_setValue（at:0）沒寫進去，或舊的 ✕（7 天不顯示）。改成按鈕永不整個消失：`accountCharList()`（頁面 characters → 沒有就用 account.characterIds＋GM 記的 charNames:<code>）；有分頁的角色顯示灰色「X 已開」（data-szghas，title 寫幾秒後恢復；按了 confirm 後照開，重複的分頁會自動 passive）；✕ 改成 sessionStorage szgOpenMini 收成「＋ 分頁」。e2e_dual_tab 的斷言跟著改。若之後再回報，要問清楚：公開版還是私人版、哪個版本、按鈕是灰的還是完全沒有。
 - v0.43.2：打王一直輪流時中控更新會卡住（自動更新與 /api/update/apply 都要「沒有進行中的工作」）。`updateBlockers()` 不算 idle、boss 工作；遊戲分頁的 userscript 會等 isBusy()（agentBusy/agentRunning）結束才重新整理，所以打王中不會被打斷。
+- v0.43.3：打王的分頁在 runBossJob 迴圈裡（agentRunning）不會來 /api/agent 問工作 → 90 秒後中控以為分頁不見（tabs 沒有它），routeOf 把工作轉給同帳號另一個分頁，那邊一直回報「等待 某某 的遊戲分頁」蓋掉 lastMsg（實機 20:17 看到）。新增 GET /api/agent/beat（只 seenTab），agent 在 agentRunning 時每 20 秒打一次。e2e_boss 有檢查。
