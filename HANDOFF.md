@@ -187,3 +187,4 @@
   - 測試 `tests/e2e_mobile.py`（extra_http_headers X-Forwarded-For 模擬經 serve 轉送）。
   - 還沒做：推播（使用者說先不用）、手機上編輯隊伍成員、市場／公倉。
 - v0.52.1：使用者電腦是 REMOTE=1（start-remote.bat）、Tailscale 有機器名稱但沒設定 serve（https://機器名/m 連不到，http://100.x:8787/m 可以）。/api/m/info 多 serve（`tailscale serve status --json` 有沒有這個埠）；預設網址：有 serve 用 https 機器名，否則遠端模式用 http://100.x:埠。
+- v0.52.2：使用者「加到主畫面後顯示還沒配對」——iPhone 主畫面 App 的 localStorage 和 Safari 分開，舊版讀完 #t= 就清掉網址、manifest start_url 也是 /m。改成：網址一直保留 `/m#t=通行碼`；manifest 由 JS 動態加 `<link rel=manifest href=/m/manifest.webmanifest?t=通行碼>`，伺服器回 start_url `/m#t=…`（只接受 16～64 位 hex）；沒配對畫面可以貼上網址（#pairIn）。

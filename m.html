@@ -8,7 +8,6 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="上漲谷">
-<link rel="manifest" href="/m/manifest.webmanifest">
 <link rel="icon" href="/m/icon.svg">
 <link rel="apple-touch-icon" href="/m/icon.svg">
 <title>上漲谷中控</title>
@@ -117,9 +116,14 @@
 <script>
 'use strict';
 // ---------- 通行碼：第一次從 QR code 網址的 #t= 拿到，存在這台手機 ----------
-(() => { const m = /[#&]t=([0-9a-f]+)/.exec(location.hash); if (m) { try { localStorage.setItem('szgM_t', m[1]); } catch (_) {} history.replaceState(null, '', location.pathname); } })();
-window.addEventListener('hashchange', () => { if (/[#&]t=/.test(location.hash)) location.reload(); }); // 已經開著時又掃了新的 QR
-const TOKEN = (() => { try { return localStorage.getItem('szgM_t') || ''; } catch (_) { return ''; } })();
+(() => { const m = /[#&]t=([0-9a-f]+)/.exec(location.hash); if (m) { try { localStorage.setItem('szgM_t', m[1]); } catch (_) {} } })();
+window.addEventListener('hashchange', () => { const m = /[#&]t=([0-9a-f]+)/.exec(location.hash); if (m && m[1] !== TOKEN) location.reload(); }); // 已經開著時又掃了新的 QR
+const TOKEN = (() => { try { return localStorage.getItem('szgM_t') || ''; } catch (_) { return ''; } })() || ((/[#&]t=([0-9a-f]+)/.exec(location.hash) || [])[1] || '');
+// 「加到主畫面」會用目前網址（或 manifest 的啟動網址）開新的 App，那邊讀不到這裡存的通行碼：網址和 manifest 都保留通行碼
+(() => {
+  if (TOKEN && !location.hash.includes('t=' + TOKEN)) history.replaceState(null, '', location.pathname + '#t=' + TOKEN);
+  const l = document.createElement('link'); l.rel = 'manifest'; l.href = '/m/manifest.webmanifest' + (TOKEN ? '?t=' + TOKEN : ''); document.head.appendChild(l);
+})();
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const short = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e8 ? (n / 1e8).toFixed(a >= 1e9 ? 0 : 2) + '億' : a >= 1e4 ? (n / 1e4).toFixed(a >= 1e5 ? 0 : 1) + '萬' : String(Math.round(n)); };
@@ -155,7 +159,10 @@ async function load(quiet) {
   }
 }
 function showPair() {
-  document.querySelector('main').innerHTML = `<div class="pair"><h2>📱 還沒有配對</h2><p class="dim">在家裡電腦打開中控面板，按右上角的「📱 手機」→「新增這支手機」，用手機相機掃畫面上的 QR code。</p>${TOKEN ? '<p class="bad">這支手機的配對已經被撤銷或失效，請重新掃一次。</p>' : ''}</div>`;
+  document.querySelector('main').innerHTML = `<div class="pair"><h2>📱 還沒有配對</h2><p class="dim">在家裡電腦打開中控面板，按右上角的「📱 手機」→「新增這支手機」，用手機相機掃畫面上的 QR code。</p>${TOKEN ? '<p class="bad">這支手機的配對已經被撤銷或失效，請重新掃一次。</p>' : ''}
+    <p class="dim sm" style="margin-top:24px">已經加到主畫面卻看到這頁？把電腦上 QR code 下面那串網址貼到這裡：</p>
+    <div style="display:flex;gap:6px"><input type="text" id="pairIn" placeholder="https://…/m#t=…" style="flex:1"><button class="btn primary" id="pairGo">配對</button></div></div>`;
+  $('#pairGo').onclick = () => { const m = /t=([0-9a-f]{16,64})/.exec($('#pairIn').value) || /^([0-9a-f]{16,64})$/.exec($('#pairIn').value.trim()); if (!m) return toast('找不到配對碼，請貼完整的網址'); try { localStorage.setItem('szgM_t', m[1]); } catch (_) {} location.replace(location.pathname + '#t=' + m[1]); location.reload(); };
   $('#nav').style.display = 'none'; $('#st').textContent = '';
 }
 function render() {
@@ -379,7 +386,7 @@ document.addEventListener('click', async e => {
     if (d.bk) { const [a, id] = d.bk.split('|'), c = byId(id); return setCharMobs(id, a === 'all' ? ['*'] : a === 'none' ? [] : bossList().filter(b => (b.lv || 0) <= ((c && c.lv) || 0)).map(b => b.mob)); }
     if (d.pt) return applyParties([d.pt]);
     if (t.id === 'ptAll') return applyParties(null);
-    if (t.id === 'logout') { if (!confirm('登出這台手機？之後要重新掃 QR code 配對。（要完全撤銷請在電腦面板的「📱 手機」移除這台）')) return; try { localStorage.removeItem('szgM_t'); } catch (_) {} return location.reload(); }
+    if (t.id === 'logout') { if (!confirm('登出這台手機？之後要重新掃 QR code 配對。（要完全撤銷請在電腦面板的「📱 手機」移除這台）')) return; try { localStorage.removeItem('szgM_t'); } catch (_) {} location.replace(location.pathname); return; }
   } catch (err) { if (err instanceof AuthErr) return showPair(); toast('失敗：' + err.message); }
 });
 $('#q').oninput = e => { ui.q = e.target.value; renderChars(); };
