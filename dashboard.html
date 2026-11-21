@@ -5813,7 +5813,8 @@ async function renderMPop(newDev) {
   try { [info, devs] = await Promise.all([getJ('/api/m/info'), getJ('/api/m/devices')]); }
   catch (e) { box.innerHTML = `<div class="dim">手機配對只能在家裡電腦上的面板操作（${esc(e.message)}）</div>`; return; }
   const ts = (info.ips || []).find(ip => /^100\./.test(ip));
-  const guess = info.dns ? `https://${info.dns}` : ts && info.remote ? `http://${ts}:${info.port}` : '';
+  // 有設定 tailscale serve（HTTPS）用 https 機器名稱；否則遠端模式下用 Tailscale 位址的 http（也能用，只是加到主畫面時比較像捷徑）
+  const guess = info.dns && info.serve ? `https://${info.dns}` : ts && info.remote ? `http://${ts}:${info.port}` : info.dns ? `https://${info.dns}` : '';
   let base = ''; try { base = localStorage.getItem('mBase') || ''; } catch (_) {}
   base = base || guess;
   const url = newDev ? `${base.replace(/\/+$/, '')}/m#t=${newDev.token}` : '';
@@ -5824,7 +5825,8 @@ async function renderMPop(newDev) {
       <li>這台電腦用「命令提示字元（系統管理員）」執行一次 <code>tailscale serve --bg ${info.port}</code>（第一次會請你到 Tailscale 後台開啟 HTTPS）。之後網址就是 <code>https://電腦名稱.xxx.ts.net</code>。</li>
       <li>按下面「新增這支手機」，用手機相機掃 QR code，打開後「加到主畫面」。</li></ol>
     <label>手機要連的網址 <input id="mBase" value="${esc(base)}" placeholder="https://電腦名稱.xxx.ts.net" style="width:100%"></label>
-    ${!guess ? '<div class="warn sm">找不到 Tailscale 的機器名稱：請確認這台電腦的 Tailscale 已登入，或自己填網址。</div>' : info.dns && base !== guess ? `<div class="dim sm">偵測到的網址：${esc(guess)}</div>` : ''}
+    ${!guess ? '<div class="warn sm">找不到 Tailscale 的機器名稱：請確認這台電腦的 Tailscale 已登入，或自己填網址。</div>' : base !== guess ? `<div class="dim sm">偵測到的網址：${esc(guess)}</div>` : ''}
+    ${info.serve ? '<div class="good sm">✓ 已設定 HTTPS（tailscale serve）</div>' : info.remote && ts ? '<div class="dim sm">目前用遠端模式的 http 位址，手機裝好 Tailscale 就能連；想要像 App 一樣全螢幕、之後收推播，再做第 2 步改用 HTTPS 網址。</div>' : ''}
     <div class="bar" style="margin:0"><input id="mName" placeholder="裝置名稱，例如：我的 iPhone" style="flex:1"><button class="btn primary" id="mPair">新增這支手機</button></div>
     ${url ? `<div class="qr">${qrSvg}</div><div class="sm">用手機相機掃上面的 QR code。只顯示這一次，關掉就看不到了（可以再新增一次）。<br><span class="dim" style="word-break:break-all">${esc(url)}</span></div>` : ''}
     <div><b class="sm">已配對的裝置</b>${(devs.devices || []).map(d => `<div class="dev"><span style="flex:1">${esc(d.name)}</span><span class="dim sm">${d.seenAt ? '上次使用 ' + ago(Date.now() - d.seenAt) : '還沒用過'}</span><button class="btn sm" data-mrevoke="${d.id}">移除</button></div>`).join('') || '<div class="dim sm">還沒有</div>'}</div>`;

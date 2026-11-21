@@ -968,7 +968,12 @@ async function mobileApi(req, url) {
     // Tailscale 的機器名稱（tailscale serve 的 HTTPS 網址用）
     const info = { remote: REMOTE, port: PORT, dns: '', ips: Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address) };
     for (const exe of ['tailscale', 'C:\\Program Files\\Tailscale\\tailscale.exe', '/Applications/Tailscale.app/Contents/MacOS/Tailscale']) {
-      try { const out = require('child_process').execFileSync(exe, ['status', '--json'], { timeout: 4000, windowsHide: true }).toString(); const j = JSON.parse(out); info.dns = String((j.Self && j.Self.DNSName) || '').replace(/\.$/, ''); if (info.dns) break; } catch (_) {}
+      try {
+        const out = require('child_process').execFileSync(exe, ['status', '--json'], { timeout: 4000, windowsHide: true }).toString(); const j = JSON.parse(out); info.dns = String((j.Self && j.Self.DNSName) || '').replace(/\.$/, '');
+        // 有沒有用 tailscale serve 把 HTTPS 轉到這個埠
+        try { const sv = require('child_process').execFileSync(exe, ['serve', 'status', '--json'], { timeout: 4000, windowsHide: true }).toString(); info.serve = sv.includes(':' + PORT); } catch (_) { info.serve = false; }
+        if (info.dns) break;
+      } catch (_) {}
     }
     return [200, info];
   }

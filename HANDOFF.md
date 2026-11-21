@@ -186,3 +186,4 @@
   - 手機頁面：角色（需要處理、A/B/有狀況、搜尋、點卡片 → 底部面板：開始／暫停／重新開始／領取離線／換圖（依等級篩選的地圖清單）／切換為目前角色；「多選」→ 底部操作列）、工作（確認／取消／重試／刪除、全部確認、清除）、打王（模式、即時血條、每隻勾王 chips、全部／等級內／清除，存 /api/settings boss＝/api/boss cfg＋patch）、組隊（隊伍卡片、已就位／要套用、套用／全部套用）、更多（版本、開電腦版面板 /?token=裝置通行碼、登出、掛機紀錄）。每 10 秒更新（前景時）。
   - 測試 `tests/e2e_mobile.py`（extra_http_headers X-Forwarded-For 模擬經 serve 轉送）。
   - 還沒做：推播（使用者說先不用）、手機上編輯隊伍成員、市場／公倉。
+- v0.52.1：使用者電腦是 REMOTE=1（start-remote.bat）、Tailscale 有機器名稱但沒設定 serve（https://機器名/m 連不到，http://100.x:8787/m 可以）。/api/m/info 多 serve（`tailscale serve status --json` 有沒有這個埠）；預設網址：有 serve 用 https 機器名，否則遠端模式用 http://100.x:埠。
