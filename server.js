@@ -917,7 +917,6 @@ function readBody(req, limit = 5 * 1024 * 1024) {
   });
 }
 
-// <private:mobile>
 // ===== 手機版（/m）=====
 // 手機經 Tailscale（建議用 tailscale serve 的 HTTPS 網址）連回這台電腦。配對：電腦面板「手機」產生 QR code（網址 /m#t=裝置通行碼），
 // 手機掃了就記住；裝置清單在 db.mDevices，可以個別撤銷。手機用精簡的 /api/m/summary（每 10 秒），操作沿用原本的 API。
@@ -990,18 +989,15 @@ async function mobileApi(req, url) {
   }
   return null;
 }
-// </private:mobile>
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${HOST}`);
     if (req.method === 'OPTIONS') return send(res, 204, '');
-    // <private:mobile>
     // 手機版頁面本身沒有資料，不用通行碼（資料 API 才要）；通行碼放在網址 # 後面，只有手機自己讀得到
     if (req.method === 'GET' && (url.pathname === '/m' || url.pathname === '/m/')) return send(res, 200, fs.readFileSync(path.join(__dirname, 'm.html'), 'utf8'), 'text/html; charset=utf-8');
     // 加到主畫面後是另一個獨立的 App（iPhone 的儲存空間和 Safari 分開），所以啟動網址要帶著這支手機的通行碼（# 後面不會送到伺服器）
     if (req.method === 'GET' && url.pathname === '/m/manifest.webmanifest') return send(res, 200, { name: '上漲谷中控', short_name: '上漲谷', start_url: /^[0-9a-f]{16,64}$/.test(url.searchParams.get('t') || '') ? `/m#t=${url.searchParams.get('t')}` : '/m', scope: '/m', display: 'standalone', background_color: '#16181d', theme_color: '#16181d', icons: [{ src: '/m/icon.svg', sizes: 'any', type: 'image/svg+xml' }] }, 'application/manifest+json; charset=utf-8');
     if (req.method === 'GET' && url.pathname === '/m/icon.svg') return send(res, 200, M_ICON, 'image/svg+xml');
-    // </private:mobile>
     if (!isLocal(req) && !tokenOk(req, url)) return send(res, 401, { error: '需要通行碼' });
 
     if (req.method === 'GET' && url.pathname === '/agent.js') {
@@ -1039,9 +1035,7 @@ const server = http.createServer(async (req, res) => {
       db.dps[e.charId] = { ...e, receivedAt: Date.now() };
       return send(res, 200, { ok: true }); // 不特別存檔：下次其他資料存檔時一起寫入
     }
-    // <private:mobile>
     if (url.pathname.startsWith('/api/m/')) { const r = await mobileApi(req, url); if (r) return send(res, r[0], r[1]); }
-    // </private:mobile>
     if (req.method === 'GET' && url.pathname === '/api/data') {
       const tabsOut = {}; for (const [code, m] of Object.entries(tabs)) for (const [id, t] of Object.entries(m)) if (Date.now() - t.at < TAB_LIVE_MS) tabsOut[id] = { code, at: t.at, hidden: t.hidden, off: t.off };
       return send(res, 200, { now: Date.now(), tabs: tabsOut, chars: db.chars, dps: db.dps || {}, expLive: expLive(), avatars: Object.fromEntries(Object.entries(db.avatars || {}).map(([k, v]) => [k, v.at])), settings: db.settings, jobs: db.jobs.slice(-100), expTable: db.expTable || {}, idleLog: (db.idleLog || []).slice(-50), gearLog: (db.gearLog || []).slice(-80), scriptVersion: scriptVersion(), update: updateInfo, alerts: alertSummary(), auto: automationInfo() });

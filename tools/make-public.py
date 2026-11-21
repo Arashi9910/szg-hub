@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""把私人版（szg-hub）轉成公開版（szg-hub-public）：拿掉遠端模式／通行碼／Tailscale，更新來源改成公開 repo。
+"""把私人版（szg-hub）轉成公開版（szg-hub-public）：拿掉遠端模式（REMOTE=1、共用通行碼、遠端腳本），更新來源改成公開 repo。
+手機版（/m，經 tailscale serve、每支手機各自的通行碼）公開版也有。
 用法：python3 tools/make-public.py <私人版資料夾> <公開版資料夾>
 公開版的 README.md、.gitignore 不會被覆蓋（公開版自己維護）。任何一個替換對不上就中止，避免默默漏掉。"""
 import sys, os, shutil, json
 
 src, dst = sys.argv[1], sys.argv[2]
-FILES = ['server.js', 'market.js', 'extdb.js', 'update.js', 'agent.js', 'dashboard.html', 'szg-hub.user.js', 'version.json', 'quiz-bank.json', 'start.bat']
+FILES = ['server.js', 'market.js', 'extdb.js', 'update.js', 'agent.js', 'dashboard.html', 'm.html', 'szg-hub.user.js', 'version.json', 'quiz-bank.json', 'start.bat']
 
 def edit(text, pairs, name):
     for a, b in pairs:
@@ -37,24 +38,25 @@ for f in FILES:
     if s2 != s: open(p, 'w', encoding='utf-8').write(s2)
 
 p = os.path.join(dst, 'server.js'); s = open(p, encoding='utf-8').read()
-s = cut(s, "function isLocal(req) {", "let db = { chars:", 'server.js')
+# 遠端版腳本（REMOTE=1 給別台電腦的遊戲分頁用）只在私人版；isLocal／tokenOk 留著給手機版
+s = cut(s, "// 依連進來的位址，產生已填好連線位址與通行碼的遠端版腳本", "let db = { chars:", 'server.js')
 s = edit(s, [
     ("// REMOTE=1 時開放外部連線（例如 Tailscale）；外部連線一律要帶通行碼，本機連線不用。\nconst REMOTE = process.env.REMOTE === '1';\nconst HOST = REMOTE ? '0.0.0.0' : '127.0.0.1';", "// 只接受本機連線\nconst HOST = '127.0.0.1';"),
     ("const TOKEN_FILE = path.join(DATA_DIR, 'token.txt');\n", ""),
     ("let TOKEN = '';\ntry { TOKEN = fs.readFileSync(TOKEN_FILE, 'utf8').trim(); } catch (_) {}\nif (!TOKEN) {\n  TOKEN = crypto.randomBytes(12).toString('hex');\n  try { fs.writeFileSync(TOKEN_FILE, TOKEN); } catch (_) { console.warn('[警告] 通行碼無法存檔，重開伺服器後會換一組。'); }\n}\n", ""),
-    ("    if (!isLocal(req) && !tokenOk(req, url)) return send(res, 401, { error: '需要通行碼' });\n", ""),
+    # 公開版沒有共用通行碼：只認配對過的手機
+    ("  const a = Buffer.from(String(t)), b = Buffer.from(TOKEN);\n  if (a.length === b.length && crypto.timingSafeEqual(a, b)) return true;\n", "  const a = Buffer.from(String(t));\n"),
+    ("const info = { remote: REMOTE,", "const info = { remote: false,"),
     ("    if (req.method === 'GET' && url.pathname === '/remote.user.js') {\n      return send(res, 200, remoteUserscript(req.headers.host), 'text/javascript; charset=utf-8');\n    }\n", ""),
     ("      if (!isLocal(req)) return send(res, 403, { error: '只能在家裡電腦上更新' });\n", ""),
-    ("const os = require('os');\n", ""),
-    ("'Access-Control-Allow-Headers': 'Content-Type, X-Hub-Token',", "'Access-Control-Allow-Headers': 'Content-Type',"),
 ], 'server.js')
 s = cut(s, "  if (REMOTE) {", "  console.log('');\n  console.log('保持這個視窗開著", 'server.js')
-for bad in ['REMOTE', 'TOKEN', 'isLocal', 'tokenOk', 'Tailscale', 'remote.user.js']:
+for bad in ['REMOTE', 'TOKEN', 'remote.user.js', 'remoteUserscript']:
     if bad in s: sys.exit(f'[中止] server.js 還留有 {bad}')
 open(p, 'w', encoding='utf-8').write(s)
 
 p = os.path.join(dst, 'dashboard.html'); s = open(p, encoding='utf-8').read()
-s = edit(s, [("// 遠端開啟面板時（網址帶 ?token=），所有 API 請求都附上通行碼\nconst HUB_TOKEN = new URLSearchParams(location.search).get('token') || '';\nconst _fetch = window.fetch.bind(window);\nwindow.fetch = (u, o = {}) => HUB_TOKEN ? _fetch(u, { ...o, headers: { ...(o.headers || {}), 'X-Hub-Token': HUB_TOKEN } }) : _fetch(u, o);\n", "")], 'dashboard.html')
+# 面板的 ?token=（手機「開電腦版面板」用）公開版也保留
 open(p, 'w', encoding='utf-8').write(s)
 
 p = os.path.join(dst, 'szg-hub.user.js'); s = open(p, encoding='utf-8').read()
@@ -71,7 +73,7 @@ s = edit(s, [("const OWNER_REPO = 'Arashi9910/szg-hub';", "const OWNER_REPO = 'A
 open(p, 'w', encoding='utf-8').write(s)
 
 v = json.load(open(os.path.join(dst, 'version.json'), encoding='utf-8'))
-v['files'] = [f for f in v['files'] if f not in ('start-remote.bat', 'm.html')]  # 手機版只有私人版
+v['files'] = [f for f in v['files'] if f != 'start-remote.bat']
 # 私人版的更新說明可能提到私人功能：有 notesPublic 就用它當公開版的說明
 if 'notesPublic' in v: v['notes'] = v.pop('notesPublic')
 

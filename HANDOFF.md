@@ -30,7 +30,7 @@
 - `dashboard.html` 面板（單一檔案）
 - `market.js` 市場行情／自動上架；`extdb.js` 外部「冒險資料庫」（題庫、圖示、道具說明，執行時下載）
 - `update.js` 自動更新；`quiz-bank.json` 內建題庫
-- `m.html` 手機版（只有私人版；make-public 從 version.json files 拿掉，程式碼用 `<private:mobile>` 包起來）
+- `m.html` 手機版（v0.53 起公開版也有）
 
 ## 遊戲 API 重點（/api/game）
 - 需要 `X-Game-Version` 標頭（頁面 fetch 會加）；非 sync 動作要 requestId；「存檔忙碌」要重試（agent 的 `gameRetry`）
@@ -188,3 +188,4 @@
   - 還沒做：推播（使用者說先不用）、手機上編輯隊伍成員、市場／公倉。
 - v0.52.1：使用者電腦是 REMOTE=1（start-remote.bat）、Tailscale 有機器名稱但沒設定 serve（https://機器名/m 連不到，http://100.x:8787/m 可以）。/api/m/info 多 serve（`tailscale serve status --json` 有沒有這個埠）；預設網址：有 serve 用 https 機器名，否則遠端模式用 http://100.x:埠。
 - v0.52.2：使用者「加到主畫面後顯示還沒配對」——iPhone 主畫面 App 的 localStorage 和 Safari 分開，舊版讀完 #t= 就清掉網址、manifest start_url 也是 /m。改成：網址一直保留 `/m#t=通行碼`；manifest 由 JS 動態加 `<link rel=manifest href=/m/manifest.webmanifest?t=通行碼>`，伺服器回 start_url `/m#t=…`（只接受 16～64 位 hex）；沒配對畫面可以貼上網址（#pairIn）。
+- v0.53.0 手機版上公開版（使用者：「可以連線，把教學跟版本放到公開版」）：拿掉 `<private:mobile>` 標記；make-public 改成只 cut 遠端版腳本（remoteUserscript）那段，保留 isLocal／tokenOk（公開版 tokenOk 只認配對過的手機，沒有共用 TOKEN）、gate、os、X-Hub-Token CORS 標頭、面板 ?token=；/api/m/info 的 remote 固定 false；禁用字只檢查 REMOTE、TOKEN、remote.user.js、remoteUserscript。公開版必須用 tailscale serve（伺服器只聽 127.0.0.1）；面板沒偵測到 serve 會提醒做第 2 步。兩邊 README 加「手機版」教學（Tailscale 官方文件核對：serve 需要 MagicDNS＋HTTPS Certificates，`--bg` 重開機後仍有效，`tailscale serve reset` 關掉）。用 SZG_REPO=公開版資料夾 跑過 e2e_mobile、e2e_smoke。
