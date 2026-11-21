@@ -71,7 +71,7 @@ s = edit(s, [("const OWNER_REPO = 'Arashi9910/szg-hub';", "const OWNER_REPO = 'A
 open(p, 'w', encoding='utf-8').write(s)
 
 v = json.load(open(os.path.join(dst, 'version.json'), encoding='utf-8'))
-v['files'] = [f for f in v['files'] if f != 'start-remote.bat']
+v['files'] = [f for f in v['files'] if f not in ('start-remote.bat', 'm.html')]  # 手機版只有私人版
 # 私人版的更新說明可能提到私人功能：有 notesPublic 就用它當公開版的說明
 if 'notesPublic' in v: v['notes'] = v.pop('notesPublic')
 

@@ -16,7 +16,7 @@
   - **注意 8787 port**：測試中控和使用者的中控同 port，但使用者的中控在他自己電腦上（透過 Chrome 的 127.0.0.1:8787），不會衝突；在雲端工作區跑測試只會用到 /tmp/hub。
   - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab 偶爾不穩，重跑一次就過。
   - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
-  - 測試清單（38 支）：smoke、boss_cards、dex、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
+  - 測試清單（39 支）：smoke、mobile、boss_cards、dex、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
 - **實機驗證**：使用者的 Chrome（Claude in Chrome）開 http://127.0.0.1:8787/ 用 javascript 呼叫 API 看資料；做完要關掉自己開的分頁。不要直接開 play.szg08.com（會導到 /game/、中控腳本會在那個分頁跑），讀遊戲程式碼從 https://play.szg08.com/robots.txt 分頁 `fetch('/game/game.js')`，輸出只取識別字或計數（整段原始碼會被輸出過濾擋掉）。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定；**公會倉庫相關功能只做私人版**（公開版其他人做法可能不同），之後用程式標記讓 make-public 移除。
 
@@ -30,6 +30,7 @@
 - `dashboard.html` 面板（單一檔案）
 - `market.js` 市場行情／自動上架；`extdb.js` 外部「冒險資料庫」（題庫、圖示、道具說明，執行時下載）
 - `update.js` 自動更新；`quiz-bank.json` 內建題庫
+- `m.html` 手機版（只有私人版；make-public 從 version.json files 拿掉，程式碼用 `<private:mobile>` 包起來）
 
 ## 遊戲 API 重點（/api/game）
 - 需要 `X-Game-Version` 標頭（頁面 fetch 會加）；非 sync 動作要 requestId；「存檔忙碌」要重試（agent 的 `gameRetry`）
@@ -177,3 +178,11 @@
   - 設定 settings.boss.charMobs = {角色: ['*']（全部）| [mob…]}；沒有 charMobs 時從舊的 chars＋mobs 換算（server `bossCharMobs`、dashboard 同名函式同規則）。chars 由 charMobs 推出（agent /api/boss/need 還在用），dashboard saveBoss 會把 mobs 設 null、刪 charSpec。CP.boss 角色選擇器拿掉。
   - server：bossRows(charId, dps, allow)，`bossAllow(unit, c)`＝隊員勾的聯集；bossTick、bossSummary 都用隊伍的聯集；/api/boss chars[].mobs。
   - 面板：地圖頁打王卡片裡 #bossWhoBox（預設展開）→ #bossCards `.bk` 每隻角色一張（全身照、等級、隊伍、沒分頁／沒掛機的 !），王 chip `.bk-mob`（data-bkmob="角色|mob"；'*' 顯示「全部的王」，點了變成逐一挑選、先全勾），虛線＝隊友勾的、淡色＝王比角色高 10 級以上；動作 全部／等級內（王等級 ≤ 角色）／複製給…（套用到其他有勾的角色，confirm）／清除。搜尋、只看有勾的。測試 `tests/e2e_boss_cards.py`。
+- v0.52.0 手機版（私人版，使用者：先做私人版、手機要能操作、推播先不用）：
+  - 連線：建議使用者在電腦執行一次 `tailscale serve --bg 8787`（HTTPS，網址 https://機器名.xxx.ts.net，伺服器不用 REMOTE=1）。經 serve 轉送的請求來源是 127.0.0.1，所以 `isLocal()` 看到 x-forwarded-for／x-forwarded-proto／tailscale-user-login 就當遠端（要通行碼、不能更新）。
+  - 配對：db.mDevices = [{id, name, token, at, seenAt}]，`tokenOk` 也接受裝置通行碼（timingSafeEqual），seenAt 每分鐘更新一次。/api/m/pair、/api/m/revoke、/api/m/devices、/api/m/info（`tailscale status --json` 拿 Self.DNSName）只限本機。面板右上「📱 手機」#mBox：網址（localStorage mBase，預設 https://DNSName）、新增 → QR（內嵌 qrcode-generator 2.0.4 MIT，`<script>` 在 private 區塊）網址 `/m#t=裝置通行碼`、裝置清單＋移除。
+  - /m、/m/manifest.webmanifest、/m/icon.svg 不用通行碼（頁面沒有資料）。m.html 從 #t= 讀通行碼存 localStorage szgM_t 後清掉網址；API 用 X-Hub-Token，全身照 <img> 用 ?token=。401 → 顯示「請掃 QR 配對」。
+  - 資料：GET /api/m/summary（`mobileSummary`：精簡角色＋未同步的帳號角色、近 3 小時工作、boss {mode, live}、parties（帶 `boardSellOf` 自動販售範本）、idleLog、update）；GET /api/m/maps（[id, 名稱, 最低等級, 區域]＋bosses 清單，給換圖與打王 fallback）。
+  - 手機頁面：角色（需要處理、A/B/有狀況、搜尋、點卡片 → 底部面板：開始／暫停／重新開始／領取離線／換圖（依等級篩選的地圖清單）／切換為目前角色；「多選」→ 底部操作列）、工作（確認／取消／重試／刪除、全部確認、清除）、打王（模式、即時血條、每隻勾王 chips、全部／等級內／清除，存 /api/settings boss＝/api/boss cfg＋patch）、組隊（隊伍卡片、已就位／要套用、套用／全部套用）、更多（版本、開電腦版面板 /?token=裝置通行碼、登出、掛機紀錄）。每 10 秒更新（前景時）。
+  - 測試 `tests/e2e_mobile.py`（extra_http_headers X-Forwarded-For 模擬經 serve 轉送）。
+  - 還沒做：推播（使用者說先不用）、手機上編輯隊伍成員、市場／公倉。
