@@ -97,6 +97,29 @@ async def main():
         blog = [l['msg'] for l in hub_json('GET', '/api/boss')['log']]
         check(any('連續打：隊伍' in m and '一起' in m for m in blog), '紀錄：連續打：隊伍 … 一起接著去')
         check(mock_char('A2', 'c3')['map'] == homes['c3'] and mock_char('A3', 'c4')['map'] == homes['c4'], '兩隻都回到各自的練功圖')
+        hub_json('POST', '/api/jobs/clear', {})
+
+        print('4. 依王決定：紅寶王分開打、蘑菇王一起打（先分開、再一起）')
+        reset_bosses()
+        hub_json('POST', '/api/settings', {'boss': {'mode': 'auto', 'partyMode': 'mixed', 'togetherMobs': ['mBoss2'], 'chain': True, 'charMobs': {'c3': ['*'], 'c4': ['*']}, **BASE}})
+        await asyncio.sleep(3)
+        hub_json('POST', '/api/boss/run-now')
+        js = boss_jobs()
+        check(len(js) == 1 and js[0]['batches'][0]['boss']['mob'] == 'mBoss1' and not js[0]['batches'][0]['boss'].get('unit'), f'先只有一隻自己去打紅寶王（{[(j["fromName"], j["batches"][0]["boss"]["mob"]) for j in js]}）')
+        hub_json('POST', '/api/boss/run-now')
+        check(len(boss_jobs()) == 1, '有隊友在打的時候，不會整隊出發去打一起打的王')
+        await wait(done_all, 200, 2)
+        j0 = boss_jobs()[0]
+        check(j0['status'] == 'done' and not any('接著去' in l['msg'] for l in j0['log']), '分開打的那隻打完就回去（不會接著去打「一起打」的王）' + ('' if not any('接著去' in l['msg'] for l in j0['log']) else '：' + ' / '.join(l['msg'] for l in j0['log'])[-300:]))
+        hub_json('POST', '/api/jobs/clear', {})
+        for _ in range(10):
+            hub_json('POST', '/api/boss/run-now')
+            js = boss_jobs()
+            if js: break
+            await asyncio.sleep(3)
+        check(len(js) == 2 and {j['batches'][0]['boss']['mob'] for j in js} == {'mBoss2'} and all(j['batches'][0]['boss'].get('unit') for j in js), f'分開打的打完了 → 整隊一起去打蘑菇王（{[(j["fromName"], j["batches"][0]["boss"]["mob"]) for j in js]}）')
+        await wait(done_all, 240, 2)
+        check(all(j['status'] == 'done' for j in boss_jobs()), '一起打完成')
     if not ok: print('\n'.join(env.logs[-30:]))
     print('全部通過' if ok else '有失敗'); sys.exit(0 if ok else 1)
 
