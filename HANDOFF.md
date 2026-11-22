@@ -199,3 +199,4 @@
   - 連續打：agent runBossJob 改寫成 fightOne() 迴圈（最多 30 隻）：每打完一隻 fullSync＋postBossState、POST /api/boss/result，再 POST /api/boss/next {jobId, charId, prev(instanceId), mob}；server `bossNext()` 用和 bossTick 一樣的挑法（parts＝這一組正在打王的成員；別組正在打的 instance 不去；剛打完的那隻不去；30 分鐘內沒打成功的不去），決定存在 bossNextDec[隊伍或角色|prev]（3 分鐘），同隊的人拿到同一隻，並更新 job.batches[0].boss。沒有下一隻 → 回原本的地圖（第一隻就在冷卻、沒出發的不動），最後用 /api/boss/result {logOnly:true} 記「沒有下一隻了，回練功圖…（這一輪連續打了 N 隻）」。倒下、被換圖、出錯就不再連續。KIND_MIN_AGENT.boss → 0.55.0。
   - 面板：#bossPartyMode、#bossChain（設定抽屜）；手機打王分頁 #bPartyMode、#bChain。
   - 測試 `tests/e2e_boss_chain.py`（分開打不同隻、單隻連續打 2 隻後回家、隊伍一起連續打同一隻；測試裡直接 POST /api/boss/state 讓中控知道王已重生，不用等 4 分鐘回報）。
+- v0.55.1：world 加了 icons 欄位但版本字串（內容雜湊）沒變 → 分頁不會重新上傳；版本前綴改 w7。之後 world 多加欄位都要改前綴。
