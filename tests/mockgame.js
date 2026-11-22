@@ -114,6 +114,10 @@ addAccount('A1', 'A1B2C3D4E5F6', [
 ]);
 addAccount('A2', 'B2C3D4E5F6A1', [makeChar('c3', '弓箭分身', 'hunter', 32, 'gms104040000', { auto: true, until: Date.now() + 8 * 3600e3, gear: { weapon: makeGear('e1452002') } })]);
 addAccount('A3', 'C3D4E5F6A1B2', [makeChar('c4', '倉庫分身', 'swordman', 20, 'gms100010000', { auto: true, until: Date.now() + 8 * 3600e3 })]);
+if (process.env.MOCK_MORE_ACCTS) { // 4 人隊測試用：多兩個帳號
+  addAccount('A4', 'D4E5F6A1B2C3', [makeChar('c5', '第四隻', 'swordman', 30, 'gms100010000', { auto: true, until: Date.now() + 8 * 3600e3 })]);
+  addAccount('A5', 'E5F6A1B2C3D4', [makeChar('c6', '第五隻', 'swordman', 30, 'gms100010000', { auto: true, until: Date.now() + 8 * 3600e3 })]);
+}
 setTimeout(() => initParty(), 0); // 隊伍在帳號建好後才建
 // 每隻角色背包放幾件裝備、幾疊道具
 for (const a of Object.values(accounts)) for (const c of Object.values(a.chars)) {
@@ -186,7 +190,10 @@ function partyLeave(c) {
 function charById(id) { for (const a of Object.values(accounts)) if (a.chars[id]) return a.chars[id]; return null; }
 function partyOf(c) {
   const p = parties[c.partyCode]; if (!p) return null;
-  return { code: c.partyCode, leader: p.leader, notice: '', messages: [], members: p.members.map(charById).filter(Boolean).map(m => ({ id: m.id, name: m.name, lv: m.lv, job: m.job, map: m.map, auto: m.auto, hp: m.hp, maxhp: m.maxhp, leader: m.id === p.leader, self: m.id === c.id })) };
+  // 真實遊戲的隊伍會帶聊天紀錄（最多 40 則）和每個隊員一堆欄位；MOCK_PARTY_MSGS=40 模擬這個大小
+  const nMsg = Number(process.env.MOCK_PARTY_MSGS) || 0;
+  const messages = Array.from({ length: nMsg }, (_, i) => ({ id: 'm' + i, at: Date.now() - i * 60000, from: 'c3', name: '弓箭分身', text: '測試訊息'.repeat(8) + i, kind: 'chat', mapInstanceId: 'inst-' + i }));
+  return { code: c.partyCode, leader: p.leader, notice: nMsg ? '公告'.repeat(30) : '', messages, members: p.members.map(charById).filter(Boolean).map(m => ({ id: m.id, name: m.name, lv: m.lv, job: m.job, map: m.map, auto: m.auto, hp: m.hp, maxhp: m.maxhp, leader: m.id === p.leader, self: m.id === c.id, ...(nMsg ? { mapInstanceId: 'inst-' + m.map, buffs: 'b'.repeat(500), equipSummary: 'e'.repeat(200) } : {}) })) };
 }
 // 一開始的隊伍（帳號建好之後）
 function initParty() {
