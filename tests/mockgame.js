@@ -483,6 +483,13 @@ function acctOf(req) {
 const send = (res, code, obj, type = 'application/json; charset=utf-8') => { res.writeHead(code, { 'Content-Type': type }); res.end(typeof obj === 'string' ? obj : JSON.stringify(obj)); };
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
+  // MOCK_REQUIRE_LOGIN=1：沒有 acct cookie（也沒有 harness 的 x-acct 標頭）＝還沒登入（給背景執行 e2e_bg 測登入流程）
+  // /__mock/login?acct=A1 模擬「Google 登入完成」：設好 cookie 再導回 /game/
+  if (url.pathname === '/__mock/login') { res.writeHead(302, { 'Set-Cookie': `acct=${encodeURIComponent(url.searchParams.get('acct') || 'A1')}; Path=/; Max-Age=2592000`, Location: '/game/' }); return res.end(); }
+  if (process.env.MOCK_REQUIRE_LOGIN && !/(?:^|;\s*)acct=/.test(req.headers.cookie || '') && !req.headers['x-acct'] && !url.pathname.startsWith('/__mock/')) {
+    if (url.pathname.startsWith('/game')) return send(res, 200, '<!doctype html><title>請登入</title><body>請先登入</body>', 'text/html; charset=utf-8');
+    return send(res, 401, { error: '請先登入' });
+  }
   const a = acctOf(req);
   if (!a) return send(res, 404, { error: '沒有這個帳號' });
   if (url.pathname.startsWith('/game')) return send(res, 200, PAGE, 'text/html; charset=utf-8');

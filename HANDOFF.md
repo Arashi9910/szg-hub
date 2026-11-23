@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-23（v0.56.0）
+最後更新：2026-11-23（v0.57.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -18,7 +18,7 @@
   - 教學截圖：`SZG_REPO=/tmp/pubtest python3 tests/guide_shots.py /tmp/shots`，再複製到公開 repo `docs/images/guide/`。
   - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab 偶爾不穩，重跑一次就過。
   - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
-  - 測試清單（41 支）：smoke、boss_chain、boss_party4、mobile、boss_cards、dex、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
+  - 測試清單（42 支）：bg（約 4 分鐘）、smoke、boss_chain、boss_party4、mobile、boss_cards、dex、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
 - **實機驗證**：使用者的 Chrome（Claude in Chrome）開 http://127.0.0.1:8787/ 用 javascript 呼叫 API 看資料；做完要關掉自己開的分頁。不要直接開 play.szg08.com（會導到 /game/、中控腳本會在那個分頁跑），讀遊戲程式碼從 https://play.szg08.com/robots.txt 分頁 `fetch('/game/game.js')`，輸出只取識別字或計數（整段原始碼會被輸出過濾擋掉）。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定（手機版 v0.53 起公開版也有，只能走 tailscale serve；遠端版腳本／REMOTE=1／共用通行碼仍只在私人版）。公會倉庫 v0.32 起公開版也有。
 - 公開 repo 自己維護的檔案（make-public 不會覆蓋）：README.md、.gitignore、`docs/mobile.md`（手機版教學）、`docs/guide.md`＋`docs/images/guide/`（圖文安裝與使用教學）。功能有變動時記得順便更新這些文件。
@@ -61,6 +61,7 @@
 
 ## 待辦（2026-11-23 更新）
 - 2026-11-23 新增：
+  - **背景執行 v0.57.0 只在模擬環境測過**：要請使用者實機試一個帳號——Google 登入視窗能不能正常登入、關掉後背景是否保持登入（遊戲 cookie 是不是工作階段 cookie，已預先開「繼續上次的工作階段」）、無頭模式下遊戲畫面／全身照／離線掛機是否正常、記憶體用量、同一個 Google 帳號同時在平常的 Chrome 和背景 Chrome 登入會不會被踢。
   - 公倉自動更新：使用者問「在遊戲裡存東西，中控沒更新」。已回答（只有中控自己的公倉動作或按「重新整理」才會更新），並提議讓 agent 旁聽遊戲頁面自己的 guildWarehouseView／Batch 回應自動上傳（像 DPS／掉落那樣），使用者還沒回覆要不要做。
   - 使用者說「目標或販賣單獨拉出來」——問了是指什麼，他說先跳過。
   - 打王 v0.55～0.56 的連續打、隊伍分開打、依王決定，只在模擬環境測過；使用者的打王目前是關閉、partyMode=split，還沒實機跑過。實機第一次建議先試跑。
@@ -211,3 +212,13 @@
 - v0.55.1：world 加了 icons 欄位但版本字串（內容雜湊）沒變 → 分頁不會重新上傳；版本前綴改 w7。之後 world 多加欄位都要改前綴。
 - v0.56.0（使用者：「應該會有人要前面幾隻分開打、後面的王一起打」）：partyMode 多 'mixed'，settings.boss.togetherMobs＝一起打的王。bossTick 拆成 `bossPick(ids, c, now, busyInst, mobOk, dpsIds, stateIds)`＋`bossDispatch()`；mixed 且有隊伍時：隊員（有勾的、空閒的）各自挑「不在 togetherMobs」的王出發；這一輪有人出發或隊伍裡還有人在打王就跳過，否則整隊挑 togetherMobs 的王一起去。bossNext 在 mixed 時依工作的 boss.unit 決定：有隊伍代碼＝只接一起打的王、沒有＝只接分開打的王。修正兩個問題：① 自己打時王的狀態要用整個隊伍最新的一份（隊伍的王共用，隊友剛打死的才看得到冷卻）；② bossNextDec 的 key 改成（隊伍代碼＋工作 createdAt｜自己打用工作 id）＋prev，以前會拿到上一輪留下的決定。面板 #bossTogBox（勾選＋「Lv X 以上一起打」）、手機 #bTog。e2e_boss_chain 第 4 段測 mixed。
 - 2026-11-23 圖文教學：公開版 repo `docs/guide.md`（安裝 Node.js → 下載 ZIP → start.bat → Chrome 設定檔 → Tampermonkey＋允許使用者指令碼（Chrome 138+，FAQ Q209）→ 安裝腳本 → 更新間隔「總是」→ 開遊戲確認「中控：已連線」→ 面板與各分頁教學 → 自動更新 → 常見問題 → 給 AI 助手的說明），截圖在 `docs/images/guide/`，用 `tests/guide_shots.py`（模擬環境、MOCK_APPEARANCE、MOCK_MORE_ACCTS、MOCK_PARTY；`SZG_REPO=公開版建置資料夾` 跑）重新產生；遊戲連線那張是裁切右下角提示。兩邊 README 都連到教學。Chrome／Tampermonkey 自己的畫面沒有截圖（無法在測試環境安裝擴充功能），用文字＋官方 FAQ 連結。
+- v0.57.0 背景執行（使用者：不開 Chrome 也能跑，中控開著、能下指令就好；選了架構 A＝無頭 Chrome 的 MVP；遊戲用 Google 登入、電腦開著）：
+  - `bg.js`（server.js `makeBg()`，零套件：Node 22 內建 WebSocket 走 Chrome DevTools Protocol）：每個背景帳號 settings.bg.profiles[] = {id, name, on, pages:[角色id|''], code, charIds}，Chrome 資料夾 `data/bg/<id>`（Default/Preferences 預先寫 restore_on_startup=1，避免遊戲登入 cookie 是工作階段 cookie 時關視窗就掉）。背景：`--headless=new --remote-debugging-port=0`，讀 DevToolsActivePort；每頁 Target.createTarget＋attach(flatten)→ Runtime.addBinding `__szgGmx`（GM_xmlhttpRequest 由 node 代送，只准連中控 origin）＋Emulation.setFocusEmulationEnabled＋Page.addScriptToEvaluateOnNewDocument（shim＋agentSource()＋userscriptSource() 本體，HUB 換成 http://127.0.0.1:PORT；`window.__szgBg={profile,key,standby}`，已注入就 return 防重複）→ navigate `/game/?szgChar=`。GM 值存 localStorage `__gm:`（同設定檔分頁共用，和 harness 一樣）。
+  - 登入：同資料夾開**一般的 Chrome 視窗**（不接 DevTools，Google 登入不會被當成自動化）；使用者關視窗→exit 事件→on 的話自動 start。「登入完成」：有 DevTools 就 Browser.close，Windows 用 taskkill（不加 /F，正常關閉），其他 SIGTERM。**強制結束會遺失 cookie**（實測 SIGTERM 的無頭 Chromium 沒存 cookie、Browser.close 有）。測試用 SZG_BG_LOGIN_HEADLESS=1（無頭＋DevTools）、SZG_BG_LOGIN_PATH、SZG_BG_GAME（指到 mock）、SZG_CHROME、SZG_BG_TICK_MS。
+  - 監看（每 15 秒 tick）：Chrome 斷線就重開（10 分鐘失敗 3 次停止自動重開）；分頁補開／關多的；probe 每頁（網址、mapleCharacter、__szgBg、徽章文字），每 60 秒 fetch /api/account（401/403 或 30 秒後還不在 /game → needLogin；學到 code、charIds 寫回設定）；分頁當掉或 3 次沒回應就重開；分頁 JS 錯誤記 r.logs（面板「分頁錯誤紀錄」）。
+  - 中控重啟：DevToolsActivePort 還連得上就**接回**（不重開 Chrome、不重新整理：重新 attach、addBinding、addScript；`__szgBg.key` 對回分頁）。自動更新 exit 3 不關背景 Chrome；SIGINT/SIGTERM/SIGHUP/SIGBREAK（server.js 新增）先存檔、bg.shutdown() 關掉背景 Chrome 再結束。
+  - 讓位：agent `BG`／`bgStandby`（passive() 也看它）、輪詢帶 `&bg=1`；背景頁每 15 秒 GET /api/bg/standby。server `realTabFor(code, charId, page)`＝這隻有新鮮的非背景分頁；/api/agent、/api/agent/beat 遇到就回 standby 且不 seenTab；tabs 多 bg 旗標（/api/data.tabs[].bg，總覽顯示「（背景執行）」）。
+  - API（只限本機）：GET /api/bg；POST /api/bg/{config,add,rename,remove,start,stop,login,login-done,reload,pages}。移除不刪資料夾（確認框會寫路徑）。
+  - 面板：header「🖥 背景」(#bgBox/#bgSum/#bgPop，開著時每 3 秒更新、平常 20 秒更新摘要「執行中/啟用數」)，每個帳號卡片：狀態燈、登入／登入完成、開始／停止、重新整理分頁、改名、移除，角色清單 `label.bg-ch`（點整列勾選，超過 2 隻 confirm），分頁狀態（執行中／暫停：你的 Chrome 開著／載入中）。
+  - mock：MOCK_REQUIRE_LOGIN=1（沒 acct cookie 也沒 x-acct ＝ 401／「請先登入」頁）、`/__mock/login?acct=` 設 cookie 導回 /game/。測試 `tests/e2e_bg.py`（登入→背景→指令→第二隻→面板點整列→讓位與接手→中控重啟接回→停止）。
+  - 公開版也有（bg.js 加進 make-public FILES 與 version.json files）。
