@@ -1,5 +1,7 @@
 # 上漲谷中控
 
+📖 公開版的圖文安裝與使用教學（私人版大部分一樣適用）：https://github.com/Arashi9910/szg-hub-public/blob/main/docs/guide.md
+
 把所有 Chrome 設定檔裡的遊戲角色資料集中到一個面板：**總覽、裝備（可自訂篩選）、資源總表、交易助手**。
 不會碰帳號密碼；資料只存在你自己的電腦（`data/state.json`），不會上傳到 GitHub。
 
