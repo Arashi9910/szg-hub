@@ -62,6 +62,27 @@ async def main():
         kinds = [_re.sub(r'\d+', '', x).strip() for x in (await d.inner_text('#bKinds')).split('\n') if x.strip()]
         ORDER = ['全部', '裝備', '卷軸', '消耗', '其他', '裝飾', '點數']
         check(kinds == sorted(kinds, key=ORDER.index), f'背包類別順序跟公倉一致：{kinds}')
+        # 條列：Shift 多選、表頭全選、顯示更多
+        rows = d.locator('#bagOut tr[data-bpick]'); n = await rows.count()
+        check(n >= 4, f'條列有足夠的列可以測（{n}）')
+        await rows.nth(0).locator('td').nth(2).click()
+        await rows.nth(3).locator('td').nth(2).click(modifiers=['Shift']); await d.wait_for_timeout(300)
+        rows = d.locator('#bagOut tr[data-bpick]')
+        picked = [await rows.nth(i).get_attribute('class') for i in range(n)]
+        check(all('picked' in (picked[i] or '') for i in range(4)) and all('picked' not in (picked[i] or '') for i in range(4, n)), f'Shift＋點選一次選第 1～4 列（{sum("picked" in (c or "") for c in picked)} 列）')
+        await rows.nth(2).locator('td').nth(2).click(); await d.wait_for_timeout(200)
+        await rows.nth(0).locator('td').nth(2).click(modifiers=['Shift']); await d.wait_for_timeout(300)
+        rows = d.locator('#bagOut tr[data-bpick]')
+        picked = [await rows.nth(i).get_attribute('class') for i in range(n)]
+        check(all('picked' not in (picked[i] or '') for i in range(3)) and 'picked' in (picked[3] or ''), 'Shift＋點選也能一次取消一段')
+        await d.check('#bListAll'); await d.wait_for_timeout(300)
+        check(await d.locator('#bagOut tr.picked[data-bpick]').count() == n, '表頭勾選框全選畫面上的列')
+        await d.uncheck('#bListAll'); await d.wait_for_timeout(300)
+        check(await d.locator('#bagOut tr.picked[data-bpick]').count() == 0, '表頭勾選框取消全部')
+        await d.evaluate('ui.bag.listLimit = 2; renderBagList()')
+        check(await d.locator('#bagOut tr[data-bpick]').count() == 2 and await d.locator('[data-blmore="all"]').count() == 1, '超過顯示上限時有「再顯示／全部顯示」')
+        await d.click('[data-blmore="all"]'); await d.wait_for_timeout(300)
+        check(await d.locator('#bagOut tr[data-bpick]').count() == n, '按「全部顯示」列出全部')
         check(not errs, '面板沒有 JS 錯誤' + ('：' + errs[0] if errs else ''))
     print('全部通過' if ok else '有失敗')
     sys.exit(0 if ok else 1)
