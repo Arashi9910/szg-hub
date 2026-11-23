@@ -78,8 +78,8 @@ async def main():
         check(d is not None, '背景分頁的角色回報到中控，分頁標記為背景（tabs.bg）')
         p = await until(lambda: (lambda x: x if x['pages'] == ['c1', 'c2'] and sorted(l['key'] for l in x['live']) == ['c1', 'c2'] else None)(prof(pid)), 40)
         check(p is not None, f"登入後「帳號目前的角色」自動改成帳號的兩隻角色（pages={prof(pid)['pages']}，分頁 {[l['key'] for l in prof(pid)['live']]}）")
-        live = prof(pid)['live']
-        check(len(live) == 2 and all(l['injected'] for l in live), '背景分頁有注入中控腳本')
+        live = await until(lambda: (lambda l: l if len(l) == 2 and all(x['injected'] for x in l) else None)(prof(pid)['live']), 20)
+        check(live, '背景分頁有注入中控腳本')
         r_ = http('POST', HUB + '/api/bg/pages', {'id': pid, 'pages': ['']})
         check(r_[0] != 200 and '至少要勾一隻' in r_[1], '知道角色後不能只勾「帳號目前的角色」或全部取消')
         check(chrome_procs(pid) and all('--headless' in l for l in chrome_procs(pid)), '背景 Chrome 是無頭模式')
@@ -270,8 +270,23 @@ async def main():
         check(d is not None, '接回後重新整理分頁，腳本一樣會注入')
 
         print('7. 停止')
-        hub_json('POST', '/api/bg/stop', {'id': pid}); hub_json('POST', '/api/bg/stop', {'id': pid2})
-        gone = await until(lambda: not chrome_procs(pid) and not chrome_procs(pid2), 20)
+        dash = await env.browser.new_page(viewport={'width': 1400, 'height': 900})
+        dash.on('dialog', lambda dg: asyncio.ensure_future(dg.accept()))
+        await dash.goto(HUB + '/'); await dash.click('nav button[data-tab="accts"]'); await dash.wait_for_selector('#acTable tr[data-acrow]')
+        t0 = time.time()
+        await dash.click('[data-acact="start-all"]')  # 全部本來就在跑：略過
+        ok = await until(lambda: (lambda a: a if a and a['end'] else None)(hub_json('GET', '/api/bg')['all']), 15)
+        check(ok and ok['skipped'] == 2, f'全部「開始」：本來就在跑的略過（{ok}）')
+        await asyncio.sleep(1)
+        await dash.click('[data-acact="stop-all"]')
+        check(time.time() - t0 < 10, '按下去馬上有回應（背景依序進行）')
+        await dash.wait_for_selector('#acBatch:has-text("依序停止")', timeout=5000)
+        check(True, '上方顯示「■ 依序停止 n/2」進度')
+        gone = await until(lambda: not chrome_procs(pid) and not chrome_procs(pid2), 40)
+        try: await dash.wait_for_selector('#acBatch:has-text("完成")', timeout=15000); done_ = True
+        except Exception: done_ = False
+        check(done_, f"做完顯示「完成」（{(await dash.inner_text('#acBatch'))[:80]}）")
+        await dash.close()
         check(gone, '背景 Chrome 關掉了')
         check(prof(pid)['state'] == 'off' and not prof(pid)['on'], '狀態是停止，重開中控也不會自動開')
         errs = [l for l in env.logs if 'pageerror' in l]

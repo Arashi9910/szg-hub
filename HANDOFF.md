@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-24（v0.62.1）
+最後更新：2026-11-24（v0.62.2）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -243,3 +243,4 @@
   - 模擬環境的頁面很小，量不出省多少；要看使用者實機的數字。
 - v0.62.1：使用者回報省了約 10%、帳號分頁記憶體沒有值。實機 /api/bg：mem.total 0、err 空（有讀到程序但一個都沒對到），各帳號 mem null；推測資料夾路徑有中文、PowerShell 預設 Big5 輸出變亂碼。改成 PowerShell 先設 OutputEncoding UTF8，比對只用 `[\/]bg[\/]<id>` 後接引號／空白／斜線／結尾；拆 pageMb（--type=renderer）與 baseMb（其他），status.mem 多 page、base、procs、matched，對不到時 err「對不到背景 Chrome 的程序」。實機省資源模式：12 個帳號只有「佐藤龍騎3」自動改回完整模式。使用者在問 ⑤ 合併成一個 Chrome 的做法（BrowserContext＋中控保存還原登入資料），還沒決定要不要做。
 - 2026-11-24 01:35 實機記憶體（v0.62.1 修好後）：12 帳號 24 分頁共 11.6 GB＝遊戲分頁 7.0 GB（每帳號 430～760 MB）＋Chrome 本身 4.6 GB（多數 ~335 MB／9 個程序；龍騎4、龍騎5、火毒是 12 個程序、約 490～540 MB，應該還是舊參數沒重開）。⑤ 合併成一個 Chrome 估計可省 Chrome 本身那塊的大部分（約 3.5～4 GB）。
+- v0.62.2（使用者：帳號分頁全勾／不勾按開始、停止都沒反應）：實機查其實有作用（12 個帳號都剛重開、全部變 9 個程序、記憶體 11.6→8.4 GB），只是 action 'all' 同步跑完 1～2 分鐘才回應、畫面沒變化。改成 `allJob` 背景依序進行、立刻回 status；status.all {op, total, done, skipped, cur, end}（做完 15 秒內還會回）；開始時已在跑的略過，停止時 r.state='stopping'。面板 #acBatch 顯示進度、進行中鎖住兩個按鈕；BG_STATE 加 stopping。e2e_bg 第 7 段改用面板按鈕。
