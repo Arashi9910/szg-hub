@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-23（v0.59.0）
+最後更新：2026-11-23（v0.59.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -229,3 +229,4 @@
   - 測試 e2e_bg.py 多 4b～4e（Xvfb :99 跑看得到的視窗；SZG_BG_LOGIN_PATH 支援 {name}）。
 - v0.58.1（2026-11-23 22:30 用 Claude in Chrome 看使用者實機）：12 個背景帳號、24 個分頁全部 running、資料 30 秒內、全部在掛機（使用者 Node v26、Chrome 在 C:\Program Files）。使用者看到的「錯誤紀錄」是遊戲 game.js 自己的 `client error during sync AbortError`（遊戲同步逾時、會重試）14 筆＋agent `hub timeout` 1 筆。bg.js 錯誤紀錄改成只記 console 訊息含 szg-hub／中控的，例外則排除 AbortError 類。帳號表格在使用者螢幕上太寬（操作欄要左右捲），之後可以再壓縮。
 - v0.59.0 更新公告（使用者：每次更新說明做了什麼，新功能簡單說明做什麼、怎麼用，留最近 5 次）：version.json `changelog`；GET /api/changelog（過濾 private、最多 5 筆）；面板 header「📢 更新」(#newsBtn，#newsDot 沒看過的新版亮紅點)＋#newsDrawer；localStorage newsSeen；新版第一次打開面板自動跳一次（navigator.webdriver 時不跳，免得擋住測試的點擊）；面板開著時 DATA.scriptVersion 變了就重抓。make-public 過濾 private、套 xxxPublic、檢查第一筆版本。e2e_smoke 多檢查公告。手機版還沒有公告。
+- v0.59.1（使用者：自動上架、知識王跳錯誤）：用 Claude in Chrome 查，市場紀錄「自動上架出錯：hub timeout」與知識王「自動作答出錯：hub timeout」都集中在 22:32、22:42＝中控自動更新到 0.58.1、0.59.0 重新啟動的那幾秒（24 個背景分頁＋平常分頁同時在問）；中控平常 /api/data 約 15ms。agent 加 `hubDown(e)`（hub timeout／offline／5xx），自動上架、知識王、領收益、自動復活、裝備自動處理遇到就不記錯誤。另外看到有角色一小時內死 3 次（自動復活），沒處理，只提醒使用者。
