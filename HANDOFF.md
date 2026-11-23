@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-23（v0.60.0）
+最後更新：2026-11-23（v0.60.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -231,3 +231,4 @@
 - v0.59.0 更新公告（使用者：每次更新說明做了什麼，新功能簡單說明做什麼、怎麼用，留最近 5 次）：version.json `changelog`；GET /api/changelog（過濾 private、最多 5 筆）；面板 header「📢 更新」(#newsBtn，#newsDot 沒看過的新版亮紅點)＋#newsDrawer；localStorage newsSeen；新版第一次打開面板自動跳一次（navigator.webdriver 時不跳，免得擋住測試的點擊）；面板開著時 DATA.scriptVersion 變了就重抓。make-public 過濾 private、套 xxxPublic、檢查第一筆版本。e2e_smoke 多檢查公告。手機版還沒有公告。
 - v0.59.1（使用者：自動上架、知識王跳錯誤）：用 Claude in Chrome 查，市場紀錄「自動上架出錯：hub timeout」與知識王「自動作答出錯：hub timeout」都集中在 22:32、22:42＝中控自動更新到 0.58.1、0.59.0 重新啟動的那幾秒（24 個背景分頁＋平常分頁同時在問）；中控平常 /api/data 約 15ms。agent 加 `hubDown(e)`（hub timeout／offline／5xx），自動上架、知識王、領收益、自動復活、裝備自動處理遇到就不記錯誤。另外看到有角色一小時內死 3 次（自動復活），沒處理，只提醒使用者。
 - v0.60.0 背包條列（使用者：條列不能 Shift 多選、要顯示多一點）：data-bpick 的點選加 Shift 範圍（ui.bagLast，同容器 :scope > [data-bpick] 的兄弟，條列和格子都適用，結果跟這一列點下去一樣＝選或取消），Shift 時 mousedown preventDefault 不反白；表頭 #bListAll 全選／取消畫面上的列（ui.bagListShown）；ui.bag.listLimit 預設 1000，[data-blmore] 再顯示 1000／全部。e2e_filters 有測。
+- v0.60.1（使用者轉述：「帳號目前的角色」不該能勾，登入後要變成帳號的兩隻；那邊跳錯誤時整個版面變很寬）：bg.js probe 學到 charIds 時，pages 有 '' 就換成「'_' 那頁目前顯示的角色＋帳號其他角色」（最多 2，或原本明確勾的數量），`rekeyPage()` 把 '_' 分頁改成那隻的 key（removeScriptToEvaluateOnNewDocument 舊的、加新的、改 window.__szgBg.key），不重開。setupSession 回傳 scriptId 存在 pg.scriptId。action pages：有 charIds 時只收帳號的角色、全部取消回錯誤（請按停止）。面板：有 charIds 就不顯示「帳號目前的角色」；狀態欄 .ac-st max-width 230px、td overflow-wrap:anywhere、.ac-chars max-width 380px。

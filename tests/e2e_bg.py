@@ -76,8 +76,12 @@ async def main():
         check(p and p['code'] == code1, '認得是哪個帳號（遊戲 ID）')
         d = await until(lambda: (lambda d: d if 'c1' in d['chars'] and d['tabs'].get('c1', {}).get('bg') else None)(hub_json('GET', '/api/data')), 40)
         check(d is not None, '背景分頁的角色回報到中控，分頁標記為背景（tabs.bg）')
+        p = await until(lambda: (lambda x: x if x['pages'] == ['c1', 'c2'] and sorted(l['key'] for l in x['live']) == ['c1', 'c2'] else None)(prof(pid)), 40)
+        check(p is not None, f"登入後「帳號目前的角色」自動改成帳號的兩隻角色（pages={prof(pid)['pages']}，分頁 {[l['key'] for l in prof(pid)['live']]}）")
         live = prof(pid)['live']
-        check(len(live) == 1 and live[0]['injected'], '背景分頁有注入中控腳本')
+        check(len(live) == 2 and all(l['injected'] for l in live), '背景分頁有注入中控腳本')
+        r_ = http('POST', HUB + '/api/bg/pages', {'id': pid, 'pages': ['']})
+        check(r_[0] != 200 and '至少要勾一隻' in r_[1], '知道角色後不能只勾「帳號目前的角色」或全部取消')
         check(chrome_procs(pid) and all('--headless' in l for l in chrome_procs(pid)), '背景 Chrome 是無頭模式')
 
         print('3. 從中控下指令')
@@ -105,6 +109,9 @@ async def main():
         check('A1' in txt and '執行中' in txt and code1 in txt, '帳號分頁顯示帳號、執行中、遊戲 ID')
         chips = await dash.query_selector_all('#acTable .ac-ch')
         check(len(chips) == 2, f'每隻角色一個小卡（{len(chips)}）')
+        check('帳號目前的角色' not in await dash.inner_text('#acTable'), '登入過的帳號不再顯示「帳號目前的角色」')
+        w = await dash.evaluate("[document.querySelector('#acTable table').scrollWidth, document.documentElement.clientWidth]")
+        check(w[0] <= w[1], f'帳號表格沒有撐出畫面（{w[0]} ≤ {w[1]}）')
         await dash.click(f'#acTable tr[data-acrow="{pid}"] td:nth-child(5)')  # 點整列（遊戲 ID 那格）勾選
         check(await dash.is_checked(f'input[data-acpick="{pid}"]'), '點整列就能勾選帳號')
         check('已勾選 1' in await dash.inner_text('#acSelInfo'), '顯示已勾選幾個')
