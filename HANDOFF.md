@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-23（v0.58.0）
+最後更新：2026-11-23（v0.58.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -227,3 +227,4 @@
   - 修正：中控自己關 Chrome（stopBrowser：登入、切顯示、停止）時 __closed 被算成當掉＋fails，連三次後停止自動重開 → r.stopping 旗標；onEvent 帶 cdp，舊連線的 __closed 不影響新連線（start 後舊的 close 事件晚到會把 r.cdp 清掉）。接回時用 Browser.getVersion 的 userAgent 判斷是不是看得到的視窗。
   - 面板：nav「帳號」(#accts)，header「🖥 背景」改成按鈕（#bgSum）帶到分頁；表格 tr.pickrow data-acpick（PICK_ATTRS 加 data-acpick）、⠿ data-drag（mousedown 才設 draggable，HTML5 DnD，拖曳中 ui.dragging 不重畫），input.ac-ed data-acf=name/email/note（change 存），角色小卡 .ac-ch（勾＝pages、名字按鈕 data-acshow＝顯示視窗），#acBatch 批次登入列（📋 複製 Email）。總覽 #ovCustom／#ovFromAcct、ui.ovSort 存 localStorage ovSort、key 'custom' 用 settings.ovOrder，列多 data-ovrow 與 ⠿。
   - 測試 e2e_bg.py 多 4b～4e（Xvfb :99 跑看得到的視窗；SZG_BG_LOGIN_PATH 支援 {name}）。
+- v0.58.1（2026-11-23 22:30 用 Claude in Chrome 看使用者實機）：12 個背景帳號、24 個分頁全部 running、資料 30 秒內、全部在掛機（使用者 Node v26、Chrome 在 C:\Program Files）。使用者看到的「錯誤紀錄」是遊戲 game.js 自己的 `client error during sync AbortError`（遊戲同步逾時、會重試）14 筆＋agent `hub timeout` 1 筆。bg.js 錯誤紀錄改成只記 console 訊息含 szg-hub／中控的，例外則排除 AbortError 類。帳號表格在使用者螢幕上太寬（操作欄要左右捲），之後可以再壓縮。
