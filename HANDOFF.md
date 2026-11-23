@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-23（v0.57.0）
+最後更新：2026-11-23（v0.58.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -61,7 +61,7 @@
 
 ## 待辦（2026-11-23 更新）
 - 2026-11-23 新增：
-  - **背景執行 v0.57.0 只在模擬環境測過**：要請使用者實機試一個帳號——Google 登入視窗能不能正常登入、關掉後背景是否保持登入（遊戲 cookie 是不是工作階段 cookie，已預先開「繼續上次的工作階段」）、無頭模式下遊戲畫面／全身照／離線掛機是否正常、記憶體用量、同一個 Google 帳號同時在平常的 Chrome 和背景 Chrome 登入會不會被踢。
+  - 背景執行 v0.57.0：使用者 21:17 實機回報「可以登入正常執行，不會踢另一端，都正常」。v0.58 的帳號分頁、批次登入（Google ServiceLogin?Email= 預填沒官方文件，可能沒效，有複製 Email 備案）、顯示視窗還沒實機試。
   - 公倉自動更新：使用者問「在遊戲裡存東西，中控沒更新」。已回答（只有中控自己的公倉動作或按「重新整理」才會更新），並提議讓 agent 旁聽遊戲頁面自己的 guildWarehouseView／Batch 回應自動上傳（像 DPS／掉落那樣），使用者還沒回覆要不要做。
   - 使用者說「目標或販賣單獨拉出來」——問了是指什麼，他說先跳過。
   - 打王 v0.55～0.56 的連續打、隊伍分開打、依王決定，只在模擬環境測過；使用者的打王目前是關閉、partyMode=split，還沒實機跑過。實機第一次建議先試跑。
@@ -222,3 +222,8 @@
   - 面板：header「🖥 背景」(#bgBox/#bgSum/#bgPop，開著時每 3 秒更新、平常 20 秒更新摘要「執行中/啟用數」)，每個帳號卡片：狀態燈、登入／登入完成、開始／停止、重新整理分頁、改名、移除，角色清單 `label.bg-ch`（點整列勾選，超過 2 隻 confirm），分頁狀態（執行中／暫停：你的 Chrome 開著／載入中）。
   - mock：MOCK_REQUIRE_LOGIN=1（沒 acct cookie 也沒 x-acct ＝ 401／「請先登入」頁）、`/__mock/login?acct=` 設 cookie 導回 /game/。測試 `tests/e2e_bg.py`（登入→背景→指令→第二隻→面板點整列→讓位與接手→中控重啟接回→停止）。
   - 公開版也有（bg.js 加進 make-public FILES 與 version.json files）。
+- v0.58.0 帳號分頁（使用者：要大量填帳號開背景，要一個分頁管理、匯入匯出、自動登入 Google、帳號和總覽都能自己排序、點角色跳出那隻的頁面）。決定（AskUserQuestion，全選建議）：①**半自動批次登入、不存密碼**（全自動代填會被 Google 擋、可能鎖帳號、密碼外洩風險）②點角色＝背景改成看得到的視窗、腳本照跑 ③CSV ④總覽拖曳自訂順序並記住。
+  - bg.js：profile 多 email、note；action edit／order／all（依序開始停止）／login-batch／login-skip／login-cancel（batch = {queue, cur, done, skipped}，登入視窗 exit 後 2.5 秒換下一個）／import（{csv, dry}；依 Email→名稱對應，順序照檔案，沒列到的保留在最後；匯出 CSV 有 BOM、公式字元前加 ' 防注入）／show {id, char}（stopBrowser 後 start(id, {visible})：不加 --headless、--new-window，activateTarget 那隻的分頁；r.visible）／hide。GET /api/bg/export.csv。第一次登入（沒有 code）且有 Email：登入視窗多開 `https://accounts.google.com/ServiceLogin?Email=…&continue=https://accounts.google.com/`。boot 改依序開。
+  - 修正：中控自己關 Chrome（stopBrowser：登入、切顯示、停止）時 __closed 被算成當掉＋fails，連三次後停止自動重開 → r.stopping 旗標；onEvent 帶 cdp，舊連線的 __closed 不影響新連線（start 後舊的 close 事件晚到會把 r.cdp 清掉）。接回時用 Browser.getVersion 的 userAgent 判斷是不是看得到的視窗。
+  - 面板：nav「帳號」(#accts)，header「🖥 背景」改成按鈕（#bgSum）帶到分頁；表格 tr.pickrow data-acpick（PICK_ATTRS 加 data-acpick）、⠿ data-drag（mousedown 才設 draggable，HTML5 DnD，拖曳中 ui.dragging 不重畫），input.ac-ed data-acf=name/email/note（change 存），角色小卡 .ac-ch（勾＝pages、名字按鈕 data-acshow＝顯示視窗），#acBatch 批次登入列（📋 複製 Email）。總覽 #ovCustom／#ovFromAcct、ui.ovSort 存 localStorage ovSort、key 'custom' 用 settings.ovOrder，列多 data-ovrow 與 ⠿。
+  - 測試 e2e_bg.py 多 4b～4e（Xvfb :99 跑看得到的視窗；SZG_BG_LOGIN_PATH 支援 {name}）。

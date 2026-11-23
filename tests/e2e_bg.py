@@ -14,7 +14,9 @@ with sync_playwright() as p:
     CHROMIUM = p.chromium.executable_path
 from harness import Env, hub_json, http, HUB, MOCK, HUB_DIR, wait_url
 
-os.environ.update({'MOCK_REQUIRE_LOGIN': '1', 'SZG_BG_GAME': MOCK, 'SZG_BG_LOGIN_PATH': '/__mock/login?acct=A1',
+XVFB = subprocess.Popen(['Xvfb', ':99', '-screen', '0', '1280x900x24'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+os.environ['DISPLAY'] = ':99'
+os.environ.update({'MOCK_REQUIRE_LOGIN': '1', 'SZG_BG_GAME': MOCK, 'SZG_BG_LOGIN_PATH': '/__mock/login?acct={name}',
                    'SZG_BG_LOGIN_HEADLESS': '1', 'SZG_CHROME': CHROMIUM, 'SZG_BG_TICK_MS': '2000'})
 
 ok_all = True
@@ -57,7 +59,7 @@ async def main():
         code1 = accts['A1']['code']
 
         print('1. 還沒登入')
-        r = hub_json('POST', '/api/bg/add', {'name': '測試帳號'}); pid = r['id']
+        r = hub_json('POST', '/api/bg/add', {'name': 'A1'}); pid = r['id']
         check(prof(pid)['state'] == 'off', '新增後是停止狀態')
         hub_json('POST', '/api/bg/start', {'id': pid})
         p = await until(lambda: (lambda x: x if x['needLogin'] else None)(prof(pid)), 30)
@@ -93,28 +95,105 @@ async def main():
         check(d is not None, 'c1、c2 都有自己的背景分頁')
         check(len(prof(pid)['live']) == 2, '背景 Chrome 裡兩個分頁')
 
-        print('4b. 面板')
-        dash = await env.browser.new_page(); derr = []
+        print('4b. 帳號分頁')
+        dash = await env.browser.new_page(viewport={'width': 1400, 'height': 900}); derr = []
         dash.on('pageerror', lambda e: derr.append(str(e)))
         await dash.goto(HUB + '/')
-        await dash.click('#bgSum')
-        await dash.wait_for_selector('#bgPop .bg-prof', timeout=10000)
-        txt = await dash.inner_text('#bgPop')
-        check('測試帳號' in txt and '執行中' in txt, '面板「🖥 背景」顯示帳號和執行中')
-        rows = await dash.query_selector_all('#bgPop label.bg-ch')
-        check(len(rows) == 2, f'每隻角色一列（{len(rows)} 列）')
-        await dash.click('#bgPop label.bg-ch:nth-of-type(2) .nm')  # 點整列（名字）就能取消勾選
+        await dash.click('#bgSum')  # 右上角「🖥 背景」帶到帳號分頁
+        await dash.wait_for_selector('#accts.on #acTable tr[data-acrow]', timeout=10000)
+        txt = await dash.inner_text('#acTable')
+        check('A1' in txt and '執行中' in txt and code1 in txt, '帳號分頁顯示帳號、執行中、遊戲 ID')
+        chips = await dash.query_selector_all('#acTable .ac-ch')
+        check(len(chips) == 2, f'每隻角色一個小卡（{len(chips)}）')
+        await dash.click(f'#acTable tr[data-acrow="{pid}"] td:nth-child(5)')  # 點整列（遊戲 ID 那格）勾選
+        check(await dash.is_checked(f'input[data-acpick="{pid}"]'), '點整列就能勾選帳號')
+        check('已勾選 1' in await dash.inner_text('#acSelInfo'), '顯示已勾選幾個')
+        await dash.fill(f'input[data-acf="email"][data-id="{pid}"]', 'a1@example.com'); await dash.press(f'input[data-acf="email"][data-id="{pid}"]', 'Enter')
+        ok = await until(lambda: prof(pid)['email'] == 'a1@example.com', 10)
+        check(ok, '直接在表格改 Email')
+        await dash.click(f'#acTable .ac-ch:nth-child(2) label')  # 取消 c2 背景分頁
         ok = await until(lambda: prof(pid)['pages'] == ['c1'], 10)
-        check(ok, f"點整列取消 c2（pages={prof(pid)['pages']}）")
-        await asyncio.sleep(3.5)
-        await dash.click('#bgPop label.bg-ch:nth-of-type(2) .nm')
+        check(ok, f"勾選框取消 c2 的背景分頁（pages={prof(pid)['pages']}）")
+        await asyncio.sleep(1)
+        await dash.click(f'#acTable .ac-ch:nth-child(2) label')
         ok = await until(lambda: prof(pid)['pages'] == ['c1', 'c2'], 10)
-        check(ok, '再點一次勾回來')
+        check(ok, '再勾回來')
+        await dash.fill('#acNewName', 'A2'); await dash.fill('#acNewEmail', 'a2@example.com'); await dash.click('[data-acact="add"]')
+        p2 = await until(lambda: next((x for x in hub_json('GET', '/api/bg')['profiles'] if x['name'] == 'A2'), None), 10)
+        check(p2 and p2['email'] == 'a2@example.com', '新增帳號（含 Email）')
+        pid2 = p2['id']
+        await dash.wait_for_selector(f'tr[data-acrow="{pid2}"]')
+        await dash.drag_and_drop(f'tr[data-acrow="{pid2}"] .drag-h', f'tr[data-acrow="{pid}"] td:nth-child(3)', target_position={'x': 5, 'y': 3})
+        ok = await until(lambda: [x['id'] for x in hub_json('GET', '/api/bg')['profiles']] == [pid2, pid], 10)
+        check(ok, f"拖曳 ⠿ 調整帳號順序（{[x['name'] for x in hub_json('GET', '/api/bg')['profiles']]}）")
+
+        print('4c. CSV、批次登入')
+        s_, csv = http('GET', HUB + '/api/bg/export.csv')
+        check(s_ == 200 and 'a1@example.com' in csv and 'Email' in csv.splitlines()[0], '匯出 CSV（有 Email 欄）')
+        lines = csv.lstrip('﻿').strip().splitlines()
+        new_csv = '\n'.join([lines[0], next(l for l in lines if l.startswith('A1')), next(l for l in lines if l.startswith('A2')), 'A3,a3@example.com,,,,否,第三個'])
+        d = hub_json('POST', '/api/bg/import', {'csv': new_csv, 'dry': True})
+        check(d['import']['added'] == 1 and d['import']['updated'] == 2, f"匯入預覽：新增 1、更新 2（{d['import']}）")
+        check(len(hub_json('GET', '/api/bg')['profiles']) == 2, '預覽不會真的改')
+        hub_json('POST', '/api/bg/import', {'csv': new_csv})
+        names = [x['name'] for x in hub_json('GET', '/api/bg')['profiles']]
+        check(names == ['A1', 'A2', 'A3'], f'匯入後順序照檔案、多一個 A3（{names}）')
+        p3 = next(x for x in hub_json('GET', '/api/bg')['profiles'] if x['name'] == 'A3')
+        check(p3['note'] == '第三個' and p3['email'] == 'a3@example.com', '匯入的備註、Email')
+        hub_json('POST', '/api/bg/remove', {'id': p3['id']})
+        hub_json('POST', '/api/bg/login-batch', {'ids': [pid2]})
+        ok = await until(lambda: hub_json('GET', '/api/bg')['batch']['cur'] == pid2 and prof(pid2)['state'] == 'login', 15)
+        check(ok, '批次登入：跳出 A2 的登入視窗')
+        await dash.wait_for_selector('#acBatch .ac-batch', timeout=8000)
+        check('a2@example.com' in await dash.inner_text('#acBatch'), '批次登入列顯示目前帳號和 Email（可複製）')
+        await asyncio.sleep(4)
+        hub_json('POST', '/api/bg/login-done', {'id': pid2})
+        p = await until(lambda: (lambda x: x if x['state'] == 'running' and x['code'] and not x['needLogin'] else None)(prof(pid2)), 40)
+        check(p and p['code'] == accts['A2']['code'], '登入完成後 A2 自動在背景開始')
+        b = hub_json('GET', '/api/bg')['batch']
+        check(not b['cur'] and not b['queue'], '批次登入結束')
+        await until(lambda: (lambda d: d if d['tabs'].get('c3', {}).get('bg') else None)(hub_json('GET', '/api/data')), 30)
+
         if os.environ.get('SZG_BG_SHOT'):  # 教學／回報用截圖
-            await dash.set_viewport_size({'width': 1280, 'height': 900}); await asyncio.sleep(3.5)
-            await (await dash.query_selector('#bgPop')).screenshot(path=os.environ['SZG_BG_SHOT'])
-        summ = await dash.inner_text('#bgSum')
-        check('背景' in summ, f'標題按鈕顯示狀態（{summ}）')
+            await asyncio.sleep(3.5); await (await dash.query_selector('#accts .card')).screenshot(path=os.environ['SZG_BG_SHOT'])
+        print('4d. 總覽自訂順序')
+        await dash.click('nav button[data-tab="overview"]')
+        await dash.wait_for_selector('#ovTable tr[data-ovrow]')
+        await dash.click('#ovCustom')
+        await dash.wait_for_selector('#ovTable .drag-h')
+        before_ = [await r.get_attribute('data-ovrow') for r in await dash.query_selector_all('#ovTable tr[data-ovrow]')]
+        await dash.drag_and_drop(f'#ovTable tr[data-ovrow="{before_[1]}"] .drag-h', f'#ovTable tr[data-ovrow="{before_[0]}"] td:nth-child(4)', target_position={'x': 5, 'y': 3})
+        ok = await until(lambda: (hub_json('GET', '/api/data')['settings'].get('ovOrder') or [None])[0] == before_[1], 10)
+        check(ok, f'總覽拖曳 ⠿ 自訂順序（{before_[:3]} → {(hub_json("GET", "/api/data")["settings"].get("ovOrder") or [])[:3]}）')
+        await dash.reload(); await dash.wait_for_selector('#ovTable tr[data-ovrow]')
+        first = await (await dash.query_selector('#ovTable tr[data-ovrow]')).get_attribute('data-ovrow')
+        check(first == before_[1], '重新整理後順序還在（記住自訂排序）')
+        dash.once('dialog', lambda dg: asyncio.ensure_future(dg.accept()))
+        await dash.click('#ovFromAcct')
+        ok = await until(lambda: (hub_json('GET', '/api/data')['settings'].get('ovOrder') or [])[:3] == ['c1', 'c2', 'c3'], 10)
+        check(ok, f'照帳號頁順序（A1 的 c1、c2，再 A2 的 c3）：{(hub_json("GET", "/api/data")["settings"].get("ovOrder") or [])[:4]}')
+
+        print('4e. 點角色＝顯示視窗')
+        await dash.click('nav button[data-tab="accts"]')
+        await dash.wait_for_selector(f'button[data-acshow="{pid}"][data-char="c2"]')
+        await dash.click(f'button[data-acshow="{pid}"][data-char="c2"]')
+        p = await until(lambda: (lambda x: x if x['visible'] == 'c2' and x['state'] == 'running' and len(x['live']) == 2 else None)(prof(pid)), 40)
+        check(p is not None, '點 c2 → A1 換成看得到的視窗（visible=c2）')
+        procs = chrome_procs(pid)
+        check(procs and not any('--headless' in l for l in procs), '看得到的視窗：不是無頭模式')
+        t0 = time.time() * 1000
+        d = await until(lambda: (lambda d: d if d['tabs'].get('c2', {}).get('at', 0) > t0 and d['tabs']['c2'].get('bg') else None)(hub_json('GET', '/api/data')), 40)
+        check(d is not None, '顯示視窗時中控腳本照跑')
+        await dash.wait_for_selector(f'button[data-bgact="hide"][data-id="{pid}"]', timeout=8000)
+        await dash.click(f'button[data-bgact="hide"][data-id="{pid}"]')
+        p = await until(lambda: (lambda x: x if not x['visible'] and x['state'] == 'running' and chrome_procs(pid) and all('--headless' in l for l in chrome_procs(pid)) else None)(prof(pid)), 40)
+        check(p is not None, '按「隱藏」回到無頭背景')
+        hub_json('POST', '/api/bg/show', {'id': pid, 'char': 'c1'})
+        await until(lambda: prof(pid)['visible'] == 'c1' and prof(pid)['state'] == 'running', 40)
+        port = open(os.path.join(HUB_DIR, 'data', 'bg', pid, 'DevToolsActivePort')).read().split()[0]
+        subprocess.run(['node', '-e', f"(async()=>{{const j=await (await fetch('http://127.0.0.1:{port}/json/version')).json();const w=new WebSocket(j.webSocketDebuggerUrl);w.onopen=()=>w.send(JSON.stringify({{id:1,method:'Browser.close'}}));w.onmessage=()=>process.exit(0);}})()"], timeout=15)
+        p = await until(lambda: (lambda x: x if not x['visible'] and x['state'] == 'running' and chrome_procs(pid) and all('--headless' in l for l in chrome_procs(pid)) else None)(prof(pid)), 45)
+        check(p is not None, '直接關掉看得到的視窗 → 自動回到無頭背景')
         check(not derr, '面板沒有 JS 錯誤' + ('：' + derr[0] if derr else ''))
         await dash.close()
         await until(lambda: len(prof(pid)['live']) == 2, 20)
@@ -145,6 +224,7 @@ async def main():
         p = await until(lambda: (lambda x: x if x['state'] == 'running' and len(x['live']) == 2 else None)(prof(pid)), 30)
         check(p is not None, '中控重新啟動後背景分頁接回來')
         check(chrome_procs(pid) == before, '沒有重開 Chrome（同一個程序）')
+        check(await until(lambda: prof(pid2)['state'] == 'running', 30), '第二個帳號也接回來')
         check('接上執行中的' in open('/tmp/hub2.log', encoding='utf-8').read(), '紀錄寫「接上執行中的背景 Chrome」')
         t0 = time.time() * 1000
         d = await until(lambda: (lambda d: d if d['tabs'].get('c2', {}).get('at', 0) > t0 and d['tabs']['c2'].get('bg') else None)(hub_json('GET', '/api/data')), 30)
@@ -156,13 +236,14 @@ async def main():
         check(d is not None, '接回後重新整理分頁，腳本一樣會注入')
 
         print('7. 停止')
-        hub_json('POST', '/api/bg/stop', {'id': pid})
-        gone = await until(lambda: not chrome_procs(pid), 20)
+        hub_json('POST', '/api/bg/stop', {'id': pid}); hub_json('POST', '/api/bg/stop', {'id': pid2})
+        gone = await until(lambda: not chrome_procs(pid) and not chrome_procs(pid2), 20)
         check(gone, '背景 Chrome 關掉了')
         check(prof(pid)['state'] == 'off' and not prof(pid)['on'], '狀態是停止，重開中控也不會自動開')
         errs = [l for l in env.logs if 'pageerror' in l]
         check(not errs, '你自己的遊戲分頁沒有 JS 錯誤' + ('：' + errs[0] if errs else ''))
 
+    XVFB.terminate()
     print('\n全部通過' if ok_all else '\n有失敗')
     sys.exit(0 if ok_all else 1)
 
