@@ -242,3 +242,4 @@
   - 面板：#acPerf（#acLite 開關會 confirm、#acReload），狀態欄顯示每帳號 MB、「完整模式」。mock 頁加一張 /game/res/test.png 與 /__mock/pnghits（只算沒 x-acct 的＝背景 Chrome）。e2e_bg 4a 段。
   - 模擬環境的頁面很小，量不出省多少；要看使用者實機的數字。
 - v0.62.1：使用者回報省了約 10%、帳號分頁記憶體沒有值。實機 /api/bg：mem.total 0、err 空（有讀到程序但一個都沒對到），各帳號 mem null；推測資料夾路徑有中文、PowerShell 預設 Big5 輸出變亂碼。改成 PowerShell 先設 OutputEncoding UTF8，比對只用 `[\/]bg[\/]<id>` 後接引號／空白／斜線／結尾；拆 pageMb（--type=renderer）與 baseMb（其他），status.mem 多 page、base、procs、matched，對不到時 err「對不到背景 Chrome 的程序」。實機省資源模式：12 個帳號只有「佐藤龍騎3」自動改回完整模式。使用者在問 ⑤ 合併成一個 Chrome 的做法（BrowserContext＋中控保存還原登入資料），還沒決定要不要做。
+- 2026-11-24 01:35 實機記憶體（v0.62.1 修好後）：12 帳號 24 分頁共 11.6 GB＝遊戲分頁 7.0 GB（每帳號 430～760 MB）＋Chrome 本身 4.6 GB（多數 ~335 MB／9 個程序；龍騎4、龍騎5、火毒是 12 個程序、約 490～540 MB，應該還是舊參數沒重開）。⑤ 合併成一個 Chrome 估計可省 Chrome 本身那塊的大部分（約 3.5～4 GB）。
