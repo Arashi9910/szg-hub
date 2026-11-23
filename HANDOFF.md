@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-21（v0.46.0）
+最後更新：2026-11-23（v0.56.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -12,13 +12,16 @@
   5. 在使用者面板分頁（http://127.0.0.1:8787/）執行 `/api/update/check` → `/api/update/apply` 套用；遊戲分頁約 2 分鐘內自動換新腳本
 - **測試環境（全部在私人 repo 的 `tests/`，make-public 不會複製）**：
   - 新工作階段重建：`git clone` 私人 repo 到 `/home/claude/szg-hub`、公開 repo 到 `/home/claude/szg-hub-public`；需要 Node.js（目前 v22）、Python 3、`pip install --break-system-packages playwright && playwright install chromium`。
-  - `mockgame.js`＝模擬遊戲（port 9900，3 個帳號 A1／A2／A3、4 隻角色 c1 本尊劍士／c2 本尊小號／c3 弓箭分身／c4 倉庫分身）；`harness.py` 的 `Env()` 會把私人 repo 複製到 `/tmp/hub` 當測試中控（port 8787，先關 autoUpdate），用 Playwright 模擬每個 Chrome 設定檔跑竄改猴腳本。log 在 `/tmp/mockgame.log`、`/tmp/hub.log`。
+  - `mockgame.js`＝模擬遊戲（port 9900，3 個帳號 A1／A2／A3、4 隻角色 c1 本尊劍士／c2 本尊小號／c3 弓箭分身／c4 倉庫分身；`MOCK_MORE_ACCTS=1` 多 A4 c5 第四隻、A5 c6 第五隻）。常用環境變數：MOCK_PARTY=c3,c4（一開始的隊伍）、MOCK_PARTY_MSGS=40（真實大小的隊伍資料）、MOCK_BOSS_DPS、MOCK_BOSS_RESPAWN_MS、MOCK_MAP_STOPS_IDLE=1、MOCK_APPEARANCE=1（全身照 /api/appearance）；`harness.py` 的 `Env()` 會把私人 repo 複製到 `/tmp/hub` 當測試中控（port 8787，先關 autoUpdate），用 Playwright 模擬每個 Chrome 設定檔跑竄改猴腳本。log 在 `/tmp/mockgame.log`、`/tmp/hub.log`。
   - **注意 8787 port**：測試中控和使用者的中控同 port，但使用者的中控在他自己電腦上（透過 Chrome 的 127.0.0.1:8787），不會衝突；在雲端工作區跑測試只會用到 /tmp/hub。
+  - 用公開版跑測試：`cp -r 公開repo /tmp/pubtest && python3 tools/make-public.py . /tmp/pubtest`，再 `SZG_REPO=/tmp/pubtest python3 e2e_xxx.py`。
+  - 教學截圖：`SZG_REPO=/tmp/pubtest python3 tests/guide_shots.py /tmp/shots`，再複製到公開 repo `docs/images/guide/`。
   - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab 偶爾不穩，重跑一次就過。
   - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
   - 測試清單（41 支）：smoke、boss_chain、boss_party4、mobile、boss_cards、dex、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
 - **實機驗證**：使用者的 Chrome（Claude in Chrome）開 http://127.0.0.1:8787/ 用 javascript 呼叫 API 看資料；做完要關掉自己開的分頁。不要直接開 play.szg08.com（會導到 /game/、中控腳本會在那個分頁跑），讀遊戲程式碼從 https://play.szg08.com/robots.txt 分頁 `fetch('/game/game.js')`，輸出只取識別字或計數（整段原始碼會被輸出過濾擋掉）。
-- 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定；**公會倉庫相關功能只做私人版**（公開版其他人做法可能不同），之後用程式標記讓 make-public 移除。
+- 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定（手機版 v0.53 起公開版也有，只能走 tailscale serve；遠端版腳本／REMOTE=1／共用通行碼仍只在私人版）。公會倉庫 v0.32 起公開版也有。
+- 公開 repo 自己維護的檔案（make-public 不會覆蓋）：README.md、.gitignore、`docs/mobile.md`（手機版教學）、`docs/guide.md`＋`docs/images/guide/`（圖文安裝與使用教學）。功能有變動時記得順便更新這些文件。
 
 - **新增工作種類時**：在 server.js 的 `KIND_MIN_AGENT` 登記最低腳本版本（私人種類寫在私人區塊裡），否則舊腳本的分頁會拿到工作然後「未知的工作類型」失敗。遊戲分頁有時會卡在舊腳本好幾版（Tampermonkey 快取），只能請使用者手動重新整理那個分頁。
 
@@ -56,7 +59,13 @@
 
 - **派工分組（v0.29）**：settings.boards = {A, B}（舊的 settings.board 當 A），settings.charGroup 覆寫分組（預設帳號角色清單第 1 隻＝A）；`boardGroup()` 自動＝有兩隻角色的帳號中目前角色多的那組。saveBoard 要存「當下那一份」並在 boardPending 期間讓 poll 保留本機設定（v0.29.1 修過一次被 poll 蓋掉的 bug）。看板只顯示該組角色（含沒同步過的，用 accountChars 補），非目前角色＝背景掛機，套用時略過。v0.29.2 裝備、交易分頁共用檢視組別 `ui.vg`（localStorage viewGroup；`snapsV()`／`allGear(true)`／`wearers()` 只看該組）。使用者不想看到兩組混在一起。使用者玩法：切換角色後另一隻在背景掛機，偶爾收菜。
 
-## 待辦（2026-11-20 更新）
+## 待辦（2026-11-23 更新）
+- 2026-11-23 新增：
+  - 公倉自動更新：使用者問「在遊戲裡存東西，中控沒更新」。已回答（只有中控自己的公倉動作或按「重新整理」才會更新），並提議讓 agent 旁聽遊戲頁面自己的 guildWarehouseView／Batch 回應自動上傳（像 DPS／掉落那樣），使用者還沒回覆要不要做。
+  - 使用者說「目標或販賣單獨拉出來」——問了是指什麼，他說先跳過。
+  - 打王 v0.55～0.56 的連續打、隊伍分開打、依王決定，只在模擬環境測過；使用者的打王目前是關閉、partyMode=split，還沒實機跑過。實機第一次建議先試跑。
+  - 手機版還沒做：推播（使用者說先不用）、手機上排隊伍成員、市場／公倉。
+  - 圖文教學缺 Chrome 擴充功能頁、竄改猴安裝／設定頁的截圖（測試環境裝不了擴充功能）；使用者可以提供乾淨設定檔的截圖再補。
 - 進行中／待回覆：
   - 使用者說「有些裝備圖片消失了」，查不到缺圖，問他哪一頁＋截圖，還沒回覆。
   - 楓幣收入 v0.39：遊戲 sessionReport.money 是淨額，含不含交易／給楓幣還沒證實（佐藤天司本次 -646 萬，原因未查）。
