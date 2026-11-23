@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-24（v0.62.0）
+最後更新：2026-11-24（v0.62.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -241,3 +241,4 @@
   - 定時重整 cfg.reloadHours（預設 6，0＝不要）：tick 每輪最多重整一頁、兩頁至少隔 RELOAD_GAP_MS（60 秒，測試 SZG_BG_RELOAD_GAP_MS）；依 performance.timeOrigin 算頁齡；agent 的 BG.isBusy()（agentBusy／agentRunning）、讓位中、看得到的視窗不重整。
   - 面板：#acPerf（#acLite 開關會 confirm、#acReload），狀態欄顯示每帳號 MB、「完整模式」。mock 頁加一張 /game/res/test.png 與 /__mock/pnghits（只算沒 x-acct 的＝背景 Chrome）。e2e_bg 4a 段。
   - 模擬環境的頁面很小，量不出省多少；要看使用者實機的數字。
+- v0.62.1：使用者回報省了約 10%、帳號分頁記憶體沒有值。實機 /api/bg：mem.total 0、err 空（有讀到程序但一個都沒對到），各帳號 mem null；推測資料夾路徑有中文、PowerShell 預設 Big5 輸出變亂碼。改成 PowerShell 先設 OutputEncoding UTF8，比對只用 `[\/]bg[\/]<id>` 後接引號／空白／斜線／結尾；拆 pageMb（--type=renderer）與 baseMb（其他），status.mem 多 page、base、procs、matched，對不到時 err「對不到背景 Chrome 的程序」。實機省資源模式：12 個帳號只有「佐藤龍騎3」自動改回完整模式。使用者在問 ⑤ 合併成一個 Chrome 的做法（BrowserContext＋中控保存還原登入資料），還沒決定要不要做。
