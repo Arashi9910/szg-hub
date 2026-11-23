@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-23（v0.60.1）
+最後更新：2026-11-23（v0.61.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -233,3 +233,4 @@
 - v0.60.0 背包條列（使用者：條列不能 Shift 多選、要顯示多一點）：data-bpick 的點選加 Shift 範圍（ui.bagLast，同容器 :scope > [data-bpick] 的兄弟，條列和格子都適用，結果跟這一列點下去一樣＝選或取消），Shift 時 mousedown preventDefault 不反白；表頭 #bListAll 全選／取消畫面上的列（ui.bagListShown）；ui.bag.listLimit 預設 1000，[data-blmore] 再顯示 1000／全部。e2e_filters 有測。
 - v0.60.1（使用者轉述：「帳號目前的角色」不該能勾，登入後要變成帳號的兩隻；那邊跳錯誤時整個版面變很寬）：bg.js probe 學到 charIds 時，pages 有 '' 就換成「'_' 那頁目前顯示的角色＋帳號其他角色」（最多 2，或原本明確勾的數量），`rekeyPage()` 把 '_' 分頁改成那隻的 key（removeScriptToEvaluateOnNewDocument 舊的、加新的、改 window.__szgBg.key），不重開。setupSession 回傳 scriptId 存在 pg.scriptId。action pages：有 charIds 時只收帳號的角色、全部取消回錯誤（請按停止）。面板：有 charIds 就不顯示「帳號目前的角色」；狀態欄 .ac-st max-width 230px、td overflow-wrap:anywhere、.ac-chars max-width 380px。
 - 2026-11-23 23:13（沒發版）：使用者總覽「自動化」的自動上架、知識王磁磚亮「有錯誤」＝dashboard `recentBad`（最後一筆紀錄 1 小時內且含 失敗／出錯／錯誤）抓到 22:42 的 hub timeout 舊紀錄；自動上架關著、知識王當天回合用完，沒有新紀錄蓋過，所以一直亮。用 Claude in Chrome 在 /api/market/log、/api/quiz/log 各補一筆說明（第一次的說明含「錯誤」二字又被判成錯誤，再補一筆不含的），紅字消失。之後寫說明紀錄要避開這三個字。
+- v0.61.0（使用者：背包要能直接把裝備弄到公倉，不要再去公倉頁挑）：v0.36 拿掉的背包「存進公倉」恢復——`bagExtraActions` 改回 data-bact="guild" 按鈕（沿用原本的 `bagGuildPlan()`／`bagActHooks.guild`：每隻角色一個 guildDeposit 工作直接 approve，鎖定／補給／不可交易略過），多公倉裝備格不夠的提醒（有讀過公倉才知道）。公倉分頁的並排搬移照舊。e2e_guild_xfer 加「背包直接存進公倉」。

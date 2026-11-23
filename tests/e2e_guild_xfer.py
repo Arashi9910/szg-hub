@@ -81,6 +81,22 @@ async def main():
         await d.click('[data-gclose="gMoneyDrawer"]'); await d.wait_for_timeout(200)
         check(not await d.is_visible('#gmOp'), '按關閉收起來')
 
+        print('背包直接存進公倉')
+        g0 = len(mock_state()['guild'].get('gear', []))
+        await d.click('nav button[data-tab=bag]'); await d.wait_for_timeout(500)
+        await d.click('[data-bview="list"]'); await d.wait_for_timeout(400)
+        await d.click('[data-bkind="裝備"]'); await d.wait_for_timeout(400)
+        rows = d.locator('#bagOut tr[data-bpick]:not(:has-text("鎖定"))')
+        check(await rows.count() >= 2, f'條列有可存的裝備（{await rows.count()}）')
+        check(await d.is_disabled('[data-bact="guild"]') if await d.locator('[data-bact="guild"]').count() else True, '沒選東西時「存進公倉」不能按')
+        await rows.nth(0).locator('td').nth(2).click(); await rows.nth(1).locator('td').nth(2).click(modifiers=['Shift']); await d.wait_for_timeout(300)
+        btn = d.locator('#bagActions [data-bact="guild"], [data-bact="guild"]').first
+        check(await btn.is_visible() and await btn.is_enabled(), '背包選了裝備後有「存進公倉」按鈕')
+        await btn.click()
+        await wait_kind('guildDeposit', 1, 60)
+        g1 = len(mock_state()['guild'].get('gear', []))
+        check(g1 == g0 + 2, f'背包選的 2 件裝備存進公倉（{g0} → {g1}）')
+
         await d.set_viewport_size({'width': 900, 'height': 900}); await d.wait_for_timeout(500)
         w = await d.evaluate('document.documentElement.scrollWidth')
         check(w <= 910, f'窄螢幕不撐破（{w}px）')
