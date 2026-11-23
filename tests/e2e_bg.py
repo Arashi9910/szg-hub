@@ -17,7 +17,7 @@ from harness import Env, hub_json, http, HUB, MOCK, HUB_DIR, wait_url
 XVFB = subprocess.Popen(['Xvfb', ':99', '-screen', '0', '1280x900x24'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 os.environ['DISPLAY'] = ':99'
 os.environ.update({'MOCK_REQUIRE_LOGIN': '1', 'SZG_BG_GAME': MOCK, 'SZG_BG_LOGIN_PATH': '/__mock/login?acct={name}',
-                   'SZG_BG_LOGIN_HEADLESS': '1', 'SZG_CHROME': CHROMIUM, 'SZG_BG_TICK_MS': '2000'})
+                   'SZG_BG_LOGIN_HEADLESS': '1', 'SZG_BG_RELOAD_GAP_MS': '5000', 'SZG_CHROME': CHROMIUM, 'SZG_BG_TICK_MS': '2000'})
 
 ok_all = True
 def check(cond, msg):
@@ -99,6 +99,31 @@ async def main():
         check(d is not None, 'c1、c2 都有自己的背景分頁')
         check(len(prof(pid)['live']) == 2, '背景 Chrome 裡兩個分頁')
 
+        print('4a. 省資源')
+        procs = chrome_procs(pid)
+        check(procs and all('--process-per-site' in l and '--disable-gpu' in l for l in procs), '背景 Chrome 用省記憶體參數（同網站共用程序、關掉繪圖程序）')
+        st = await until(lambda: (lambda x: x if x['mem']['total'] > 0 and prof(pid)['mem'] else None)(hub_json('GET', '/api/bg')), 70, 3)
+        check(st is not None, f"讀得到背景 Chrome 的記憶體（共 {st and st['mem']['total']} MB，A1 {prof(pid)['mem']}）")
+        check(all(prof(pid)['live'][i]['injected'] for i in range(2)) and hub_json('GET', '/api/bg')['lite'], '省資源模式預設開啟')
+        h0 = json.loads(http('GET', MOCK + '/__mock/pnghits')[1])['n']
+        hub_json('POST', '/api/bg/reload', {'id': pid}); await asyncio.sleep(6)
+        h1 = json.loads(http('GET', MOCK + '/__mock/pnghits')[1])['n']
+        check(h1 == h0, f'省資源模式：背景分頁不下載遊戲圖片（重整後圖片請求 {h0} → {h1}）')
+        d = await until(lambda: (lambda d: d if d['tabs'].get('c1', {}).get('bg') and d['tabs'].get('c2', {}).get('bg') else None)(hub_json('GET', '/api/data')), 30)
+        check(d is not None, '省資源模式下中控腳本照常回報')
+        hub_json('POST', '/api/bg/config', {'lite': False}); await asyncio.sleep(6)
+        h2 = json.loads(http('GET', MOCK + '/__mock/pnghits')[1])['n']
+        check(h2 > h1, f'關掉省資源模式：分頁重整、圖片照常下載（{h1} → {h2}）')
+        hub_json('POST', '/api/bg/config', {'lite': True}); await asyncio.sleep(4)
+        la = [l for l in prof(pid)['live']]
+        t0 = time.time() * 1000
+        hub_json('POST', '/api/bg/config', {'reloadHours': 0.001})  # 3.6 秒
+        ok = await until(lambda: prof(pid)['reloads'] >= 2, 60, 2)
+        check(ok, f"定時重新整理：一次一頁、錯開（重整 {prof(pid)['reloads']} 次）")
+        hub_json('POST', '/api/bg/config', {'reloadHours': 6})
+        d = await until(lambda: (lambda d: d if d['tabs'].get('c1', {}).get('at', 0) > t0 and d['tabs'].get('c2', {}).get('at', 0) > t0 else None)(hub_json('GET', '/api/data')), 40)
+        check(d is not None, '重整後腳本照常回報')
+
         print('4b. 帳號分頁')
         dash = await env.browser.new_page(viewport={'width': 1400, 'height': 900}); derr = []
         dash.on('pageerror', lambda e: derr.append(str(e)))
@@ -107,6 +132,8 @@ async def main():
         await dash.wait_for_selector('#accts.on #acTable tr[data-acrow]', timeout=10000)
         txt = await dash.inner_text('#acTable')
         check('A1' in txt and '執行中' in txt and code1 in txt, '帳號分頁顯示帳號、執行中、遊戲 ID')
+        perf = await dash.inner_text('#acPerf')
+        check('省資源模式' in perf and 'MB' in perf or 'GB' in perf, f'帳號分頁顯示省資源開關、記憶體（{perf.strip()[:60]}）')
         chips = await dash.query_selector_all('#acTable .ac-ch')
         check(len(chips) == 2, f'每隻角色一個小卡（{len(chips)}）')
         check('帳號目前的角色' not in await dash.inner_text('#acTable'), '登入過的帳號不再顯示「帳號目前的角色」')

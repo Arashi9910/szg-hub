@@ -455,7 +455,7 @@ function handle(a, body) {
 const MOCK_AVA_GIF = 'R0lGODlhKAAoAIEAAAAAAPrSqjx43CgoPCH5BAEAAAAALAAAAAAoACgAQAiuAAEIHEiwoMGDCBMeDMCwocOHDBVKLAjx4cSLAgVo3MixI0aJAgaIHBlypEgBHydWdJhS4cqXLQ92nMkxpkyaNG0eNCkSAM8BOiVaDIrwJUSiAo1WRApAKUumOHNCjepxKtWNTAFcrZn1p0+eWQV69Rq27EeYZp0GCKs2ItK2Dd/CXStXLVunZpuuNLsVq9WtWftqDCyYcF/DgP9eDTsWLGOwZLtCdizZ5FfLEwMCADs=';
 // ---------------- 頁面 ----------------
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>上漲谷（模擬）</title></head><body>
-<h3>上漲谷模擬遊戲</h3><div id="who"></div><pre id="st"></pre>
+<h3>上漲谷模擬遊戲</h3><img src="/game/res/test.png" width="1" height="1" alt=""><div id="who"></div><pre id="st"></pre>
 <script>
 // 模擬遊戲的 client-update.js：所有 /api/game 請求補上版本標頭
 (function(){ const f = window.fetch; window.fetch = function(input, init){ init = init || {}; const u = String((input && input.url) || input);
@@ -481,10 +481,14 @@ function acctOf(req) {
   return accounts[(m && m[1]) || req.headers['x-acct'] || 'A1'];
 }
 const send = (res, code, obj, type = 'application/json; charset=utf-8') => { res.writeHead(code, { 'Content-Type': type }); res.end(typeof obj === 'string' ? obj : JSON.stringify(obj)); };
+let pngHits = 0;
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   // MOCK_REQUIRE_LOGIN=1：沒有 acct cookie（也沒有 harness 的 x-acct 標頭）＝還沒登入（給背景執行 e2e_bg 測登入流程）
   // /__mock/login?acct=A1 模擬「Google 登入完成」：設好 cookie 再導回 /game/
+  // 圖片請求計數（背景執行省資源模式要擋掉）：只算不是 harness（沒有 x-acct 標頭）的＝背景 Chrome 的
+  if (url.pathname.endsWith('.png') && !req.headers['x-acct']) { pngHits++; res.writeHead(200, { 'Content-Type': 'image/png' }); return res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64')); }
+  if (url.pathname === '/__mock/pnghits') return send(res, 200, { n: pngHits });
   if (url.pathname === '/__mock/login') { res.writeHead(302, { 'Set-Cookie': `acct=${encodeURIComponent(url.searchParams.get('acct') || 'A1')}; Path=/; Max-Age=2592000`, Location: '/game/' }); return res.end(); }
   if (process.env.MOCK_REQUIRE_LOGIN && !/(?:^|;\s*)acct=/.test(req.headers.cookie || '') && !req.headers['x-acct'] && !url.pathname.startsWith('/__mock/')) {
     if (url.pathname.startsWith('/game')) return send(res, 200, '<!doctype html><title>請登入</title><body>請先登入</body>', 'text/html; charset=utf-8');

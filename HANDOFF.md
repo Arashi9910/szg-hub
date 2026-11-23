@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-23（v0.61.0）
+最後更新：2026-11-24（v0.62.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -234,3 +234,10 @@
 - v0.60.1（使用者轉述：「帳號目前的角色」不該能勾，登入後要變成帳號的兩隻；那邊跳錯誤時整個版面變很寬）：bg.js probe 學到 charIds 時，pages 有 '' 就換成「'_' 那頁目前顯示的角色＋帳號其他角色」（最多 2，或原本明確勾的數量），`rekeyPage()` 把 '_' 分頁改成那隻的 key（removeScriptToEvaluateOnNewDocument 舊的、加新的、改 window.__szgBg.key），不重開。setupSession 回傳 scriptId 存在 pg.scriptId。action pages：有 charIds 時只收帳號的角色、全部取消回錯誤（請按停止）。面板：有 charIds 就不顯示「帳號目前的角色」；狀態欄 .ac-st max-width 230px、td overflow-wrap:anywhere、.ac-chars max-width 380px。
 - 2026-11-23 23:13（沒發版）：使用者總覽「自動化」的自動上架、知識王磁磚亮「有錯誤」＝dashboard `recentBad`（最後一筆紀錄 1 小時內且含 失敗／出錯／錯誤）抓到 22:42 的 hub timeout 舊紀錄；自動上架關著、知識王當天回合用完，沒有新紀錄蓋過，所以一直亮。用 Claude in Chrome 在 /api/market/log、/api/quiz/log 各補一筆說明（第一次的說明含「錯誤」二字又被判成錯誤，再補一筆不含的），紅字消失。之後寫說明紀錄要避開這三個字。
 - v0.61.0（使用者：背包要能直接把裝備弄到公倉，不要再去公倉頁挑）：v0.36 拿掉的背包「存進公倉」恢復——`bagExtraActions` 改回 data-bact="guild" 按鈕（沿用原本的 `bagGuildPlan()`／`bagActHooks.guild`：每隻角色一個 guildDeposit 工作直接 approve，鎖定／補給／不可交易略過），多公倉裝備格不夠的提醒（有讀過公倉才知道）。公倉分頁的並排搬移照舊。e2e_guild_xfer 加「背包直接存進公倉」。
+- v0.62.0 背景執行省記憶體（使用者：記憶體占比太高；選了 ①記憶體顯示＋Chrome 設定 ③不載入圖片動畫 ④閒置定時重整；⑤合併成一個 Chrome 先不做，等看到數字再評估；⑥每帳號只開一頁是使用者自己可以取消勾選）：
+  - 記憶體：bg.js `refreshMem()`（status 時觸發，30 秒快取）Windows 用 PowerShell Get-CimInstance Win32_Process（chrome.exe 的 ProcessId、ParentProcessId、WorkingSetSize、CommandLine），其他用 ps；以命令列含 `--user-data-dir=<data/bg/id>`（後面接引號、空白或結尾）且沒有 --type= 的當根，加總整棵子程序樹。status.mem.total、profiles[].mem {mb, procs}。
+  - Chrome 參數（無頭）：--process-per-site、--disable-gpu、--disable-gpu-compositing、--disable-extensions／component-update／default-apps／sync／background-networking／breakpad、--no-pings、更多 disable-features。看得到的視窗不加 --disable-gpu。要重開背景 Chrome 才生效。
+  - 省資源模式 cfg.lite（預設 true）：無頭分頁 Network.setBlockedURLs（圖片、音效、影片、字型副檔名；/api/appearance 沒副檔名不受影響），注入的程式把 requestAnimationFrame 改成 0.5 秒一格、CSS 動畫關掉，window.__szgBg.lite。保險：遊戲頁載入 2 分鐘還沒有 mapleSessionView → 該帳號 r.noLite（中控重開前有效）並 reapplyLite（換注入＋重整）。切換開關 → 每個執行中的帳號 reapplyLite。
+  - 定時重整 cfg.reloadHours（預設 6，0＝不要）：tick 每輪最多重整一頁、兩頁至少隔 RELOAD_GAP_MS（60 秒，測試 SZG_BG_RELOAD_GAP_MS）；依 performance.timeOrigin 算頁齡；agent 的 BG.isBusy()（agentBusy／agentRunning）、讓位中、看得到的視窗不重整。
+  - 面板：#acPerf（#acLite 開關會 confirm、#acReload），狀態欄顯示每帳號 MB、「完整模式」。mock 頁加一張 /game/res/test.png 與 /__mock/pnghits（只算沒 x-acct 的＝背景 Chrome）。e2e_bg 4a 段。
+  - 模擬環境的頁面很小，量不出省多少；要看使用者實機的數字。
