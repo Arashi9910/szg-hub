@@ -1,5 +1,5 @@
 """冒煙測試：3 個帳號連上中控、面板載入沒錯誤、模擬遊戲的公會倉庫與批次衝卷 API 可用"""
-import asyncio, json, sys
+import asyncio, json, sys, urllib.request
 from harness import Env, hub_json, HUB
 
 ok = True
@@ -31,6 +31,14 @@ async def main():
         await dash.goto(HUB + '/'); await dash.wait_for_timeout(3000)
         check(not errs, '面板沒有 JS 錯誤' + ('：' + errs[0] if errs else ''))
         check('本尊劍士' in await dash.inner_text('body'), '面板顯示角色名稱')
+        ver = json.loads(urllib.request.urlopen(HUB + '/api/changelog').read())
+        check(ver['changelog'] and ver['changelog'][0]['version'] == ver['version'] and len(ver['changelog']) <= 5, f"更新公告：最新一筆是目前版本、最多 5 筆（{[e['version'] for e in ver['changelog']]}）")
+        check(await dash.is_visible('#newsDot'), '有沒看過的更新：📢 按鈕亮紅點')
+        await dash.click('#newsBtn')
+        news = await dash.inner_text('#newsDrawer')
+        check(await dash.is_visible('#newsDrawer') and 'v' + ver['version'] in news and '怎麼用' in news, '點 📢 打開更新公告，有版本與「怎麼用」')
+        check(not await dash.is_visible('#newsDot'), '看過後紅點消失')
+        await dash.click('#newsClose')
 
         print('3. 模擬遊戲 API（下一階段開發用）')
         r = await game(pages[0], {'type': 'guildWarehouseBatch', 'op': 'deposit', 'items': [{'kind': 'item', 'item': 'i2040801', 'qty': 5}]})

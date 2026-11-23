@@ -1,11 +1,11 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-23（v0.58.1）
+最後更新：2026-11-23（v0.59.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
 - 每次更新的固定流程：
-  1. 改 `version.json` 版本號與 notes（新增檔案要加進 `files`）
+  1. 改 `version.json` 版本號與 notes（新增檔案要加進 `files`），**並在 `changelog` 最前面加一筆、只留最近 5 筆**（{version, date, title, items:[{type: new|fix|change, name, what, how}]}；新功能一定要寫 how＝怎麼用；只在私人版的整筆或單項加 `private: true`，公開版要不同說法用 `whatPublic` 之類的 xxxPublic 欄位）。make-public 會檢查最前面那筆是不是這一版，不是就中止。
   2. commit／push 私人 repo（作者 Claude，結尾加 Co-Authored-By 與 Claude-Session 兩行）
   3. `python3 tools/make-public.py <私人repo路徑> <公開repo路徑>` 產生公開版（會拿掉 REMOTE／TOKEN／Tailscale，新增的程式檔要加進 `tools/make-public.py` 的 FILES）
   4. 更新公開 repo 的 README（公開版 README 獨立維護），commit 後 `git -c push.negotiate=true push`
@@ -228,3 +228,4 @@
   - 面板：nav「帳號」(#accts)，header「🖥 背景」改成按鈕（#bgSum）帶到分頁；表格 tr.pickrow data-acpick（PICK_ATTRS 加 data-acpick）、⠿ data-drag（mousedown 才設 draggable，HTML5 DnD，拖曳中 ui.dragging 不重畫），input.ac-ed data-acf=name/email/note（change 存），角色小卡 .ac-ch（勾＝pages、名字按鈕 data-acshow＝顯示視窗），#acBatch 批次登入列（📋 複製 Email）。總覽 #ovCustom／#ovFromAcct、ui.ovSort 存 localStorage ovSort、key 'custom' 用 settings.ovOrder，列多 data-ovrow 與 ⠿。
   - 測試 e2e_bg.py 多 4b～4e（Xvfb :99 跑看得到的視窗；SZG_BG_LOGIN_PATH 支援 {name}）。
 - v0.58.1（2026-11-23 22:30 用 Claude in Chrome 看使用者實機）：12 個背景帳號、24 個分頁全部 running、資料 30 秒內、全部在掛機（使用者 Node v26、Chrome 在 C:\Program Files）。使用者看到的「錯誤紀錄」是遊戲 game.js 自己的 `client error during sync AbortError`（遊戲同步逾時、會重試）14 筆＋agent `hub timeout` 1 筆。bg.js 錯誤紀錄改成只記 console 訊息含 szg-hub／中控的，例外則排除 AbortError 類。帳號表格在使用者螢幕上太寬（操作欄要左右捲），之後可以再壓縮。
+- v0.59.0 更新公告（使用者：每次更新說明做了什麼，新功能簡單說明做什麼、怎麼用，留最近 5 次）：version.json `changelog`；GET /api/changelog（過濾 private、最多 5 筆）；面板 header「📢 更新」(#newsBtn，#newsDot 沒看過的新版亮紅點)＋#newsDrawer；localStorage newsSeen；新版第一次打開面板自動跳一次（navigator.webdriver 時不跳，免得擋住測試的點擊）；面板開著時 DATA.scriptVersion 變了就重抓。make-public 過濾 private、套 xxxPublic、檢查第一筆版本。e2e_smoke 多檢查公告。手機版還沒有公告。

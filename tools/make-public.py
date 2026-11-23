@@ -76,6 +76,16 @@ v = json.load(open(os.path.join(dst, 'version.json'), encoding='utf-8'))
 v['files'] = [f for f in v['files'] if f != 'start-remote.bat']
 # 私人版的更新說明可能提到私人功能：有 notesPublic 就用它當公開版的說明
 if 'notesPublic' in v: v['notes'] = v.pop('notesPublic')
+# 更新公告：最前面一筆一定要是這一版（避免忘了寫）；private:true 的整筆或單項不放公開版，xxxPublic 欄位換掉原本的
+cl = v.get('changelog') or []
+if not cl or cl[0].get('version') != v['version']: sys.exit(f"[中止] version.json 的 changelog 最前面要是 {v['version']}（每次發版加一筆，留最近 5 筆）")
+out = []
+for e in cl:
+    if e.get('private'): continue
+    e = {k: e[k + 'Public'] if k + 'Public' in e else val for k, val in e.items() if not k.endswith('Public')}
+    e['items'] = [{k: it[k + 'Public'] if k + 'Public' in it else val for k, val in it.items() if not k.endswith('Public') and k != 'private'} for it in e.get('items', []) if not it.get('private')]
+    if e['items']: out.append(e)
+v['changelog'] = out[:5]
 
 json.dump(v, open(os.path.join(dst, 'version.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 # 私人功能不能漏到公開版：私人區塊的關鍵字放這裡（目前沒有私人功能；公會倉庫已在 v0.32.0 公開）
