@@ -295,6 +295,25 @@ async def main():
         await dash.close()
         check(gone, '背景 Chrome 關掉了')
         check(prof(pid)['state'] == 'off' and not prof(pid)['on'], '狀態是停止，重開中控也不會自動開')
+        print('8. 有殘留的 Chrome 佔著資料夾（登入視窗關了但程式沒結束）')
+        d1 = prof(pid)['dir']
+        stale = subprocess.Popen([CHROMIUM, '--headless=new', '--no-sandbox', f'--user-data-dir={d1}', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        await asyncio.sleep(3)
+        check(stale.poll() is None and chrome_procs(pid), '殘留的 Chrome 在跑（沒有接 DevTools）')
+        hub_json('POST', '/api/bg/start', {'id': pid})
+        ok = await until(lambda: prof(pid)['state'] == 'running', 60)
+        check(ok, f"開始時自動結束殘留的 Chrome，背景照常啟動（{prof(pid)['state']} {prof(pid)['msg']}）")
+        check(stale.poll() is not None, '殘留的那個 Chrome 已被結束')
+        hub_json('POST', '/api/bg/stop', {'id': pid}); await until(lambda: not chrome_procs(pid), 20)
+        print('9. Chrome 一啟動就結束 → 錯誤寫出原因')
+        bad = '/tmp/_szg_badchrome.sh'
+        open(bad, 'w').write('#!/bin/sh\necho "fake chrome: profile is broken" >&2\nexit 21\n'); os.chmod(bad, 0o755)
+        hub_json('POST', '/api/bg/config', {'chromePath': bad})
+        hub_json('POST', '/api/bg/start', {'id': pid})
+        ok = await until(lambda: prof(pid)['state'] == 'error' or None, 20)
+        m = prof(pid)['msg']
+        check(ok and '一啟動就結束' in m and '21' in m and 'profile is broken' in m, f'錯誤訊息寫出結束碼和 Chrome 的訊息（{m[:160]}）')
+        hub_json('POST', '/api/bg/stop', {'id': pid}); hub_json('POST', '/api/bg/config', {'chromePath': ''}); os.remove(bad)
         errs = [l for l in env.logs if 'pageerror' in l]
         check(not errs, '你自己的遊戲分頁沒有 JS 錯誤' + ('：' + errs[0] if errs else ''))
 
