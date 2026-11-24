@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-24（v0.66.0）
+最後更新：2026-11-24（v0.66.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -266,3 +266,4 @@
   - lobbyhub.js：publish 送隊員欄位＋自己角色的全身照（avaSentN）；申請帶全身照、加入後有新全身照就 /api/myava；`partyTick()`（SZG_PARTY_TICK_MS 預設 5 秒）：成員變化通知（每隊由第一隻自己的角色記 pmem）＋跟隨（settings.lobbyFollow 預設開；條件：隊長 map 從 prev 變 cur、這隻原本在 prev、auto、cur 不是王圖（world maps 有 boss／bossSpawns）、沒有 party／boss 工作）；`note()` → db.lobbyState.notes（50 筆）；`myParties()`；action follow／leave／kick。
   - 面板：👥 我的隊伍 #lbParties（data-lbleave、data-lbkick="隊長|隊員|名字"、#lbFollow）、🔔 通知 #lbNotes（新通知 toast）、卡片隊員 .lb-m、`defAvaSvg(branch)`（原創 SVG 小人，dashboard 與 lobby.html 各一份）。
   - lobby.html：隊員列、預設角色圖、「我加入的隊伍」#joined、隊長換圖通知 #notices（localStorage lobby:seenMap、桌面通知、標題閃爍）。
+- v0.66.1：實機大廳卡片上隊員 noava——中控更新後先送 avas、大廳 lobby.js 30 秒後才自己重開成新版，舊版沒收 avas，中控卻記成已送。改成 publish 回應帶 avas（收下的名字），中控只記這些（新 key avaSent2，舊的全部重送）。實機 2026-11-24 18:20：外部玩家「賺錢002」已加入佐藤打幣1 的大廳隊伍；你的 5 個隊伍都列在「我的隊伍」。
