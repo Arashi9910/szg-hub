@@ -194,7 +194,7 @@ function partyOf(c) {
   // 真實遊戲的隊伍會帶聊天紀錄（最多 40 則）和每個隊員一堆欄位；MOCK_PARTY_MSGS=40 模擬這個大小
   const nMsg = Number(process.env.MOCK_PARTY_MSGS) || 0;
   const messages = Array.from({ length: nMsg }, (_, i) => ({ id: 'm' + i, at: Date.now() - i * 60000, from: 'c3', name: '弓箭分身', text: '測試訊息'.repeat(8) + i, kind: 'chat', mapInstanceId: 'inst-' + i }));
-  return { code: c.partyCode, leader: p.leader, notice: nMsg ? '公告'.repeat(30) : '', messages, members: p.members.map(charById).filter(Boolean).map(m => ({ id: m.id, name: m.name, lv: m.lv, job: m.job, map: m.map, auto: m.auto, hp: m.hp, maxhp: m.maxhp, leader: m.id === p.leader, self: m.id === c.id, ...(nMsg ? { mapInstanceId: 'inst-' + m.map, buffs: 'b'.repeat(500), equipSummary: 'e'.repeat(200) } : {}) })) };
+  return { code: c.partyCode, leader: p.leader === c.id, notice: nMsg ? '公告'.repeat(30) : '', messages, members: p.members.map(charById).filter(Boolean).map(m => ({ id: m.id, name: m.name, lv: m.lv, job: m.job, map: m.map, auto: m.auto, hp: m.hp, maxhp: m.maxhp, leader: m.id === p.leader, self: m.id === c.id, ...(nMsg ? { mapInstanceId: 'inst-' + m.map, buffs: 'b'.repeat(500), equipSummary: 'e'.repeat(200) } : {}) })) };
 }
 // 一開始的隊伍（帳號建好之後）
 function initParty() {

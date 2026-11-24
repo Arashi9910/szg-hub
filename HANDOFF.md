@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-24（v0.64.0）
+最後更新：2026-11-24（v0.64.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -257,3 +257,4 @@
   - server.js：`createPartyJob()`（kind party、minAgent 0.64.0；agentTooOld 支援 job.minAgent）、/api/lobby（GET view）、/api/lobby/{cfg,pub,request,decide,cancel,host}、/api/lobby/admin（只限本機）。agent runPartyJob：role kick（partyKick {memberId}）、member 帶 p.code 不用等、leader 沒 runId 不回報、p.noStart。mock 加 partyKick。
   - 面板 #lobby：#lbStatus（連線、開關、網址、架設、管理）、我的招募 #lbPubs（data-lbpub、data-lbf、data-lbdec）、大廳隊伍 #lbList（.lb-card、data-lbreq；ui.lb 存 localStorage lobbyUi）、我送出的申請 #lbOut。
   - 使用者要做：在他電腦（系統管理員命令提示字元）`tailscale funnel --bg --https=8443 8790`（第一次會要他在網頁核准開 Funnel）；面板「組隊大廳 → 大廳網址 → 這台電腦架設大廳」打開。
+- v0.64.1：實機公布後大廳沒有隊伍——真實遊戲同步回應的 party.leader 是布林（自己是不是隊長），members[].leader／self 是旗標；mock 的 party.leader 是 id。buildListing 改成 party.leader===true／===charId／自己那筆 member.leader／只有一人 都算隊長。（2026-11-24 實機：Funnel 已開 https://desktop-90ip8gr.tail33a91c.ts.net:8443 → 8790，大廳在跑；從雲端沒辦法驗證外網連得到，請使用者用手機行動網路測。）注意：其他地方若用 party.leader 當 id 要小心。
