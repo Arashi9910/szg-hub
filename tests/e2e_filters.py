@@ -51,7 +51,7 @@ async def main():
         await d.click('#gxChars [data-cpc="gx|c3"]'); await d.wait_for_timeout(500)
         who = await d.inner_text('#gxBagOut')
         check('弓箭分身' not in who and '本尊劍士' in who, f'公倉背包欄只看本尊劍士（{n1} → {await d.locator("#gxBagOut tr[data-gxpick]").count()} 種）')
-        check([await b.get_attribute('data-gwtab') for b in await d.locator('#gwTabs button').all()] == ['gear', 'scroll', 'use', 'etc'], '公倉類別順序：裝備、卷軸、消耗、其他（跟背包一樣）')
+        check([await b.get_attribute('data-gwtab') for b in await d.locator('#gwTabs button').all()] == ['gear', 'scroll', 'use', 'book', 'etc'], '公倉類別順序：裝備、卷軸、消耗、技能書、其他（跟背包一樣）')
         await d.click('nav button[data-tab=bag]'); await d.wait_for_timeout(500)
         await d.click('#bCharPick [data-cp="bag|custom"]'); await d.wait_for_timeout(300)
         await d.click('#bCharPick [data-cpc="bag|c1"]'); await d.wait_for_timeout(500)

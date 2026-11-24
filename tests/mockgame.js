@@ -17,6 +17,7 @@ const items = {
   i4000001: { id: 4000001, name: '綠水靈珠', type: '其他', sellPrice: 8 },
   i4000016: { id: 4000016, name: '紅寶殼', type: '其他', sellPrice: 12 },
   i4031052: { id: 4031052, name: '任務道具', type: '其他', sellPrice: 0 },
+  i2290001: { id: 2290001, name: '技能書：測試四轉技能', type: '技能書', sellPrice: 1 },
 };
 const scrolls = {
   i2040801: { id: 2040801, name: '手套攻擊卷軸 60%', type: '卷軸', rate: 60, target: 'gloves', stats: { incPAD: 2 }, sellPrice: 500 },
@@ -109,7 +110,7 @@ function addAccount(acct, code, chars) {
 }
 addAccount('A1', 'A1B2C3D4E5F6', [
   makeChar('c1', '本尊劍士', 'fighter', 45, 'gms104040000', { money: 30000000, gear: { weapon: makeGear('e1302000') },
-    inventory: { i2000000: 300, i2000003: 200, i2040801: 12, i2040805: 5, i2043001: 4, i2044501: 5200, i2040899: 30 } }),
+    inventory: { i2000000: 300, i2000003: 200, i2040801: 12, i2040805: 5, i2043001: 4, i2044501: 5200, i2040899: 30, i2290001: 3 } }),
   makeChar('c2', '本尊小號', 'beginner', 12, 'gms100010000'),
 ]);
 addAccount('A2', 'B2C3D4E5F6A1', [makeChar('c3', '弓箭分身', 'hunter', 32, 'gms104040000', { auto: true, until: Date.now() + 8 * 3600e3, gear: { weapon: makeGear('e1452002') } })]);

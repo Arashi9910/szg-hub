@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-24（v0.62.2）
+最後更新：2026-11-24（v0.63.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -18,7 +18,7 @@
   - 教學截圖：`SZG_REPO=/tmp/pubtest python3 tests/guide_shots.py /tmp/shots`，再複製到公開 repo `docs/images/guide/`。
   - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab 偶爾不穩，重跑一次就過。
   - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
-  - 測試清單（42 支）：bg（約 4 分鐘）、smoke、boss_chain、boss_party4、mobile、boss_cards、dex、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
+  - 測試清單（43 支）：bg（約 15 分鐘）、skillbook、smoke、boss_chain、boss_party4、mobile、boss_cards、dex、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
 - **實機驗證**：使用者的 Chrome（Claude in Chrome）開 http://127.0.0.1:8787/ 用 javascript 呼叫 API 看資料；做完要關掉自己開的分頁。不要直接開 play.szg08.com（會導到 /game/、中控腳本會在那個分頁跑），讀遊戲程式碼從 https://play.szg08.com/robots.txt 分頁 `fetch('/game/game.js')`，輸出只取識別字或計數（整段原始碼會被輸出過濾擋掉）。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定（手機版 v0.53 起公開版也有，只能走 tailscale serve；遠端版腳本／REMOTE=1／共用通行碼仍只在私人版）。公會倉庫 v0.32 起公開版也有。
 - 公開 repo 自己維護的檔案（make-public 不會覆蓋）：README.md、.gitignore、`docs/mobile.md`（手機版教學）、`docs/guide.md`＋`docs/images/guide/`（圖文安裝與使用教學）。功能有變動時記得順便更新這些文件。
@@ -244,3 +244,10 @@
 - v0.62.1：使用者回報省了約 10%、帳號分頁記憶體沒有值。實機 /api/bg：mem.total 0、err 空（有讀到程序但一個都沒對到），各帳號 mem null；推測資料夾路徑有中文、PowerShell 預設 Big5 輸出變亂碼。改成 PowerShell 先設 OutputEncoding UTF8，比對只用 `[\/]bg[\/]<id>` 後接引號／空白／斜線／結尾；拆 pageMb（--type=renderer）與 baseMb（其他），status.mem 多 page、base、procs、matched，對不到時 err「對不到背景 Chrome 的程序」。實機省資源模式：12 個帳號只有「佐藤龍騎3」自動改回完整模式。使用者在問 ⑤ 合併成一個 Chrome 的做法（BrowserContext＋中控保存還原登入資料），還沒決定要不要做。
 - 2026-11-24 01:35 實機記憶體（v0.62.1 修好後）：12 帳號 24 分頁共 11.6 GB＝遊戲分頁 7.0 GB（每帳號 430～760 MB）＋Chrome 本身 4.6 GB（多數 ~335 MB／9 個程序；龍騎4、龍騎5、火毒是 12 個程序、約 490～540 MB，應該還是舊參數沒重開）。⑤ 合併成一個 Chrome 估計可省 Chrome 本身那塊的大部分（約 3.5～4 GB）。
 - v0.62.2（使用者：帳號分頁全勾／不勾按開始、停止都沒反應）：實機查其實有作用（12 個帳號都剛重開、全部變 9 個程序、記憶體 11.6→8.4 GB），只是 action 'all' 同步跑完 1～2 分鐘才回應、畫面沒變化。改成 `allJob` 背景依序進行、立刻回 status；status.all {op, total, done, skipped, cur, end}（做完 15 秒內還會回）；開始時已在跑的略過，停止時 r.state='stopping'。面板 #acBatch 顯示進度、進行中鎖住兩個按鈕；BG_STATE 加 stopping。e2e_bg 第 7 段改用面板按鈕。
+- v0.63.0 技能書獨立分類（使用者：技能書獨立一類、可以自動存倉、所有碰到道具分類的地方都要改；推翻 v0.54.2 的併進消耗）：
+  - agent itemInfo 不再把 type『技能書』轉成消耗（cat 仍依編號 2xxxxxx＝consume，賣出／報價照遊戲分頁）。
+  - dashboard：`isBookId(id)`（WORLD.names[id][1]==='技能書'）；poll 把舊腳本回報的「消耗」且是技能書的改回技能書；itemKindOfKey 先判技能書；BAG_KIND_ORDER 加在消耗後；`GW_TABS`／`gwTabOfKind`、公倉分頁多 book（#gwTabs、GW_KIND、計數）；存入規則個別挑選 #gdKinds 多技能書、「其他」改用 gwTabOfKind；快速套用 data-gdpreset="addbook"（只加不清）；派工自動販售範本分組多技能書；allKinds 依 kindRank 排序（市場規則、收集、背包篩選的類別 chips 順序一致）。
+  - server：`bookIds()`（world.json names 類別、依 mtime 快取）＋`itemKind(it)` 用在 guildPlanFor（自動存入／預覽），舊腳本回報的也算對。
+  - mock 多 i2290001 技能書（c1 ×3）。測試 `tests/e2e_skillbook.py`；e2e_filters 公倉分頁順序改成含 book。
+  - 實機（12:50 查）：存入規則 cats=['卷軸']＋個別 9 種、自動存入開（每 60 分）、收集 kinds=['卷軸']、市場一條規則不限類別 → 沒有既有設定因為拆分而改變行為。沒有替使用者把技能書加進存入規則（4 轉技能書角色自己可能要用），請他自己按「＋ 技能書」。
+  - e2e_guild_auto「沒有卷軸時不建立工作」偶爾失敗（改動前也會，mock 掛機撿到卷軸），重跑會過。
