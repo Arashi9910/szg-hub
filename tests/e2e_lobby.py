@@ -111,7 +111,11 @@ async def main():
             await d1.click('nav button[data-tab=overview]'); await d1.click('nav button[data-tab=lobby]'); await d1.wait_for_timeout(2500)
             pt = await d1.inner_text('#lbParties')
             check('本尊劍士 的隊伍' in pt and '弓箭分身' in pt and '倉庫分身' in pt and pt.count('踢出') == 2, '隊長的「我的隊伍」列出隊員和踢出按鈕')
-            imgs = await d1.eval_on_selector_all('#lbList .lb-m img', 'es => es.map(e => e.getAttribute("src"))')
+            imgs = []
+            for _ in range(20):
+                imgs = await d1.eval_on_selector_all('#lbList .lb-m img', 'es => es.map(e => e.getAttribute("src"))')
+                if len(imgs) == 3: break
+                await d1.wait_for_timeout(1000)
             check(len(imgs) == 3 and all(imgs), f'大廳卡片每個隊員都有圖（{len(imgs)}）')
 
             print('3c. 隊長換圖 → 隊員跟著換')
