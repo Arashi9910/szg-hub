@@ -7,7 +7,7 @@
 4. 網頁的手動審核：網頁隊長收到不符自動同意的申請，按同意
 """
 import asyncio, json, os, shutil, subprocess, sys, time
-os.environ.update({'MOCK_MORE_ACCTS': '1', 'SZG_LOBBY_URL': 'http://127.0.0.1:8790', 'SZG_LOBBY_POLL_MS': '2000', 'SZG_LOBBY_PUB_MS': '4000'})
+os.environ.update({'SZG_PARTY_TICK_MS': '2000', 'MOCK_MORE_ACCTS': '1', 'SZG_LOBBY_URL': 'http://127.0.0.1:8790', 'SZG_LOBBY_POLL_MS': '2000', 'SZG_LOBBY_PUB_MS': '4000'})
 from harness import Env, hub_json, http, HUB, MOCK, REPO, wait_url
 
 LOBBY = 'http://127.0.0.1:8790'
@@ -97,6 +97,20 @@ async def main():
             rid = next(x['id'] for x in hub_json('GET', '/api/lobby')['incoming'] if x['char']['name'] == '第四隻')
             chk = await until(lambda: (hub_json('GET', '/api/lobby')['chk'].get(rid) or {}).get('result'), 60)
             check(chk == 'ok', f'中控用遊戲資料核對網頁申請者：相符（{chk}）')
+
+            print('2b. 網頁：隊員、預設角色圖、隊長換圖通知')
+            await w5.click('[data-tab="find"]'); await w5.wait_for_timeout(5500)
+            card = w5.locator('.lc:has-text("本尊劍士")')
+            check('第四隻' in await card.inner_text() and '👑' in await card.inner_text(), '隊伍卡片列出隊員（含網頁加入的第四隻）、隊長標記')
+            srcs = await w5.eval_on_selector_all('.lc:has-text("倉庫分身") img', 'es => es.map(e => e.getAttribute("src"))')
+            check(srcs and srcs[0].startswith('data:image/svg'), '網頁隊長沒有全身照 → 顯示預設角色圖')
+            await w5.click('[data-tab="mine"]'); await w5.wait_for_timeout(1500)
+            check('本尊劍士 的隊伍' in await w5.inner_text('#joined'), '「我加入的隊伍」顯示隊伍和隊員')
+            hub_json('POST', '/api/idle', {'targets': [{'charId': 'c1', 'action': 'map', 'map': 'gms100010000'}]})
+            await w5.wait_for_selector('#notices .notice', timeout=60000)
+            check('換到' in await w5.inner_text('#notices'), f"隊長換圖 → 網頁隊員收到通知（{(await w5.inner_text('#notices'))[:60]}）")
+            await w5.click('#notices [data-dismiss]'); await w5.wait_for_timeout(300)
+            check(await w5.locator('#notices .notice').count() == 0, '按「知道了」收起通知')
 
             print('3. 網頁謊報')
             w6 = await web_page(env.browser)

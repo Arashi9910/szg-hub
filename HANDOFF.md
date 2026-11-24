@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-24（v0.65.0）
+最後更新：2026-11-24（v0.66.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -259,3 +259,10 @@
   - 使用者要做：在他電腦（系統管理員命令提示字元）`tailscale funnel --bg --https=8443 8790`（第一次會要他在網頁核准開 Funnel）；面板「組隊大廳 → 大廳網址 → 這台電腦架設大廳」打開。
 - v0.64.1：實機公布後大廳沒有隊伍——真實遊戲同步回應的 party.leader 是布林（自己是不是隊長），members[].leader／self 是旗標；mock 的 party.leader 是 id。buildListing 改成 party.leader===true／===charId／自己那筆 member.leader／只有一人 都算隊長。（2026-11-24 實機：Funnel 已開 https://desktop-90ip8gr.tail33a91c.ts.net:8443 → 8790，大廳在跑；從雲端沒辦法驗證外網連得到，請使用者用手機行動網路測。）注意：其他地方若用 party.leader 當 id 要小心。
 - v0.65.0 組隊大廳網頁版（使用者：開一個只有組隊大廳功能的網頁讓更多人測試；確認遊戲畫面可以輸入隊伍代碼）：`lobby.html`（大廳 GET / 每次讀檔，改 html 不用重開大廳；加 /robots.txt）。網頁 localStorage lobby:token（register {web:true} → client.web）、lobby:me（申請用角色：名稱、等級、職業）、lobby:recruit（公布表單、on）、lobby:ui。網頁公布 key 'web'、自填 code、size（lobby 的 sizeOf=max(members, size)，只有 web client 收 size）、網頁開著每 30 秒重送；申請通過顯示代碼＋「我已經加入了」（/api/joined）。/api/mine 對 web client 多回 listing 內容。listing.web、request.char.web；中控面板顯示「網頁」tag。中控核對網頁申請者：char.job 空 → 只核對等級（名字要一樣）。測試 tests/e2e_lobby_web.py（網頁隊長 c4 用 mock partyCreate 的代碼；網頁申請者 c5／c6 用 mock partyJoin 模擬自己輸入代碼）。
+- v0.65.1（緊急，使用者：大廳網頁有中控的 GitHub 連結要拿掉）：從 /tmp/hotfix 另外 clone 只改 lobby.html 發版，實機確認網頁已沒有連結。**大廳網頁（lobby.html）不要放 GitHub 或任何中控連結**。
+- v0.66.0 大廳介面（使用者：隊伍有哪些人要清楚、要退出組隊和隊長踢人的按鈕、隊長換圖隊員一起換、下面要有通知、沒中控的人給預設角色圖）：
+  - agent 快照 party.members 多 jobName、branch（catalog.jobs／jobBranch）；runPartyJob role 'leave'（partyLeave）、'follow'（ops false＝換圖＋start）。
+  - lobby.js：members 存 branch、map、mapName、leader；db.avas[角色名稱]＝全身照（publish 的 avas、request 的 char.ava、/api/myava 補送），/ava/n/<名稱>.gif；pubMember 帶 ava、sameMap；body 上限 320KB；avas 14 天清掉。
+  - lobbyhub.js：publish 送隊員欄位＋自己角色的全身照（avaSentN）；申請帶全身照、加入後有新全身照就 /api/myava；`partyTick()`（SZG_PARTY_TICK_MS 預設 5 秒）：成員變化通知（每隊由第一隻自己的角色記 pmem）＋跟隨（settings.lobbyFollow 預設開；條件：隊長 map 從 prev 變 cur、這隻原本在 prev、auto、cur 不是王圖（world maps 有 boss／bossSpawns）、沒有 party／boss 工作）；`note()` → db.lobbyState.notes（50 筆）；`myParties()`；action follow／leave／kick。
+  - 面板：👥 我的隊伍 #lbParties（data-lbleave、data-lbkick="隊長|隊員|名字"、#lbFollow）、🔔 通知 #lbNotes（新通知 toast）、卡片隊員 .lb-m、`defAvaSvg(branch)`（原創 SVG 小人，dashboard 與 lobby.html 各一份）。
+  - lobby.html：隊員列、預設角色圖、「我加入的隊伍」#joined、隊長換圖通知 #notices（localStorage lobby:seenMap、桌面通知、標題閃爍）。

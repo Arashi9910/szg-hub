@@ -8,7 +8,7 @@
 5. 關掉大廳 → 公告馬上下架
 """
 import asyncio, json, os, shutil, subprocess, sys, time
-os.environ.update({'MOCK_MORE_ACCTS': '1', 'SZG_LOBBY_URL': 'http://127.0.0.1:8790', 'SZG_LOBBY_POLL_MS': '2000', 'SZG_LOBBY_PUB_MS': '4000'})
+os.environ.update({'MOCK_APPEARANCE': '1', 'SZG_PARTY_TICK_MS': '2000', 'MOCK_MORE_ACCTS': '1', 'SZG_LOBBY_URL': 'http://127.0.0.1:8790', 'SZG_LOBBY_POLL_MS': '2000', 'SZG_LOBBY_PUB_MS': '4000'})
 from harness import Env, hub_json, http, HUB, MOCK, REPO, wait_url
 
 HUB2 = 'http://127.0.0.1:8788'
@@ -103,6 +103,29 @@ async def main():
             check(joined, '隊長按同意 → c4 自動加入')
             check(await until(lambda: char('A3', 'c4')['map'] == char('A1', 'c1')['map'] and char('A3', 'c4')['auto'], 30), 'c4 換到 c1 的地圖並開始掛機')
 
+            print('3b. 隊員顯示、全身照')
+            l = await until(lambda: (lambda ls: ls[0] if ls and len(ls[0]['members']) == 3 and all(m.get('branch') for m in ls[0]['members']) else None)(json.loads(http('GET', LOBBY + '/api/listings')[1])['listings']), 60)
+            check(l and [m['leader'] for m in l['members']].count(True) == 1 and {m['branch'] for m in l['members']} == {'劍士', '弓箭手'}, f"大廳的隊員有職業、隊長標記（{l and [(m['name'], m['branch'], m['leader']) for m in l['members']]}）")
+            ava3 = await until(lambda: next((m['ava'] for m in json.loads(http('GET', LOBBY + '/api/listings')[1])['listings'][0]['members'] if m['name'] == '弓箭分身' and m['ava']), None), 90, 3)
+            check(ava3 and http('GET', LOBBY + ava3.split('?')[0])[0] == 200, '別台中控的隊員也有全身照（申請時送過來的）')
+            await d1.click('nav button[data-tab=overview]'); await d1.click('nav button[data-tab=lobby]'); await d1.wait_for_timeout(2500)
+            pt = await d1.inner_text('#lbParties')
+            check('本尊劍士 的隊伍' in pt and '弓箭分身' in pt and '倉庫分身' in pt and pt.count('踢出') == 2, '隊長的「我的隊伍」列出隊員和踢出按鈕')
+            imgs = await d1.eval_on_selector_all('#lbList .lb-m img', 'es => es.map(e => e.getAttribute("src"))')
+            check(len(imgs) == 3 and all(imgs), f'大廳卡片每個隊員都有圖（{len(imgs)}）')
+
+            print('3c. 隊長換圖 → 隊員跟著換')
+            hub_json('POST', '/api/idle', {'targets': [{'charId': 'c1', 'action': 'map', 'map': 'gms100010000'}]})
+            moved = await until(lambda: char('A1', 'c1')['map'] == 'gms100010000', 40)
+            check(moved, '隊長 c1 換到新地圖')
+            fol = await until(lambda: char('A2', 'c3')['map'] == 'gms100010000' and char('A3', 'c4')['map'] == 'gms100010000', 90)
+            check(fol, f"別台中控的隊員 c3、c4 自動跟著換圖（c3 {char('A2', 'c3')['map']}、c4 {char('A3', 'c4')['map']}）")
+            check(await until(lambda: char('A2', 'c3')['auto'] and char('A3', 'c4')['auto'], 30), '跟過去後重新開始掛機')
+            notes = await until(lambda: [n['msg'] for n in j2('GET', '/api/lobby')['notes'] if '跟著過去' in n['msg']], 20)
+            check(notes and len(notes) >= 2, f'隊員的中控有通知（{notes[:2] if notes else notes}）')
+            await d2.click('nav button[data-tab=overview]'); await d2.click('nav button[data-tab=lobby]'); await d2.wait_for_timeout(2500)
+            check('跟著過去' in await d2.inner_text('#lbNotes'), '通知顯示在大廳分頁下方')
+
             print('4. 謊報')
             async def lie():
                 snap = j2('GET', '/api/data')['chars']['c5']; snap['char']['lv'] = 60
@@ -128,6 +151,17 @@ async def main():
                 for j in j2('GET', '/api/data')['jobs']:
                     if j['kind'] == 'party': print('    hub2 job', j['fromName'], j['status'], j['lastMsg'][:80], j['batches'][0]['party'].get('role'))
             check(sz, f"大廳上隊伍人數跟著更新（3/6）：{[l['size'] for l in json.loads(http('GET', LOBBY + '/api/listings')[1])['listings']]}，遊戲隊伍 {[k for a in mock().values() for k, c in a['chars'].items() if c.get('partyCode') == ok1]}，中控 c1 快照 {[m['name'] for m in (hub_json('GET', '/api/data')['chars']['c1'].get('party') or {}).get('party', {}).get('members', [])]}")
+
+            print('4b. 踢人、退出（面板按鈕）')
+            await d1.click('nav button[data-tab=overview]'); await d1.click('nav button[data-tab=lobby]'); await d1.wait_for_timeout(2500)
+            await d1.click('[data-lbkick*="|c4|"]')
+            check(await until(lambda: not char('A3', 'c4').get('partyCode'), 60), '隊長按「踢出」→ c4 離開隊伍')
+            await d2.click('nav button[data-tab=overview]'); await d2.click('nav button[data-tab=lobby]'); await d2.wait_for_timeout(2500)
+            await d2.wait_for_selector('[data-lbleave="c3"]', timeout=15000)
+            await d2.click('[data-lbleave="c3"]')
+            check(await until(lambda: not char('A2', 'c3').get('partyCode'), 60), '隊員按「退出隊伍」→ c3 離開')
+            left = await until(lambda: (lambda x: x if len(x) >= 3 else None)([n['msg'] for n in hub_json('GET', '/api/lobby')['notes'] if '離開了' in n['msg']]), 60, 2)
+            check(left and any('倉庫分身' in x for x in left) and any('弓箭分身' in x for x in left), f'隊長的中控通知誰離開（{left[:3] if left else left}）')
 
             print('5. 關掉大廳')
             hub_json('POST', '/api/lobby/cfg', {'on': False})
