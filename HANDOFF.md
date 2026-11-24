@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-24（v0.64.1）
+最後更新：2026-11-24（v0.65.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -18,7 +18,7 @@
   - 教學截圖：`SZG_REPO=/tmp/pubtest python3 tests/guide_shots.py /tmp/shots`，再複製到公開 repo `docs/images/guide/`。
   - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab 偶爾不穩，重跑一次就過。
   - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
-  - 測試清單（44 支）：bg（約 15 分鐘）、lobby（約 4 分鐘，起一個大廳＋第二台中控 /tmp/hub2 port 8788）、skillbook、smoke、boss_chain、boss_party4、mobile、boss_cards、dex、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
+  - 測試清單（44 支）：bg（約 15 分鐘）、lobby（約 4 分鐘，起一個大廳＋第二台中控 /tmp/hub2 port 8788）、lobby_web（約 3 分鐘）、skillbook、smoke、boss_chain、boss_party4、mobile、boss_cards、dex、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
 - **實機驗證**：使用者的 Chrome（Claude in Chrome）開 http://127.0.0.1:8787/ 用 javascript 呼叫 API 看資料；做完要關掉自己開的分頁。不要直接開 play.szg08.com（會導到 /game/、中控腳本會在那個分頁跑），讀遊戲程式碼從 https://play.szg08.com/robots.txt 分頁 `fetch('/game/game.js')`，輸出只取識別字或計數（整段原始碼會被輸出過濾擋掉）。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定（手機版 v0.53 起公開版也有，只能走 tailscale serve；遠端版腳本／REMOTE=1／共用通行碼仍只在私人版）。公會倉庫 v0.32 起公開版也有。
 - 公開 repo 自己維護的檔案（make-public 不會覆蓋）：README.md、.gitignore、`docs/mobile.md`（手機版教學）、`docs/guide.md`＋`docs/images/guide/`（圖文安裝與使用教學）。功能有變動時記得順便更新這些文件。
@@ -258,3 +258,4 @@
   - 面板 #lobby：#lbStatus（連線、開關、網址、架設、管理）、我的招募 #lbPubs（data-lbpub、data-lbf、data-lbdec）、大廳隊伍 #lbList（.lb-card、data-lbreq；ui.lb 存 localStorage lobbyUi）、我送出的申請 #lbOut。
   - 使用者要做：在他電腦（系統管理員命令提示字元）`tailscale funnel --bg --https=8443 8790`（第一次會要他在網頁核准開 Funnel）；面板「組隊大廳 → 大廳網址 → 這台電腦架設大廳」打開。
 - v0.64.1：實機公布後大廳沒有隊伍——真實遊戲同步回應的 party.leader 是布林（自己是不是隊長），members[].leader／self 是旗標；mock 的 party.leader 是 id。buildListing 改成 party.leader===true／===charId／自己那筆 member.leader／只有一人 都算隊長。（2026-11-24 實機：Funnel 已開 https://desktop-90ip8gr.tail33a91c.ts.net:8443 → 8790，大廳在跑；從雲端沒辦法驗證外網連得到，請使用者用手機行動網路測。）注意：其他地方若用 party.leader 當 id 要小心。
+- v0.65.0 組隊大廳網頁版（使用者：開一個只有組隊大廳功能的網頁讓更多人測試；確認遊戲畫面可以輸入隊伍代碼）：`lobby.html`（大廳 GET / 每次讀檔，改 html 不用重開大廳；加 /robots.txt）。網頁 localStorage lobby:token（register {web:true} → client.web）、lobby:me（申請用角色：名稱、等級、職業）、lobby:recruit（公布表單、on）、lobby:ui。網頁公布 key 'web'、自填 code、size（lobby 的 sizeOf=max(members, size)，只有 web client 收 size）、網頁開著每 30 秒重送；申請通過顯示代碼＋「我已經加入了」（/api/joined）。/api/mine 對 web client 多回 listing 內容。listing.web、request.char.web；中控面板顯示「網頁」tag。中控核對網頁申請者：char.job 空 → 只核對等級（名字要一樣）。測試 tests/e2e_lobby_web.py（網頁隊長 c4 用 mock partyCreate 的代碼；網頁申請者 c5／c6 用 mock partyJoin 模擬自己輸入代碼）。
