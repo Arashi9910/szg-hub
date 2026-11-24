@@ -6,7 +6,7 @@
 import sys, os, shutil, json
 
 src, dst = sys.argv[1], sys.argv[2]
-FILES = ['server.js', 'market.js', 'extdb.js', 'update.js', 'agent.js', 'bg.js', 'lobby.js', 'lobby.html', 'lobbyhub.js', 'dashboard.html', 'm.html', 'szg-hub.user.js', 'version.json', 'quiz-bank.json', 'start.bat']
+FILES = ['server.js', 'market.js', 'extdb.js', 'update.js', 'agent.js', 'bg.js', 'lobby.js', 'lobby.html', 'lobbyhub.js', 'dashboard.html', 'm.html', 'szg-hub.user.js', 'version.json', 'quiz-bank.json', 'start.bat', 'start.command']
 
 def edit(text, pairs, name):
     for a, b in pairs:
@@ -22,7 +22,7 @@ def cut(text, start, end, name, keep_end=True):
     return text[:i] + (text[j:] if keep_end else text[j + len(end):])
 
 for f in FILES:
-    shutil.copyfile(os.path.join(src, f), os.path.join(dst, f))
+    shutil.copy2(os.path.join(src, f), os.path.join(dst, f))  # copy2：保留 start.command 的執行權限
 # 共享題庫的 Apps Script（讓別人自己架一份）
 os.makedirs(os.path.join(dst, 'tools'), exist_ok=True)
 shutil.copyfile(os.path.join(src, 'tools', 'quiz-share.gs'), os.path.join(dst, 'tools', 'quiz-share.gs'))
@@ -69,7 +69,7 @@ open(p, 'w', encoding='utf-8').write(s)
 
 p = os.path.join(dst, 'update.js'); s = open(p, encoding='utf-8').read()
 s = edit(s, [("const OWNER_REPO = 'Arashi9910/szg-hub';", "const OWNER_REPO = 'Arashi9910/szg-hub-public';"),
-             ("new Set(['start.bat', 'start-remote.bat'])", "new Set(['start.bat'])")], 'update.js')
+             ("new Set(['start.bat', 'start-remote.bat', 'start.command'])", "new Set(['start.bat', 'start.command'])")], 'update.js')
 open(p, 'w', encoding='utf-8').write(s)
 
 v = json.load(open(os.path.join(dst, 'version.json'), encoding='utf-8'))

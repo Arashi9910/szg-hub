@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-24（v0.67.0）
+最後更新：2026-11-24（v0.67.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -269,3 +269,4 @@
 - v0.66.1：實機大廳卡片上隊員 noava——中控更新後先送 avas、大廳 lobby.js 30 秒後才自己重開成新版，舊版沒收 avas，中控卻記成已送。改成 publish 回應帶 avas（收下的名字），中控只記這些（新 key avaSent2，舊的全部重送）。實機 2026-11-24 18:20：外部玩家「賺錢002」已加入佐藤打幣1 的大廳隊伍；你的 5 個隊伍都列在「我的隊伍」。
 - v0.66.2／0.67.0（使用者：CMD 記憶體占用很高）：加 GET /api/sys（中控 process.memoryUsage、state.json 大小、大廳 /api/ping 的 mem）。實機（剛重開 1～6 分鐘）：中控 RSS 140～150 MB、heapUsed 20～43 MB 穩定沒長大，大廳 53 MB，state.json 2.3 MB，/api/data 1 MB。判斷：工作管理員「命令處理程式」群組包含中控開的背景 Chrome（約 8～11 GB），中控本身不是大頭。0.67.0：bg.js probe 讀每頁 Runtime.getHeapUsage（live[].heap／heapTotal）；`trimProfile()`＝Memory.simulatePressureNotification critical＋每頁 HeapProfiler.collectGarbage（busy 的頁跳過）；cfg.trimMin 預設 10 分，tick 每 20 秒最多整理一個帳號、輪流；POST /api/bg/trim 立刻整理全部；面板 #acTrim、data-acact="trim"。效果要看實機前後數字。
 - 2026-11-24 22:3x 實機整理前後：背景 Chrome 共 8.60 GB（分頁 5.37＋Chrome 本身 3.23）→ 立刻整理 45 秒後 8.00 GB（分頁 4.77）；每頁 JS heap 19～51 MB → 19～29 MB。剩下每帳號：分頁 320～460 MB（JS 只佔約 25 MB/頁，其餘是畫面、DOM 等）、Chrome 本身 220～330 MB。再省的方向：⑤ 合併成一個 Chrome（Chrome 本身那 3.2 GB 大部分）、縮小無頭視窗尺寸（還沒試）、每帳號只開一頁。
+- v0.67.1（有人回報 Mac 開小黑窗一更新就掛）：自動更新是 exit(3) 靠 start.bat 重開，Mac 沒有。server.js 開頭：非 Windows、沒有 SZG_LAUNCHER、不是 SZG_CHILD → 第一個程序當看門的（spawn 自己＋SZG_CHILD=1、stdio inherit、子程序 exit 3 就 0.5 秒後重開、轉送 SIGINT/SIGTERM/SIGHUP）。新增 `start.command`（Mac 雙擊，設 SZG_LAUNCHER，迴圈 update.js＋server.js），列入 update.js NEVER_UPDATE（腳本執行中被覆蓋會壞），不放 version.json files；make-public 用 copy2 保留執行權限。harness 預設 SZG_LAUNCHER=test（測試直接管中控程序）。測試用 SZG_TEST_RESTART=1 時有 POST /__test/exit3。/api/sys 多 pid。
