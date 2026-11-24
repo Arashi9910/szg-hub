@@ -317,6 +317,11 @@ function handle(a, body) {
       p.members.push(c.id); c.partyCode = code; break;
     }
     case 'partyLeave': if (!c.partyCode) fail('不在隊伍裡'); partyLeave(c); break;
+    case 'partyKick': {
+      const p = parties[c.partyCode]; if (!p) fail('不在隊伍裡'); if (p.leader !== c.id) fail('只有隊長可以踢人');
+      const m = charById(body.memberId); if (!m || m.partyCode !== c.partyCode || m.id === c.id) fail('隊伍裡沒有這個人');
+      partyLeave(m); break;
+    }
     case 'marketConfig': c._stall = c._stall || { listings: [], proceeds: 0, history: [] }; c._stall.title = body.title || ''; c._stall.open = body.open !== false; break;
     case 'marketList': {
       const st = stallOf(c); if (!st) fail('還沒有攤位');

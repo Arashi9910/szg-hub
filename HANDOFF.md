@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-24（v0.63.0）
+最後更新：2026-11-24（v0.64.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -18,7 +18,7 @@
   - 教學截圖：`SZG_REPO=/tmp/pubtest python3 tests/guide_shots.py /tmp/shots`，再複製到公開 repo `docs/images/guide/`。
   - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab 偶爾不穩，重跑一次就過。
   - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
-  - 測試清單（43 支）：bg（約 15 分鐘）、skillbook、smoke、boss_chain、boss_party4、mobile、boss_cards、dex、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
+  - 測試清單（44 支）：bg（約 15 分鐘）、lobby（約 4 分鐘，起一個大廳＋第二台中控 /tmp/hub2 port 8788）、skillbook、smoke、boss_chain、boss_party4、mobile、boss_cards、dex、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
 - **實機驗證**：使用者的 Chrome（Claude in Chrome）開 http://127.0.0.1:8787/ 用 javascript 呼叫 API 看資料；做完要關掉自己開的分頁。不要直接開 play.szg08.com（會導到 /game/、中控腳本會在那個分頁跑），讀遊戲程式碼從 https://play.szg08.com/robots.txt 分頁 `fetch('/game/game.js')`，輸出只取識別字或計數（整段原始碼會被輸出過濾擋掉）。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定（手機版 v0.53 起公開版也有，只能走 tailscale serve；遠端版腳本／REMOTE=1／共用通行碼仍只在私人版）。公會倉庫 v0.32 起公開版也有。
 - 公開 repo 自己維護的檔案（make-public 不會覆蓋）：README.md、.gitignore、`docs/mobile.md`（手機版教學）、`docs/guide.md`＋`docs/images/guide/`（圖文安裝與使用教學）。功能有變動時記得順便更新這些文件。
@@ -251,3 +251,9 @@
   - mock 多 i2290001 技能書（c1 ×3）。測試 `tests/e2e_skillbook.py`；e2e_filters 公倉分頁順序改成含 book。
   - 實機（12:50 查）：存入規則 cats=['卷軸']＋個別 9 種、自動存入開（每 60 分）、收集 kinds=['卷軸']、市場一條規則不限類別 → 沒有既有設定因為拆分而改變行為。沒有替使用者把技能書加進存入規則（4 轉技能書角色自己可能要用），請他自己按「＋ 技能書」。
   - e2e_guild_auto「沒有卷軸時不建立工作」偶爾失敗（改動前也會，mock 掛機撿到卷軸），重跑會過。
+- v0.64.0 組隊大廳（使用者：在自己電腦架 server 做組隊大廳，看每個隊長掛哪張圖、經驗多少；決定：給公開版使用者、申請→核准、公開版預設連進來且可關、要自動同意規則；不介意 ts.net 名稱公開）：
+  - `lobby.js` 獨立伺服器（LOBBY_PORT 預設 8790、只聽 127.0.0.1、資料 data/lobby/lobby.json、管理密碼 data/lobby/admin.txt、pid 檔 lobby.pid）。API：POST /api/register（每 IP 每小時 10 次）、GET /api/listings（公開，不含代碼）、POST /api/publish（整份替換這台中控的公告，代碼只存在大廳）、GET /api/mine（incoming／outgoing）、POST /api/request（大廳自己照規則自動同意、給代碼）、/api/decide、/api/cancel、/api/joined、/api/joinfail、/api/mismatch（隊長回報謊報 → strike，7 天內 2 次封鎖 24 小時、下架他的公告）；管理 /api/admin/state|delist|ban|unban（X-Lobby-Admin）。GET / 唯讀網頁，/ava/<id>.gif 全身照。公告 2 分鐘沒更新下架、pending 10 分鐘過期、approved 5 分鐘收回代碼。頻率限制：每 IP 600/分、每台 120/分、publish 30/分、request 10/分、同時進行中申請 6 個。自己的檔案被更新就 exit 3。
+  - `lobbyhub.js`（server.js `makeLobby`）：DEFAULT_URL = https://desktop-90ip8gr.tail33a91c.ts.net:8443（使用者電腦，funnel 8443 → 8790）；settings.lobby {on（預設 true）, url}、settings.lobbyPub {charId: {on, note, rules:{auto, lvMin, lvMax, branches}}}、settings.lobbyHost {on, port}；db.lobbyState {token, url, req, chk, seen, avaSent, needClear}。每 POLL_MS（10 秒）publish（PUB_MS 30 秒）＋ /api/mine：outgoing approved → `createPartyJob(member, code, map)`；incoming approved/joined → 用「這台中控第一次看到核准之後才收到的」隊長快照核對 party.members（名字對上、不是自己的角色）：lv+2 < 回報 或 job 不同 → kick 工作＋/api/mismatch；kick 工作失敗就重新核對。沒有隊伍的公布角色 → 自動建隊伍（create、noStart）。架設：hostTick 每 30 秒 ping，沒起來就 detached spawn lobby.js（log 在 data/lobby/lobby.log）。
+  - server.js：`createPartyJob()`（kind party、minAgent 0.64.0；agentTooOld 支援 job.minAgent）、/api/lobby（GET view）、/api/lobby/{cfg,pub,request,decide,cancel,host}、/api/lobby/admin（只限本機）。agent runPartyJob：role kick（partyKick {memberId}）、member 帶 p.code 不用等、leader 沒 runId 不回報、p.noStart。mock 加 partyKick。
+  - 面板 #lobby：#lbStatus（連線、開關、網址、架設、管理）、我的招募 #lbPubs（data-lbpub、data-lbf、data-lbdec）、大廳隊伍 #lbList（.lb-card、data-lbreq；ui.lb 存 localStorage lobbyUi）、我送出的申請 #lbOut。
+  - 使用者要做：在他電腦（系統管理員命令提示字元）`tailscale funnel --bg --https=8443 8790`（第一次會要他在網頁核准開 Funnel）；面板「組隊大廳 → 大廳網址 → 這台電腦架設大廳」打開。
