@@ -121,6 +121,12 @@ async def main():
         ok = await until(lambda: prof(pid)['reloads'] >= 2, 60, 2)
         check(ok, f"定時重新整理：一次一頁、錯開（重整 {prof(pid)['reloads']} 次）")
         hub_json('POST', '/api/bg/config', {'reloadHours': 6})
+        heaps = await until(lambda: (lambda l: l if l and all(x['heap'] > 0 for x in l) else None)(prof(pid)['live']), 30)
+        check(heaps, f"讀得到每個背景分頁的 JS 記憶體（{[x['heap'] for x in (heaps or [])]} MB）")
+        st = hub_json('POST', '/api/bg/trim', {})
+        check(prof(pid)['trimAt'] > 0, '「立刻整理」對背景 Chrome 執行記憶體整理')
+        d = await until(lambda: (lambda d: d if d['tabs'].get('c1', {}).get('at', 0) > time.time() * 1000 - 8000 else None)(hub_json('GET', '/api/data')), 30)
+        check(d is not None, '整理後分頁照常回報')
         d = await until(lambda: (lambda d: d if d['tabs'].get('c1', {}).get('at', 0) > t0 and d['tabs'].get('c2', {}).get('at', 0) > t0 else None)(hub_json('GET', '/api/data')), 40)
         check(d is not None, '重整後腳本照常回報')
 

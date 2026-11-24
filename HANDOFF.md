@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-24（v0.66.1）
+最後更新：2026-11-24（v0.67.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -267,3 +267,4 @@
   - 面板：👥 我的隊伍 #lbParties（data-lbleave、data-lbkick="隊長|隊員|名字"、#lbFollow）、🔔 通知 #lbNotes（新通知 toast）、卡片隊員 .lb-m、`defAvaSvg(branch)`（原創 SVG 小人，dashboard 與 lobby.html 各一份）。
   - lobby.html：隊員列、預設角色圖、「我加入的隊伍」#joined、隊長換圖通知 #notices（localStorage lobby:seenMap、桌面通知、標題閃爍）。
 - v0.66.1：實機大廳卡片上隊員 noava——中控更新後先送 avas、大廳 lobby.js 30 秒後才自己重開成新版，舊版沒收 avas，中控卻記成已送。改成 publish 回應帶 avas（收下的名字），中控只記這些（新 key avaSent2，舊的全部重送）。實機 2026-11-24 18:20：外部玩家「賺錢002」已加入佐藤打幣1 的大廳隊伍；你的 5 個隊伍都列在「我的隊伍」。
+- v0.66.2／0.67.0（使用者：CMD 記憶體占用很高）：加 GET /api/sys（中控 process.memoryUsage、state.json 大小、大廳 /api/ping 的 mem）。實機（剛重開 1～6 分鐘）：中控 RSS 140～150 MB、heapUsed 20～43 MB 穩定沒長大，大廳 53 MB，state.json 2.3 MB，/api/data 1 MB。判斷：工作管理員「命令處理程式」群組包含中控開的背景 Chrome（約 8～11 GB），中控本身不是大頭。0.67.0：bg.js probe 讀每頁 Runtime.getHeapUsage（live[].heap／heapTotal）；`trimProfile()`＝Memory.simulatePressureNotification critical＋每頁 HeapProfiler.collectGarbage（busy 的頁跳過）；cfg.trimMin 預設 10 分，tick 每 20 秒最多整理一個帳號、輪流；POST /api/bg/trim 立刻整理全部；面板 #acTrim、data-acact="trim"。效果要看實機前後數字。
