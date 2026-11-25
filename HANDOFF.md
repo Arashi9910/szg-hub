@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-26（v0.68.2）
+最後更新：2026-11-26（v0.68.3）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -276,3 +276,4 @@
 - v0.68.1：打王關著（mode off）時 agent 不回報王的狀態，bossKnow 不會跑 → bossNewList 在 db.boss.known 不存在時用已存的 db.boss.state 建立。
 - v0.68.2（使用者：讀遊戲程式碼不用避開遊戲頁；但 Claude in Chrome 的設定檔沒登入遊戲，game.js 401）：bg.js `gameSrc(q)`＋`srcPage()`（挑 state running、沒 needLogin、網址在 /game 且 hasState 的背景分頁），Runtime.evaluate 在頁面 fetch（credentials same-origin）回整段文字，srcCache 10 分鐘；只准 /開頭的 .js／.json、不准 ..。server GET /api/bg/gamesrc。mock 加 /game/game.js（要登入）。測試 `tests/e2e_gamesrc.py`。
 - 2026-11-26 用 /api/bg/gamesrc 讀真實 game.js（64 萬字，佐藤本尊(黑騎士) 的背景分頁；載入的檔案還有 client-update.js、appearance.js、party-layout.mjs、raid-motion.mjs 等）。**死亡相關的實際格式和 v0.68.0 猜的不一樣**：角色受傷是 `kind:'hurt'` 事件，`actor`＝**受傷的角色本人**（不是怪），帶 `hpBefore`／`hpAfter`／`mpBefore`／`mpAfter`／`battleEventId`；中毒灼燒是 kind 'poison'／'burn'（actor 也是角色）；怪物出手是 kind 'monster'（spec monsterActions[action]，對 state.enemies 的 target）。畫面處理用 `data.summary.events` 外還有 `summary.dodges`、`summary.incoming`、`summary.monsters`（受傷事件可能在 incoming，還沒確定）。agent `deathIngest` 要改：hurt 且 actor 是自己＝受到傷害（damage＝hpBefore−hpAfter），怪物名稱要從同一批的 monster 事件或 enemies 對回去。輸出過濾：回傳原始碼片段會被擋，只回識別字（match 前後文抽 [A-Za-z_$][\w$]+ 和短字串）可以；不要用替換字元的方式繞過過濾。
+- v0.68.3（使用者：有自動復活，不用搞複雜，只要知道哪些角色死幾次、在哪張圖死的、打王的話是哪隻王）：agent `deathIngest` 拿掉 hitsIn／原因猜測（v0.68.0 猜的事件格式本來就不對），`reportDeath` 只送 map、mapName、boss、lv、gameDeaths、xpLoss。boss＝中控打王工作的 deathBossJob，否則看 catalog `bossByMap`（loadCatalog 新增，地圖的 bossSpawns）——在野王地圖死的就記那張圖的王（優先 json.enemies 裡有的那隻）。server db.deaths.log 欄位跟著精簡（舊紀錄的 cause 等欄位留著不顯示），deathSummary 的 chars[].places = [{map, boss, n, last}]（取代 topCause）。面板表格：角色、1 小時、24 小時、累計、死在哪（次數）、最近一次；清單只列時間、角色、等級、地圖／打王、還沒復活。e2e_death 改寫（多「自己帶到野王地圖死掉」）。

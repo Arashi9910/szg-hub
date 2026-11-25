@@ -1,12 +1,12 @@
-"""死亡原因與復活次數＋新的野王提醒
-1. 被怪打死 → 中控記下原因（打到角色的怪、遊戲紀錄）、中控自動復活 → 復活次數算「中控」
-2. 遊戲自己的自動復活（同一次同步就活過來）→ 仍然記一次死亡，復活算「遊戲自動」
-3. 關掉自動復活 → 記死亡、標「還沒復活」
-4. 面板「死亡與復活」卡片顯示次數，歸零
+"""死亡紀錄（v0.68.3 簡化：次數、死在哪張圖、打王時是哪隻王）＋新的野王提醒
+1. 在練功圖死掉 → 記地圖、中控自動復活
+2. 遊戲自己的自動復活（同一次同步就活過來）→ 仍然記一次死亡
+3. 自己帶到野王地圖死掉 → 記是哪隻王；關掉自動復活 → 標「還沒復活」
+4. 面板「死亡與復活」卡片：次數、死在哪（地圖／王 × 次數），歸零
 5. 遊戲新增野王 → 野王卡片提醒，按「加到等級夠的角色」→ 逐一挑選的角色加上新王，「全部」的不動
 """
 import asyncio, json, sys, time
-from harness import Env, hub_json, http, MOCK
+from harness import Env, hub_json, http, http_raw, MOCK
 
 ok = True
 def check(cond, msg):
@@ -26,6 +26,10 @@ async def wait(fn, sec, step=1):
     return None
 
 def deaths(): return hub_json('GET', '/api/deaths')
+def game(acct, body):
+    body = {'requestId': str(time.time()), **body}
+    s, t = http_raw('POST', MOCK + '/api/game', json.dumps(body), {'Content-Type': 'application/json', 'x-game-version': '1', 'x-acct': acct})
+    return json.loads(t)
 
 async def main():
     async with Env() as env:
@@ -34,35 +38,36 @@ async def main():
         await env.wait_chars(1)
         await asyncio.sleep(4)
 
-        print('1. 被紅寶打死 → 記原因、中控自動復活')
+        print('1. 在練功圖死掉 → 記地圖、中控自動復活')
         http('GET', MOCK + '/__mock/die?acct=A2&char=c3&by=m1210101&dmg=777')
         x = await wait(lambda: next((l for l in deaths()['log'] if l.get('revivedAt')), None), 80)
         check(x, '死亡紀錄有了，而且已復活')
         if x:
-            check('紅寶' in x['cause'], f"原因：{x['cause']}")
-            check(any(t['name'] == '紅寶' and t['dmg'] == 777 for t in x['top']), f"死前受到的傷害：{x['top']}")
-            check('擊倒' in x['gameLine'], f"遊戲紀錄：{x['gameLine']}")
+            check(x['mapName'] == '射手訓練場' and not x['boss'], f"地點：{x['mapName']}，不是打王（{x['boss']!r}）")
             check(x['revivedBy'] == 'hub', f"復活者＝中控（{x['revivedBy']}）")
-            check(x['mapName'] == '射手訓練場', f"地點：{x['mapName']}")
+            check('cause' not in x and 'top' not in x, '不再記猜測的原因')
         check(len(deaths()['log']) == 1, '同一次死亡只記一次')
 
         print('2. 遊戲自己的自動復活')
         await asyncio.sleep(3)
-        http('GET', MOCK + '/__mock/die?acct=A2&char=c3&by=m100100&dmg=50&gamerevive=1')
+        http('GET', MOCK + '/__mock/die?acct=A2&char=c3&by=m1210101&dmg=50&gamerevive=1')
         y = await wait(lambda: (lambda l: l[0] if len(l) >= 2 and l[0].get('revivedAt') else None)(deaths()['log']), 30)
-        check(y and '嫩寶' in y['cause'], '記到第二次死亡：' + (y['cause'] if y else '（沒有）'))
+        check(y and y['mapName'] == '射手訓練場', '記到第二次死亡：' + (y['mapName'] if y else '（沒有）'))
         check(y and y['revivedBy'] == 'game', f"復活者＝遊戲自動（{y and y['revivedBy']}）")
 
-        print('3. 關掉自動復活 → 還沒復活')
+        print('3. 在野王地圖死掉（自己帶去的）→ 記是哪隻王；關掉自動復活')
         hub_json('POST', '/api/settings', {'idlePolicy': {'autoRenew': False, 'autoRevive': False, 'reviveMaxPerHour': 60}})
-        await asyncio.sleep(3)
+        game('A2', {'type': 'map', 'map': 'gms104000400', 'characterId': 'c3'})
+        await asyncio.sleep(8)
         http('GET', MOCK + '/__mock/die?acct=A2&char=c3')
         z = await wait(lambda: (lambda l: l[0] if len(l) >= 3 else None)(deaths()['log']), 30)
-        check(z and not z.get('revivedAt'), '第三次死亡記下，標還沒復活')
+        check(z and z['boss'] == '紅寶王' and z['mapName'] == '海岸草叢3', f"打王：{z and z['boss']}＠{z and z['mapName']}")
+        check(z and not z.get('revivedAt'), '標還沒復活')
         await asyncio.sleep(8)
         check(mock_char('A2', 'c3')['hp'] == 0 and len(deaths()['log']) == 3, '沒有被復活、沒有重複記錄')
         s = deaths()['chars'][0]
-        check(s['deaths'] == 3 and s['revives'] == 2 and s['rv']['hub'] == 1 and s['rv']['game'] == 1, f"統計：死亡 {s['deaths']}、復活 {s['revives']} {s['rv']}")
+        pl = {(p['boss'], p['map']): p['n'] for p in s['places']}
+        check(s['deaths'] == 3 and pl == {('', '射手訓練場'): 2, ('紅寶王', '海岸草叢3'): 1}, f"統計：死亡 {s['deaths']}、地點 {pl}")
 
         print('4. 面板卡片')
         ctx = await env.browser.new_context(viewport={'width': 1300, 'height': 900}); env.contexts.append(ctx)
@@ -70,12 +75,13 @@ async def main():
         d.on('pageerror', lambda e: errs.append(str(e)))
         d.on('dialog', lambda dg: asyncio.ensure_future(dg.accept()))
         await d.goto('http://127.0.0.1:8787/'); await d.wait_for_timeout(2500)
-        check('累計死亡 3 次、復活 2 次' in await d.inner_text('#deathSum'), '摘要：' + await d.inner_text('#deathSum'))
+        check('累計 3 次' in await d.inner_text('#deathSum'), '摘要：' + await d.inner_text('#deathSum'))
         await d.click('#deathCard summary'); await d.wait_for_timeout(1200)
         t = await d.inner_text('#deathOut')
-        check('弓箭分身' in t and '中控 1' in t and '遊戲自動 1' in t and '還沒復活' in t, '表格：' + t.replace('\n', ' ')[:140])
+        check('弓箭分身' in t and '射手訓練場 ×2' in t and '打王 紅寶王' in t and '還沒復活' in t, '表格：' + t.replace('\n', ' ')[:160])
         await d.click('[data-dreset="c3"]'); await d.wait_for_timeout(1000)
         check(not deaths()['log'], '歸零後紀錄清空')
+        game('A2', {'type': 'revive', 'characterId': 'c3'})
 
         print('5. 遊戲新增野王')
         st = lambda mobs: hub_json('POST', '/api/boss/state', {'charId': 'c3', 'serverTime': int(time.time() * 1000), 'list': [
