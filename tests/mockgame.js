@@ -503,6 +503,8 @@ http.createServer((req, res) => {
   }
   const a = acctOf(req);
   if (!a) return send(res, 404, { error: '沒有這個帳號' });
+  // 模擬遊戲程式碼（真實遊戲的 /game/game.js 要登入才拿得到）：給 /api/bg/gamesrc 測試
+  if (url.pathname === '/game/game.js') return send(res, 200, "function partyCreate(){}\nfunction partyJoin(code){ return code }\nconst mobAttack = e => ({ kind: 'mobAttack', target: e.target, damage: e.damage });\n// 模擬遊戲\n", 'text/javascript; charset=utf-8');
   if (url.pathname.startsWith('/game')) return send(res, 200, PAGE, 'text/html; charset=utf-8');
   // 外觀圖（真實遊戲 appearance.js 的 fetchPart：/api/appearance?<外觀參數>&action=stand|attack…）
   if (url.pathname === '/api/appearance') { if (url.searchParams.get('action') !== 'stand') return send(res, 404, { error: 'mock only has stand' }); res.writeHead(200, { 'Content-Type': 'image/gif' }); return res.end(Buffer.from(MOCK_AVA_GIF, 'base64')); }
