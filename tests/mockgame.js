@@ -244,7 +244,7 @@ function marketView(a, c) {
 }
 
 // ---------------- 遊戲 API ----------------
-const strip = c => { const { _simAt, _boss, _stall, ...rest } = c; return rest; };
+const strip = c => { const { _simAt, _boss, _stall, pendingHits, ...rest } = c; return rest; };
 // 回應裡的 character：請求指定的角色（同一個帳號開兩個分頁時，每個分頁拿到自己的角色）
 function sessionView(a, cid) {
   const c = a.chars[cid] || a.chars[a.active];
@@ -285,6 +285,7 @@ function handle(a, body) {
       if (body.characterId && a.chars[body.characterId]) a.active = body.characterId;
       let evs = [];
       for (const x of Object.values(a.chars)) evs = evs.concat(simulate(x, now));
+      for (const x of Object.values(a.chars)) if (x.pendingHits && x.pendingHits.length) { evs = evs.concat(x.pendingHits); x.pendingHits = []; }
       const res = { ...sessionView(a, c.id), summary: { events: evs }, tradeEligible: tradeEligible(a, c.id), enemies: enemiesOf(c), bossTimers: {} };
       if (body.tradeOnly) res.trade = null;
       if (body.includeMarket) res.market = marketView(a, c);
@@ -566,7 +567,13 @@ http.createServer((req, res) => {
   if (url.pathname === '/__mock/die') {
     const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
     if (!c) return send(res, 404, { error: 'no char' });
-    c.hp = 0; c.auto = false; addLog(c, '角色死亡'); return send(res, 200, { ok: true });
+    // by=怪物 id：死前被這隻怪打（下一次同步的 summary.events 會有打到角色的事件）；gamerevive=1：遊戲自己的自動復活（同一次同步就活過來）
+    const by = url.searchParams.get('by'), now = Date.now();
+    if (by) { const m = mobs.find(x => x.id === by); (c.pendingHits = c.pendingHits || []).push({ eventId: 'h' + now, actor: 'inst-' + by, kind: 'mobAttack', target: c.id, mob: by, damage: Number(url.searchParams.get('dmg')) || c.maxhp, at: now - 500 }); addLog(c, `被 ${m ? m.name : by} 擊倒了`); }
+    else addLog(c, '角色死亡');
+    c.deaths = (c.deaths || 0) + 1; c.deathAt = now;
+    if (url.searchParams.get('gamerevive') === '1') { c.autoReviveUsed = (c.autoReviveUsed || 0) + 1; addLog(c, '自動復活'); return send(res, 200, { ok: true }); }
+    c.hp = 0; c.auto = false; return send(res, 200, { ok: true });
   }
   if (url.pathname === '/__mock/luck') { scrollQueue = (url.searchParams.get('seq') || '').split(',').filter(x => x !== '').map(Number); return send(res, 200, { ok: true, n: scrollQueue.length }); }
   if (url.pathname === '/api/game' && req.method === 'POST') {
