@@ -3457,7 +3457,7 @@ function renderBossBoard(c, live) {
     else if (!ids.length) { cls = 'none'; big = '沒人打'; small = ''; }
     else if (ready.length) { cls = 'ready'; big = '已重生'; small = c.mode === 'auto' ? '下一輪檢查就出發' : c.mode === 'preview' ? '試跑：只記錄' : '打王是關閉的'; }
     else if (cds.length) { cls = 'cd'; big = hm(cds[0].r.remainMs); small = '後重生'; }
-    else { cls = 'skip'; big = '暫不去'; small = (st[0] && st[0].r && st[0].r.skip) || '等角色回報'; }
+    else { const sk = (st.find(x => x.r && x.r.skip) || {}).r; cls = 'skip'; big = '暫不去'; small = !sk ? '等角色回報' : /預估/.test(sk.skip) ? '預估打太久' : /再試/.test(sk.skip) ? '上次沒打成功，稍後再試' : sk.skip; }
     const any = st.find(x => x.r) || {};
     const r0 = any.r || {};
     const est = st.map(x => x.r && x.r.estSec).filter(v => v != null).sort((p, q2) => p - q2)[0];
@@ -3484,7 +3484,7 @@ function renderBossBoard(c, live) {
       <div class="bb-hd">${wm ? mobImg(wm) : ''}<div><div class="nm">${esc(b.name)}</div><div class="sub">Lv${b.lv || '?'}・${esc(b.mapName || '')}</div></div>
         <div class="bb-st ${cls}"><span class="big">${esc(big)}</span><span class="sm">${esc(small)}</span></div></div>
       ${g && g.hp != null && g.maxHp ? `<span class="hpbar" style="width:100%"><i style="width:${(g.hp / g.maxHp * 100).toFixed(1)}%"></i></span>` : ''}
-      <div class="bb-meta">${r0.maxHp ? `<span>HP ${short(r0.maxHp)}</span>` : wm ? `<span>HP ${short(wm.hp)}</span>` : ''}${hpLeft != null ? `<span class="warn">上次打到剩 ${hpLeft}%</span>` : ''}${est != null ? `<span class="${long ? 'long' : ''}">${long ? '⏳ ' : ''}預估 ${Math.max(1, Math.ceil(est / 60))} 分鐘打死${est > c.estMax * 60 ? `（超過 ${c.estMax} 分不去，⚙ 設定可調）` : ''}</span>` : ids.length ? '<span>還沒有實戰 DPS，無法預估</span>' : ''}</div>
+      <div class="bb-meta">${r0.maxHp ? `<span>HP ${short(r0.maxHp)}</span>` : wm ? `<span>HP ${short(wm.hp)}</span>` : ''}${hpLeft != null ? `<span class="warn">上次打到剩 ${hpLeft}%</span>` : ''}${est != null ? `<span class="${long ? 'long' : ''}">${long ? '⏳ ' : ''}預估 ${estTxt(est)}打死${est > c.estMax * 60 ? `（超過 ${c.estMax} 分不去，⚙ 設定可調）` : ''}</span>` : ids.length ? '<span>還沒有實戰 DPS，無法預估</span>' : ''}</div>
       <div class="bb-who">${who || '<span class="dim sm">還沒有角色打這隻</span>'}${mateHtml}${addOpen ? '' : `<button class="bb-add" data-bbaddopen="${esc(b.mob)}">＋ 加角色</button>`}</div>
       ${pick}
       <div class="bb-ft">💰 ${sell ? (sell.over ? '<span class="warn">個別調整</span>' : '共用規則') + `：賣 ${sell.ids.length} 項、保留 ${sell.keep} 項` : '沒有掉落資料'}<button class="btn sm" data-bbsell="${esc(r0.map || bossMapOf(b.mob) || '')}">掉落</button></div></div>` };
@@ -3494,6 +3494,7 @@ function renderBossBoard(c, live) {
   const nPick = mobs.filter(b => picks(b.mob).length).length;
   return `${Object.keys(cm).length} 隻角色・${nPick} 隻王有人打${live.length ? `・打王中 ${live.length} 場` : ''}${nReady ? `・已重生 ${nReady}` : ''}`;
 }
+const estTxt = sec => { const m = Math.max(1, Math.ceil(sec / 60)); return m >= 120 ? `約 ${m >= 6000 ? fmt(Math.round(m / 60)) : (m / 60).toFixed(1)} 小時` : `${m} 分鐘`; };
 function bossMapOf(mob) { if (!WORLD) return ''; const m = WORLD.maps.find(x => (x.boss || []).includes(mob)); return m ? m.id : ''; }
 // 把某隻王加給／從某隻角色拿掉（'*'＝全部的王：拿掉時改成逐一挑選）
 async function bossToggle(id, mob, on) {
