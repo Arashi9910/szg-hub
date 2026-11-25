@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-26（v0.68.3）
+最後更新：2026-11-26（v0.68.4）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -16,7 +16,7 @@
   - **注意 8787 port**：測試中控和使用者的中控同 port，但使用者的中控在他自己電腦上（透過 Chrome 的 127.0.0.1:8787），不會衝突；在雲端工作區跑測試只會用到 /tmp/hub。
   - 用公開版跑測試：`cp -r 公開repo /tmp/pubtest && python3 tools/make-public.py . /tmp/pubtest`，再 `SZG_REPO=/tmp/pubtest python3 e2e_xxx.py`。
   - 教學截圖：`SZG_REPO=/tmp/pubtest python3 tests/guide_shots.py /tmp/shots`，再複製到公開 repo `docs/images/guide/`。
-  - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab 偶爾不穩，重跑一次就過。
+  - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab、e2e_lobby 偶爾不穩（時間差，每次失敗的項目不同），重跑一次就過。**測試不能兩支同時跑**（共用 8787／9900 port）。
   - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
   - 測試清單（46 支）：gamesrc（約 1 分鐘）、death（約 2 分鐘）、bg（約 15 分鐘）、lobby（約 4 分鐘，起一個大廳＋第二台中控 /tmp/hub2 port 8788）、lobby_web（約 3 分鐘）、skillbook、smoke、boss_chain、boss_party4、mobile、boss_cards、dex、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
 - **讀遊戲程式碼（v0.68.2 起，優先用這個）**：使用者的遊戲登入在中控的背景 Chrome（data/bg/<id>）裡，不在 Claude in Chrome 的設定檔（那邊 game.js 回 401）。用 Claude in Chrome 開 http://127.0.0.1:8787/ 分頁，`fetch('/api/bg/gamesrc?q=正規表示式&ctx=150&max=20')`（另有 words=^party 識別字清單、from=&len=（≤8000）切片、list=1 頁面載入的程式檔、file=/game/xxx.js、fresh=1、profile=帳號名、i=1 不分大小寫、skip=）。結果是 {file, status, from, len, hash, count, matches:[{i,text}]}；原始碼只在中控記憶體快取 10 分鐘。只限本機（/api/bg 的 isLocal）。
@@ -277,3 +277,4 @@
 - v0.68.2（使用者：讀遊戲程式碼不用避開遊戲頁；但 Claude in Chrome 的設定檔沒登入遊戲，game.js 401）：bg.js `gameSrc(q)`＋`srcPage()`（挑 state running、沒 needLogin、網址在 /game 且 hasState 的背景分頁），Runtime.evaluate 在頁面 fetch（credentials same-origin）回整段文字，srcCache 10 分鐘；只准 /開頭的 .js／.json、不准 ..。server GET /api/bg/gamesrc。mock 加 /game/game.js（要登入）。測試 `tests/e2e_gamesrc.py`。
 - 2026-11-26 用 /api/bg/gamesrc 讀真實 game.js（64 萬字，佐藤本尊(黑騎士) 的背景分頁；載入的檔案還有 client-update.js、appearance.js、party-layout.mjs、raid-motion.mjs 等）。**死亡相關的實際格式和 v0.68.0 猜的不一樣**：角色受傷是 `kind:'hurt'` 事件，`actor`＝**受傷的角色本人**（不是怪），帶 `hpBefore`／`hpAfter`／`mpBefore`／`mpAfter`／`battleEventId`；中毒灼燒是 kind 'poison'／'burn'（actor 也是角色）；怪物出手是 kind 'monster'（spec monsterActions[action]，對 state.enemies 的 target）。畫面處理用 `data.summary.events` 外還有 `summary.dodges`、`summary.incoming`、`summary.monsters`（受傷事件可能在 incoming，還沒確定）。agent `deathIngest` 要改：hurt 且 actor 是自己＝受到傷害（damage＝hpBefore−hpAfter），怪物名稱要從同一批的 monster 事件或 enemies 對回去。輸出過濾：回傳原始碼片段會被擋，只回識別字（match 前後文抽 [A-Za-z_$][\w$]+ 和短字串）可以；不要用替換字元的方式繞過過濾。
 - v0.68.3（使用者：有自動復活，不用搞複雜，只要知道哪些角色死幾次、在哪張圖死的、打王的話是哪隻王）：agent `deathIngest` 拿掉 hitsIn／原因猜測（v0.68.0 猜的事件格式本來就不對），`reportDeath` 只送 map、mapName、boss、lv、gameDeaths、xpLoss。boss＝中控打王工作的 deathBossJob，否則看 catalog `bossByMap`（loadCatalog 新增，地圖的 bossSpawns）——在野王地圖死的就記那張圖的王（優先 json.enemies 裡有的那隻）。server db.deaths.log 欄位跟著精簡（舊紀錄的 cause 等欄位留著不顯示），deathSummary 的 chars[].places = [{map, boss, n, last}]（取代 topCause）。面板表格：角色、1 小時、24 小時、累計、死在哪（次數）、最近一次；清單只列時間、角色、等級、地圖／打王、還沒復活。e2e_death 改寫（多「自己帶到野王地圖死掉」）。
+- v0.68.4（使用者：a、b 同隊要加 c，不要解散重組，隊長邀 c 就好）：server `partyMap()` 多回 `leader[代碼]`（隊員資料 leader===true 的那隻，隊長已在別隊就刪）。`applyParties` 在成員有變時找「遊戲裡的隊長是這次隊員之一」的現有隊伍（多隊時挑已在裡面的人最多的；加上不是這台中控的隊員會超過 6 人就不沿用）→ keep：隊長 role leader、ops false、`kick`＝隊上這次不要的自己的角色（不是 db.chars 的陌生人不踢）；已在隊上的 ops false；其他人 role member、ops true、`code`＝隊伍代碼（agent 先離開自己的隊伍再 partyJoin，不用等 /api/party/run）。runs[].leader 改成實際隊長。名單第一位不是遊戲隊長也沿用（遊戲不能換隊長）。有 kick 的隊長工作 `minAgent: '0.68.4'`；agent runPartyJob 在換圖前逐一 partyKick（失敗只記紀錄）。e2e_party 新增第 5 段（加人代碼不變、減人被踢）。

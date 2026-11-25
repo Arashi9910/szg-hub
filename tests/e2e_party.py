@@ -1,4 +1,5 @@
-"""組隊分頁：從目前隊伍匯入、拖曳排隊、一鍵套用（離隊、隊長建隊、隊員加入、換圖、開掛機）、已就位、即時經驗"""
+"""組隊分頁：從目前隊伍匯入、拖曳排隊、一鍵套用（離隊、隊長建隊、隊員加入、換圖、開掛機）、已就位、即時經驗；
+5. 加人／減人時沿用原本的隊伍（不解散重組：隊長留著、新的人用代碼加入、不要的人被隊長踢出）"""
 import asyncio, json, os, sys, time
 os.environ['MOCK_PARTY'] = 'c3,c4'
 from harness import Env, hub_json, http, MOCK
@@ -73,6 +74,33 @@ async def main():
         txt = await d.inner_text(f'[data-ptdrop="{pid}"]')
         check('全隊每小時經驗' in txt and ('測量中' in txt or '最近 3 分鐘' in txt), '卡片顯示全隊經驗與量測狀態')
         await d.screenshot(path='/tmp/party.png')
+
+        print('5. 加人、減人：沿用原本的隊伍，不解散重組')
+        K = mock_char('A1', 'c1')['partyCode']
+        def hp(cs, c): return (((cs.get(c) or {}).get('party') or {}).get('party') or {})
+        seen = lambda: (lambda cs: cs if all(hp(cs, c).get('code') == K for c in ('c1', 'c4')) else None)(hub_json('GET', '/api/data')['chars'])
+        check(await wait(seen, 30), '中控看到 c1、c4 的隊伍')
+        def apply(members):
+            r = hub_json('POST', '/api/party/apply', {'parties': [{'id': 'x', 'name': '測試隊', 'members': members, 'map': 'gms104040000'}]})
+            return r
+        n0 = len([j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'party'])
+        apply(['c3', 'c1', 'c4'])  # 名單第一位是 c3，但遊戲裡的隊長 c1 在名單裡 → 沿用 c1 的隊伍
+        js = await wait(lambda: (lambda js: js if len(js) == 3 and all(j['status'] in ('done', 'failed') for j in js) else None)([j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'party'][n0:]), 90)
+        check(js and all(j['status'] == 'done' for j in js), '3 個工作都完成' + ('' if js and all(j['status'] == 'done' for j in js) else '：' + '；'.join(f"{j['fromName']} {j['status']} {j['lastMsg']}" for j in (js or []))))
+        c1, c3, c4 = mock_char('A1', 'c1'), mock_char('A2', 'c3'), mock_char('A3', 'c4')
+        check(c1['partyCode'] == K and c4['partyCode'] == K and c3['partyCode'] == K, f"隊伍代碼沒變（{K}），c3 加進來")
+        logs = ' '.join(' '.join(l['msg'] if isinstance(l, dict) else str(l) for l in j.get('log', [])) for j in js or [])
+        check('沿用隊伍' in logs and '用隊伍代碼加入' in logs and '建立隊伍' not in logs.replace('（隊長，建立隊伍）', ''), '紀錄寫沿用隊伍、用代碼加入，沒有重建')
+        check(c3['map'] == 'gms104040000' and c3['auto'], 'c3 換到同一張圖並開始掛機')
+        seen3 = lambda: (lambda cs: cs if hp(cs, 'c3').get('code') == K and len(hp(cs, 'c1').get('members') or []) == 3 else None)(hub_json('GET', '/api/data')['chars'])
+        await wait(seen3, 30)
+        n0 = len([j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'party'])
+        apply(['c1', 'c3'])  # 拿掉 c4 → 隊長踢出
+        js = await wait(lambda: (lambda js: js if len(js) == 2 and all(j['status'] in ('done', 'failed') for j in js) else None)([j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'party'][n0:]), 90)
+        check(js and all(j['status'] == 'done' for j in js), '減人：2 個工作都完成')
+        c1, c3, c4 = mock_char('A1', 'c1'), mock_char('A2', 'c3'), mock_char('A3', 'c4')
+        check(c1['partyCode'] == K and c3['partyCode'] == K and not c4.get('partyCode'), 'c4 被踢出，c1、c3 還在原本的隊伍')
+
         check(not errs, '面板沒有 JS 錯誤' + ('：' + errs[0] if errs else ''))
     if not ok: print('\n'.join(env.logs[-25:]))
     print('全部通過' if ok else '有失敗'); sys.exit(0 if ok else 1)
