@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-26（v0.68.0）
+最後更新：2026-11-26（v0.68.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -272,3 +272,4 @@
 - v0.67.1（有人回報 Mac 開小黑窗一更新就掛）：自動更新是 exit(3) 靠 start.bat 重開，Mac 沒有。server.js 開頭：非 Windows、沒有 SZG_LAUNCHER、不是 SZG_CHILD → 第一個程序當看門的（spawn 自己＋SZG_CHILD=1、stdio inherit、子程序 exit 3 就 0.5 秒後重開、轉送 SIGINT/SIGTERM/SIGHUP）。新增 `start.command`（Mac 雙擊，設 SZG_LAUNCHER，迴圈 update.js＋server.js），列入 update.js NEVER_UPDATE（腳本執行中被覆蓋會壞），不放 version.json files；make-public 用 copy2 保留執行權限。harness 預設 SZG_LAUNCHER=test（測試直接管中控程序）。測試用 SZG_TEST_RESTART=1 時有 POST /__test/exit3。/api/sys 多 pid。
 - v0.67.2（少數帳號「背景 Chrome 沒有啟動」，刪掉重登一樣）：bg.js start() 沒接上時：`killStale(id)` 用共用的 `listChrome()`＋`dirRe(id)` 找出命令列含 bg/<id> 的主程序 → 先 taskkill（不加 /F）/SIGTERM 等 5 秒，還在才 /T /F；清 DevToolsActivePort、Singleton*、lockfile；Chrome stdout/stderr 寫 `data/bg/<id>/chrome-start.log`；最多等 60 秒（原 25），程序自己結束 3 秒後就判定「一啟動就結束（結束碼 n）」，否則「等了 n 秒還沒準備好」，訊息附 log 最後 3 行（略過 INFO）。e2e_bg 新增 8（殘留 Chrome 佔資料夾）、9（假 chrome 一啟動就 exit 21）。
 - v0.68.0（使用者：海怒斯、噴火龍、格瑞芬多是新王要加進打王；新增死亡原因與復活次數）：①新王：這三隻本來就在角色回報的 bossRespawns 裡（world 有 gms8510000 海怒斯 Lv110 海怒斯洞窟、gms8180000 噴火龍 Lv105、gms8180001 格瑞芬多 Lv105），只是角色的 charMobs 是逐一挑選的清單（「全部」點掉一隻就變成當時全部王的清單）所以沒勾。server `bossKnow`（/api/boss/state 時）記 db.boss.known={mob:{at,name,ack}}；第一次建立時現有的王 at=0，只有 BOSS_ADDED（這三隻）算新的；之後第一次出現的都算新。bossSummary.newBosses（14 天內、沒 ack）；POST /api/boss/new {add, mobs?}：add 時加到 charMobs 非空、非 '*'、角色等級 >= 王等級的角色，然後 ack。面板 #bossNew 提醒。②死亡：agent `deathIngest`（掛在 /api/game 回應的 fetch hook，跟 dpsIngest 一起）：summary.events 裡 actor 不是自己角色、target／targetId／victim／characterId… 指到自己角色的事件存 hitsIn（**真實遊戲打到角色的事件欄位還沒核對**，遊戲 game.js 現在要登入才 fetch 得到，使用者的 Chrome 沒登入遊戲）；死亡＝hp 由 >0 變 <=0、deaths 增加或 deathAt 改變（GM deathSeen:<id> 防重複）。原因優先序：打王中（deathBossJob）→ HP 藥水 0 → 全是 burn/poison → 遊戲紀錄（character.log 符合 /死亡|倒下|陣亡|擊倒…/ 的那行裡找怪物名稱）或受傷最多的怪 → 遊戲紀錄原文 → 不明。復活：同一次同步死了又活＝game、看到死著後中控 revive（hubRevivedAt，reviveTick 和打王倒下都會設）＝hub、autoReviveUsed 增加＝game、否則 other；revive 要等 death 的 POST 完成才送。快照 char 多 deaths／deathAt／autoReviveUsed。server db.deaths {log(1000), since}，同一次死亡：兩邊都有 key（deathAt）就比 key，否則 30 秒內算同一次；GET /api/deaths、POST /api/death、/api/deaths/reset {charId?}。面板總覽 #deathCard。mock：/__mock/die 多 by=怪物（下一次 sync 的 events 有 {actor:'inst-…', kind:'mobAttack', target, mob, damage}）、dmg、gamerevive=1，c.deaths／deathAt／autoReviveUsed。測試 tests/e2e_death.py（約 2 分鐘）。
+- v0.68.1：打王關著（mode off）時 agent 不回報王的狀態，bossKnow 不會跑 → bossNewList 在 db.boss.known 不存在時用已存的 db.boss.state 建立。
