@@ -31,7 +31,7 @@ def boss_jobs():
 
 async def main():
     async with Env() as env:
-        hub_json('POST', '/api/settings', {'boss': {'mode': 'preview', 'chars': {'c3': True}, 'mobs': ['mBoss1'], 'estMax': 15, 'visitMax': 3}})
+        hub_json('POST', '/api/settings', {'boss': {'mode': 'preview', 'chars': {'c3': True}, 'mobs': ['mBoss1'], 'estMax': 15}})
         await env.open_accounts(['A2', 'A3'])
         await env.wait_chars(2)
         print('1. 偵測隊伍')
@@ -43,7 +43,7 @@ async def main():
         check(any('試跑' in l['msg'] and '隊伍' in l['msg'] and '一起' in l['msg'] for l in b['log']), '紀錄：' + next((l['msg'] for l in b['log'] if '試跑' in l['msg']), '（沒有）'))
         print('3. 自動：兩隻一起出發打同一隻王')
         homes = {'c3': mock_char('A2', 'c3')['map'], 'c4': mock_char('A3', 'c4')['map']}
-        hub_json('POST', '/api/settings', {'boss': {'mode': 'auto', 'chars': {'c3': True}, 'mobs': ['mBoss1'], 'estMax': 15, 'visitMax': 3}})
+        hub_json('POST', '/api/settings', {'boss': {'mode': 'auto', 'chars': {'c3': True}, 'mobs': ['mBoss1'], 'estMax': 15}})
         hub_json('POST', '/api/boss/run-now')
         js = boss_jobs()
         check(len(js) == 2 and {j['fromCharId'] for j in js} == {'c3', 'c4'} and len({j['batches'][0]['boss']['mob'] for j in js}) == 1, f'建立 2 個工作、同一隻王（{len(js)}）')
@@ -63,8 +63,8 @@ async def main():
         dash.on('pageerror', lambda e: errs.append(str(e)))
         await dash.goto('http://127.0.0.1:8787/'); await dash.wait_for_timeout(1500)
         await dash.click('nav button[data-tab="maps"]'); await dash.wait_for_timeout(2500)
-        txt = await dash.inner_text('#bossGrid')
-        check('隊伍' in txt and '*' in txt and '跟著隊友' in txt, '面板把同隊的放在同一欄')
+        txt = await dash.inner_text('.bb[data-bbmob="mBoss1"]')
+        check('弓箭分身' in txt and '倉庫分身' in txt and '隊友' in txt, '紅寶王卡片：勾的 c3、跟著一起去的隊友 c4：' + txt.replace('\n', ' ')[:100])
         await dash.screenshot(path='/tmp/boss_party.png')
         check(not errs, '面板沒有 JS 錯誤' + ('：' + errs[0] if errs else ''))
     if not ok: print('\n'.join(env.logs[-30:]))

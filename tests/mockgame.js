@@ -58,6 +58,7 @@ const maps = {
 const drops = {
   m100100: [{ itemId: 4000000, min: 1, max: 1, chance: 600000 }, { itemId: 2000000, min: 1, max: 1, chance: 100000 }],
   m1210100: [{ itemId: 4000001, min: 1, max: 1, chance: 600000 }, { itemId: 2040801, min: 1, max: 1, chance: 20000 }, { itemId: 1082002, min: 1, max: 1, chance: 30000 }],
+  mBoss1: [{ itemId: 1452002, min: 1, max: 1, chance: 300000 }, { itemId: 4000016, min: 1, max: 3, chance: 900000 }], // 野王的掉落（掉落篩選：王會掉的保留）
   m1210101: [{ itemId: 4000016, min: 1, max: 1, chance: 600000 }, { itemId: 2040805, min: 1, max: 1, chance: 15000 }, { itemId: 1082149, min: 1, max: 1, chance: 30000 }, { itemId: 1452002, min: 1, max: 1, chance: 10000 }],
 };
 const keyById = {};
@@ -172,7 +173,8 @@ function simulate(c, now) {
 // ---------------- 野王 ----------------
 // 每隻角色自己一份（真實遊戲：instanceId solo:角色:地圖；同隊的話是 party:…，這裡不模擬隊伍）
 // c._boss[mob] = { hp, deadline }：deadline > 現在＝冷卻中；王的血量離開地圖後保留
-const BOSS_DPS = () => Number(process.env.MOCK_BOSS_DPS || 600);
+let bossDpsOverride = null; // /__mock/bossdps?v=0 讓王打不動（測「血量沒下降就離開」）
+const BOSS_DPS = () => bossDpsOverride != null ? bossDpsOverride : Number(process.env.MOCK_BOSS_DPS || 600);
 const bossMapOf = mob => Object.values(maps).find(m => (m.bossSpawns || []).some(b => b.mobId === mob));
 // 隊伍（真實遊戲：partyCreate／partyJoin {code}／partyLeave；同步回應最上層 party = {code, leader, members}；最多 6 人；
 // 同隊伍共用同一份王，instanceId party:隊伍代碼:地圖）。MOCK_PARTY=c3,c4 一開始就讓這幾隻同隊
@@ -535,6 +537,7 @@ http.createServer((req, res) => {
     const g = makeGear(url.searchParams.get('key'), { stats: { ...clean }, cleanStats: clean });
     c.equipmentBag.push(g); return send(res, 200, { ok: true, uid: g.uid });
   }
+  if (url.pathname === '/__mock/bossdps') { const v = url.searchParams.get('v'); bossDpsOverride = v === null || v === '' ? null : Number(v); return send(res, 200, { dps: BOSS_DPS() }); }
   // 測試控制：/__mock/boss?acct=A1&char=c1&mob=mBoss1&cd=60000&hp=500 設定野王（cd＝幾毫秒後重生，0＝在場上）
   if (url.pathname === '/__mock/boss') {
     const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];

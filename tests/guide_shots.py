@@ -40,7 +40,6 @@ async def main():
         await tab('board', '09-board.png', fac, 2500)
         await tab('party', '10-party.png')
         async def boss():
-            await d.evaluate("document.querySelector('#bossSetBox').open = true")
             await d.click('#bossRun'); await d.wait_for_timeout(1500)
         await tab('maps', '11-maps-boss.png', boss, 2500)
         await tab('market', '12-market.png')
