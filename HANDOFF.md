@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-26（v0.71.3）
+最後更新：2026-11-26（v0.71.4）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -313,7 +313,8 @@
   - 去處設定卡（#bdSell 重用，renderDestEditor；ui.board.destEdit={g,map}|{rules:true}）：共用規則（派工地圖套用／野王地圖套用、每類 背包／商店／公倉）、地圖自訂（每樣 背包／商店／公倉／強化，[data-dset]、沿用遊戲設定／改用去處規則／全部恢復共用規則／套用給目前在這裡的）。野王的掉落篩選抽屜改成讀寫 dest（同一份）。
   - 套用派工 A、B 兩組一起；清單檢視只剩一欄「地圖」（data-tmcfg 開去處設定）；與遊戲同步：遊戲裡改了某張派工圖的自動販售 → 記成 dest.over（第一次同步不匯入）；匯入目前設定 → dest.over；匯出／匯入設定檔 version 2 含 dest、guildIds；圖鑑「派工」→ 放上看板＋那件在那張圖設成留著。目標道具（goals）、三條線的 UI 都拿掉（資料還在）。
   - 測試：新的 unit_dest.py；e2e_board_group 改寫成城鎮圖；e2e_board_sync／keep／avatar／boss／boss_cards／dex／split 跟著改。
-  - 下一步（使用者定的順序）：②（v0.71.1 做完）③自動強化兩種模式（每次確認／每日楓幣上限）④抽屜能力點（statBatch／statPlan）、技能（learnBatch／skillPlan）、掛機設定（setting key＋value、settingsPreset、autoBuff）——遊戲指令只查過名稱，沒實際送過。
+  - 下一步（使用者定的順序）：②（v0.71.1 做完）③（v0.71.4 做完）④抽屜能力點（statBatch／statPlan）、技能（learnBatch／skillPlan）、掛機設定（setting key＋value、settingsPreset、autoBuff）——遊戲指令只查過名稱，沒實際送過。
 - v0.71.1（派工改版第 2 階段）：角色抽屜（#charDrawer）分「裝備／基本資料」兩頁，ui.cd={tab, open, wear, msg}，poll 後會重畫（抽屜裡有輸入框在打字就不重畫）。裝備頁用快照的 gear（loc 穿戴／背包）：+N＝plus、剩幾格＝slotsLeft/maxSlots、卷軸加成＝stats−cleanStats、浮動＝cleanStats−baseStats（沒 baseStats＝浮動不明）、剛強化＝FORGE.log 24 小時內 results 的 uid。gearCanWear 只擋等級、職業（能力需求只顯示，遊戲會擋）。比較：同部位（slot 或 gtype）身上那件的 stats 差。新工作 kind equip／unequip（BAG_KINDS、KIND_MIN_AGENT 0.71.1），body.approve＋只能一件 → 直接 approved；agent 送 `{type:'equip'|'unequip', uid, characterId}`（遊戲頁 bagEquip／bagUnequip 也是這樣送），做完 batchDone 會重新同步背包。mock 加 equip／unequip（換下的放回背包、等級不夠回錯）。測試 e2e_char_gear.py。
 - v0.71.2（使用者回報：背景執行的視窗開著時，更新會直接關掉）：bg.js start() 接不上（wsFromDir 0 秒一次就失敗）以前會直接 killStale → 關掉開著的 Chrome。現在先 chromeOf(id) 看這個資料夾有沒有 Chrome：有遠端除錯的（中控開的）多等 12 秒再接；沒有遠端除錯的（登入視窗、自己開的）不關，state 'wait'（面板「等視窗關掉」），每次 tick 再看；手動「開始」帶 force 照舊關掉重開。重新接上時分頁的 key 問 6 次（3 秒），問不到就當成第一個還沒接上的角色分頁（以前會關掉重開，顯示中的視窗就會被關）。測試 e2e_bg 8b。實機（12 個背景帳號）0.71.1 更新時是 1 秒內全部接上，所以被關的是「顯示」或登入視窗那類。
 - v0.71.3（使用者補充：是背景帳號「點開視窗（顯示）」之後，一更新視窗就關掉；Windows）：Linux 上用 exit 3 重開＋版本變更＋遊戲頁卡在 alert 都重現不出來（新舊版都沒關）。把中控可能關掉看得到的視窗的路徑都擋掉：start() 接回出錯（reattachTried）只斷線不 Browser.close；每一頁接回包 try，看得到的視窗不關 extra 分頁；接回時先用 Browser.getVersion 判斷看得到的視窗（以前是接完分頁才判斷，看得到的視窗的分頁會被套省資源模式擋圖片）；probe 連續失敗時看得到的視窗改 Page.reload，當掉才「先開新的再關舊的」。bg.js 的 log 另外留 100 筆 events，/api/bg 給最近 60 筆，帳號分頁表格下方 <details class="ac-ev"> 顯示。**還沒確認真正原因**：請使用者下次更新後看這個紀錄。
+- v0.71.4（派工改版第 3 階段：自動強化）：server forgeAutoTick（每分鐘看、照 everyMin 跑；POST /api/forge/auto-run 立即）。settings.forgeAuto={mode off|confirm|auto, everyMin, dailyCap 楓幣, rules[{id,on,charId,gearName,item,count,stopAfter,stopOnFail,minSucc}]}。forgeAutoPlan：只挑背包、沒鎖、有格數、**沒出現在 forgeLog results 的 uid**，只用那隻背包的卷軸，n＝min(10,格數,count)，照 plus 小、格數多排；依格數分組每組 ≤10（跟面板 fgPlan 一樣）。auto：forgeSpentToday（今天 forgeLog fee＋approved/running 的 estimate）＋這次 ≤ dailyCap 才直接 approved（用 cap 縮件數），否則 pending；詛咒卷軸一律 pending；一隻角色同時只一個 forge 工作；剛衝完角色還沒回報新背包就跳過。紀錄 db.forgeAutoLog，GET /api/forge 多 autoLog、spentToday。面板強化分頁 #faCard、城鎮圖強化建築顯示狀態。測試 e2e_forge_auto.py。使用者使用者先前的規則：動楓幣要先問——這是使用者自己開的功能，預設關、開 auto 會先 confirm。
