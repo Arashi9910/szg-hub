@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-26（v0.69.3）
+最後更新：2026-11-26（v0.69.4）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -292,3 +292,4 @@
   - 每個隊伍的打法：settings.boss.parties = {隊員 id 排序逗號接: {mode, togetherMobs}}；server `partyKey`、`partyCfgOf(ids, c)`（完全相同→重疊最多（≥2）→預設 partyMode／togetherMobs）；bossUnitFor／bossTick 的 mixed／bossNext／bossSummary 的 on、rows dps 都改用它。`bossWhyNot(id)`（沒有遊戲分頁／沒在掛機／暫停打王／打王中／有其他工作）。/api/boss 多 `parties:[{code, key, custom, mode, togetherMobs, ids, names, dps, why:{id: 原因}, picked}]`。
   - 面板：#bossView 多 party（依隊伍看）→ #bossParties（`renderBossParties`：.bb[data-pbkey] 卡片、隊員狀態、⏸ 等誰、.pb-seg data-pbmode="key|mode"、mixed 時王 chip data-pbtog、data-pblv 等級以上一起打、data-pbreset 改回預設；`savePartyBoss`）。王卡片的隊友虛線改用 `bossPartyOf(id)` 的打法。⚙ 設定的隊伍打王改名「預設」。
   - 測試 tests/e2e_boss_team.py（等隊友、依隊伍看、各自打用試跑檢查、倒下原地復活、停一隻整隊回）。注意：測試裡用 API 改設定後，面板要先 poll(true) 再按按鈕，不然面板會用舊的 S 存回去。
+- v0.69.4 隊伍篩選不打的王（使用者：能在組隊篩選哪些王不打嗎？）：settings.boss.parties[key].skipMobs；partyCfgOf 多回 skipMobs、custom 改成「有設 mode 才算自己的打法」。server `bossAllow(unit, c)` 改成 function：隊員勾的聯集，另外掛 `set.skip`＝每個隊員所在隊伍的 skipMobs（各自打時也套用）；bossRows：denied → selected false、skip「隊伍設定不打」。/api/boss parties[].skipMobs。面板隊伍卡片王 chip `.pb-mob`（yes／no／tog）：名字 data-pbskip 切換打不打（🚫），依王決定時旁邊 data-pbtog 👥／👤；data-pbunskip 全部恢復；「改回預設」只清打法、保留 skipMobs。依王看的角色狀態「隊伍不打」。e2e_boss_team 第 4 段。
