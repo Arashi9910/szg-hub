@@ -35,8 +35,14 @@ const equipment = {
   e1372005: { itemId: 1372005, name: '木製短杖', equipmentType: 'wand', type: { category: 'OneHandedWeapon' }, meta: { reqLevel: 8, reqJob: 2 }, base: { incMAD: 29 }, slots: 7 },
   e1040002: { itemId: 1040002, name: '白色背心', equipmentType: 'top', type: { category: 'Armor' }, meta: { reqLevel: 0, reqJob: 0 }, base: { incPDD: 3 }, slots: 7 },
 };
+// v0.72：技能（角色抽屜的技能頁）
+const MOCK_SKILLS = [
+  { id: 's1001004', msId: 1001004, name: '強力攻擊', job: 'swordman', tier: 1, maxLevel: 20, type: 'attack', levels: [{ damage: 260 }] },
+  { id: 's1001003', msId: 1001003, name: '鐵壁', job: 'swordman', tier: 1, maxLevel: 20, type: 'buff', buffSupported: true, levels: [{}] },
+  { id: 's1101006', msId: 1101006, name: '憤怒之火', job: 'fighter', tier: 2, maxLevel: 20, type: 'buff', buffSupported: true, requirements: { 1001003: 5 }, levels: [{}] },
+];
 const jobs = {
-  beginner: { name: '初心者', tier: 0 }, swordman: { name: '劍士', tier: 1 }, fighter: { name: '狂戰士', tier: 2, parent: 'swordman' },
+  beginner: { name: '初心者', tier: 0 }, swordman: { name: '劍士', tier: 1, level: 10 }, fighter: { name: '狂戰士', tier: 2, parent: 'swordman' },
   archer: { name: '弓箭手', tier: 1 }, hunter: { name: '獵人', tier: 2, parent: 'archer' },
   magician: { name: '法師', tier: 1 }, thief: { name: '盜賊', tier: 1 },
 };
@@ -77,7 +83,7 @@ function autoSellDropsFor(map) {
 const catalog = {
   version: 'mock-1', dropScale: 1000000, items, scrolls, equipment, jobs, mobs, maps, drops, mapDrops: {},
   statNames: { incPAD: '物攻', incMAD: '魔攻', incSTR: '力量', incDEX: '敏捷', incINT: '智力', incLUK: '幸運', incPDD: '物防', incACC: '命中' },
-  skills: [{ msId: 1001004, name: '強力攻擊', job: 'swordman', tier: 1, levels: [{ damage: 260 }] }],
+  skills: MOCK_SKILLS,
   autoSellDrops: Object.fromEntries(Object.values(maps).map(m => [m.id, autoSellDropsFor(m)])),
   fourth: {},
 };
@@ -101,7 +107,8 @@ function makeGear(key, extra = {}) {
 function makeChar(id, name, job, lv, map, extra = {}) {
   return {
     id, name, job, lv, xp: 0, nextXp: 1000 * lv * lv, money: 500000, map, auto: false, until: null, hp: 500, maxhp: 500, mp: 300, maxmp: 300, kills: 0,
-    stats: { incSTR: 40, incDEX: 40, incINT: 4, incLUK: 4 }, gear: {}, equipmentBag: [], warehouseGear: [], inventory: { i2000000: 200, i2000003: 100 },
+    stats: { incSTR: 40, incDEX: 40, incINT: 4, incLUK: 4, str: 40, dex: 40, int: 4, luk: 4 }, gear: {},
+    ap: 5, sp: 3, skills: { s1001004: 1 }, autoSkills: false, autoStats: false, autoPotion: true, autoStartOnMap: false, statPlan: [], skillPlan: [], autoBuffs: [], active: 's1001004', equipmentBag: [], warehouseGear: [], inventory: { i2000000: 200, i2000003: 100 },
     inventoryStacks: [], warehouse: {}, warehouseMesos: 0, supply: { hpItem: 'i2000000', mpItem: 'i2000003' }, autoSell: { maps: {} }, log: [], ...extra,
   };
 }
@@ -350,6 +357,25 @@ function handle(a, body) {
     }
     case 'marketClaim': { const st = stallOf(c); if (st) { c.money += st.proceeds; st.proceeds = 0; } break; }
     case 'switch': if (!a.chars[body.characterId]) fail('沒有這隻角色'); a.active = body.characterId; break;
+    case 'statBatch': {
+      const al = body.allocations || [], tot = al.reduce((t, a) => t + (Number(a.amount) || 0), 0);
+      if (!al.length || tot > c.ap) fail('能力點不夠');
+      for (const a of al) { if (!['str', 'dex', 'int', 'luk'].includes(a.stat)) fail('沒有這個能力'); if (a.from !== c.stats[a.stat]) fail('能力值已經變了，請重新整理'); }
+      for (const a of al) c.stats[a.stat] += a.amount;
+      c.ap -= tot; break;
+    }
+    case 'learnBatch': {
+      const al = body.allocations || [], tot = al.reduce((t, a) => t + (Number(a.amount) || 0), 0);
+      if (!al.length || tot > c.sp) fail('技能點不夠');
+      for (const a of al) { const sk = MOCK_SKILLS.find(x => x.id === a.skill); if (!sk) fail('沒有這個技能'); if ((c.skills[a.skill] || 0) !== a.from) fail('技能等級已經變了'); if (a.from + a.amount > sk.maxLevel) fail('超過技能上限'); }
+      for (const a of al) c.skills[a.skill] = (c.skills[a.skill] || 0) + a.amount;
+      c.sp -= tot; break;
+    }
+    case 'statPlan': c.statPlan = body.plan || []; c.autoStats = !!body.enabled; break;
+    case 'skillPlan': c.skillPlan = body.plan || []; c.autoSkills = !!body.enabled; break;
+    case 'setting': if (!['autoSkills', 'autoStats', 'autoPotion', 'autoStartOnMap', 'hideMedal'].includes(body.key)) fail('沒有這個設定'); c[body.key] = !!body.value; break;
+    case 'autoBuff': { const i = c.autoBuffs.indexOf(body.skill); if (i >= 0) c.autoBuffs.splice(i, 1); else c.autoBuffs.push(body.skill); break; }
+    case 'skill': if (!c.skills[body.skill]) fail('還沒學這個技能'); c.active = body.skill; break;
     case 'equip': {
       const i = c.equipmentBag.findIndex(g => g.uid === body.uid); if (i < 0) fail('背包裡沒有這件裝備');
       const g = c.equipmentBag[i], e = equipment[g.key] || {}, meta = e.meta || {};
