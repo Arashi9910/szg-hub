@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-27（v0.74.0）
+最後更新：2026-11-27（v0.74.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -323,3 +323,4 @@
 - v0.73.0（使用者：A／B 混合組隊在同一張圖卻分左右兩邊，不方便 → 合併；隊伍框整隊走、沒組隊單隻走；左右分開拿掉）：資料結構不變（settings.boards.A／B 各自的 lanes、assign），只改畫法：townLanes()＝兩組 lanes 聯集，townWhereAll() 用角色自己那組的 assign；lanes 不自動補齊（試過在畫面上自動存，會跟中控／測試直接寫的設定搶，蓋掉剛改的 assign）：畫面、套用（對齊販售）、與遊戲同步（另一組有這張圖就不再放）、空地圖移除（兩組的角色都算有人）都用聯集；開新地圖、拖進地圖會同時放進兩組 lanes，✕ 兩組都拿掉（清單檢視的 data-bddel／bdpin／tmcfg 還是 g|id，handler 兩種都吃）。節點 key 改 `m:<map>`（線 data-w `m:<map>>sink`、flyLoot 跟著改），位置存 boards.A.tpos['t:'+map]（舊的 m: 位置不用，左右重新排）。地圖左右輪流放，線從節點在城鎮哪一邊決定入口。隊伍：townParties() 用每隻的 DATA.chars[id].party.party（2 人以上，leader＝members 裡 leader:true），ui.fac.pt={parties, of}；townAvas() 畫 .tparty 框（.tp-hd data-tpdrag）；townExpand() 拖曳時把同隊的加進來（選取、拖頭像、拖框都會）；townMove 有人等級不夠整隊不動。A／B 篩選 ui.fac.gf（localStorage townGf）只加 .tdim。去處自訂設定不再分組（套用給目前在這張圖的全部有分頁角色）。測試 e2e_board_group 改寫（MOCK_PARTY=c2,c3 跨 A／B）。清單檢視、手機版還是分組。
 - v0.73.1（玩家回報：王的個別設定存不起來）：renderBossSell 呼叫 bossSellCalc(map, sc)，第二個參數是 noOver，傳了設定物件＝永遠不看覆寫 → 清單一直顯示「共用規則」、再按調整時草稿從共用規則開始（v0.71.0 改寫時留下的）。伺服器、遊戲端一直有照 dest.over 賣，只是畫面錯；但玩家再調整、再存就會用共用規則的勾選蓋掉。拿掉第二個參數；e2e_boss_cards 加檢查（清單顯示個別調整、再調整看到存好的、改共用規則不蓋掉）。
 - v0.74.0（使用者：所有結果設定一次，未來的角色不用再套用，照表操課）：settings.dest.enforce。server destEnforceTick 每分鐘（SZG_ENFORCE_MS 可改，測試 3 秒）：destEnforcePlan 看每隻 charHasTab 的角色、快照 autoSell（agent 回報的是目前地圖那張）＝目前地圖才比；王圖用 destSellOf(map,'boss')（dest.boss 開才有），否則看板聯集 lanes 上的圖用 'board'；null（沿用遊戲設定、規則沒開、沒掉落資料）不動；有 pending/approved/running 的 boss 工作或 idle map/autosell 目標的角色跳過。不同就 createIdleJobs autosell（job.auto＝true），db.destEnforceLog 留 60 筆。防重送：同角色同圖、同樣的 from（遊戲現在的設定）＋同樣的 sell，10 分鐘內只送一次（遊戲又被改過 from 就不同，會再送）。/api/data 加 destEnforce {log, todo}（todo 不管開關都算＝開了會改幾隻）。面板 enforceBox() 放在共用規則和野王掉落篩選，開啟前 confirm。enforce 開著時 dashboard 的「與遊戲同步」不再把遊戲裡改的自動販售記成這張圖的自訂設定（以中控為準）。mock 加 /__mock/autosell。測試 e2e_dest_enforce.py。
+- v0.74.1（使用者：自動登入跳「這個瀏覽器或應用程式可能有安全疑慮」，Google 無法登入）：Google 會擋有遠端除錯／CDP 接著的 Chrome。登入視窗本來就是不接 DevTools 的一般 Chrome，但兩種情況會變成被擋的那個：①在「顯示」的視窗（--remote-debugging-port）裡按 Google 登入；②按「登入」時 stop() 只用 CDP Browser.close，中控開的 Chrome 沒完全結束 → 新開的 Chrome 因為同一個資料夾只會有一個程序，變成舊程序（有遠端除錯）的一個視窗。修正：probe 時 r.visible 且頁面或任何 page target 的網址符合 GOOGLE_LOGIN（^https://accounts.google.com/，測試用 SZG_GOOGLE_LOGIN_RE）→ r.toLogin、自動 login(id)；login() 在 stop 後 chromeOf 還有帶 --remote-debugging-port 的就 killStale。帳號分頁需要登入／登入視窗開著時加說明。e2e_bg 加 4f（CDP Target.createTarget 開模擬的 Google 頁 → state login → login-done 回到背景）。實機當時 12 個背景帳號都正常執行、沒有需要登入的，所以沒在使用者電腦重現。

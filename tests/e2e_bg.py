@@ -17,7 +17,8 @@ from harness import Env, hub_json, http, HUB, MOCK, HUB_DIR, wait_url
 XVFB = subprocess.Popen(['Xvfb', ':99', '-screen', '0', '1280x900x24'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 os.environ['DISPLAY'] = ':99'
 os.environ.update({'MOCK_REQUIRE_LOGIN': '1', 'SZG_BG_GAME': MOCK, 'SZG_BG_LOGIN_PATH': '/__mock/login?acct={name}',
-                   'SZG_BG_LOGIN_HEADLESS': '1', 'SZG_BG_RELOAD_GAP_MS': '5000', 'SZG_CHROME': CHROMIUM, 'SZG_BG_TICK_MS': '2000'})
+                   'SZG_BG_LOGIN_HEADLESS': '1', 'SZG_BG_RELOAD_GAP_MS': '5000', 'SZG_CHROME': CHROMIUM, 'SZG_BG_TICK_MS': '2000',
+                   'SZG_GOOGLE_LOGIN_RE': '/__mock/google'})
 
 ok_all = True
 def check(cond, msg):
@@ -237,6 +238,17 @@ async def main():
         check(not derr, '面板沒有 JS 錯誤' + ('：' + derr[0] if derr else ''))
         await dash.close()
         await until(lambda: len(prof(pid)['live']) == 2, 20)
+
+        print('4f. 顯示的視窗打開 Google 登入 → 自動換成一般的登入視窗（Google 會擋自動化的瀏覽器）')
+        hub_json('POST', '/api/bg/show', {'id': pid, 'char': 'c1'})
+        await until(lambda: prof(pid)['visible'] == 'c1' and prof(pid)['state'] == 'running', 40)
+        port = open(os.path.join(HUB_DIR, 'data', 'bg', pid, 'DevToolsActivePort')).read().split()[0]
+        subprocess.run(['node', '-e', f"(async()=>{{const j=await (await fetch('http://127.0.0.1:{port}/json/version')).json();const w=new WebSocket(j.webSocketDebuggerUrl);w.onopen=()=>w.send(JSON.stringify({{id:1,method:'Target.createTarget',params:{{url:'{MOCK}/__mock/google?continue=x'}}}}));w.onmessage=()=>process.exit(0);}})()"], timeout=15)
+        p = await until(lambda: (lambda x: x if x['state'] == 'login' else None)(prof(pid)), 30)
+        check(p is not None and any('Google 登入' in l['msg'] for l in p['logs']), f"跳出 Google 登入的分頁 → 自動關掉顯示的視窗、改開登入視窗（{prof(pid)['state']}）")
+        hub_json('POST', '/api/bg/login-done', {'id': pid})
+        p = await until(lambda: (lambda x: x if x['state'] == 'running' and not x['visible'] and len(x['live']) == 2 else None)(prof(pid)), 60)
+        check(p is not None, '登入視窗關掉後回到背景執行')
 
         print('5. 你自己的 Chrome 也開著同一隻 → 背景讓位')
         page = await env.open_account('A1', 'c1')
