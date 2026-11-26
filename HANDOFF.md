@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-26（v0.70.1）
+最後更新：2026-11-26（v0.70.2）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -18,7 +18,7 @@
   - 教學截圖：`SZG_REPO=/tmp/pubtest python3 tests/guide_shots.py /tmp/shots`，再複製到公開 repo `docs/images/guide/`。
   - 執行：`cd tests && python3 e2e_smoke.py`（每支印 ✓／✗，最後「全部通過」）。一支約 30 秒～2 分鐘，e2e_narrow 超過 2 分鐘要給長一點 timeout。e2e_dual_tab、e2e_lobby 偶爾不穩（時間差，每次失敗的項目不同），重跑一次就過。**測試不能兩支同時跑**（共用 8787／9900 port）。
   - mock 測試控制：`/__mock/state`、`/__mock/additem`、`/__mock/addgear`、`/__mock/luck`、`/__mock/session`（見 mockgame.js 註解）。共享題庫用 `mock_appscript.js` 在 vm 跑真的 `tools/quiz-share.gs`，harness 預設把 `SZG_QUIZ_SHARE_URL` 指到 `http://127.0.0.1:9/`，測試不會碰到真的試算表。
-  - 測試清單（50 支）：board_cards（約 3 分鐘）、boss_team（約 4 分鐘）、boss_return（約 3 分鐘）、boss_stop（約 2 分鐘）、gamesrc（約 1 分鐘）、death（約 2 分鐘）、bg（約 15 分鐘）、lobby（約 4 分鐘，起一個大廳＋第二台中控 /tmp/hub2 port 8788）、lobby_web（約 3 分鐘）、skillbook、smoke、boss_chain、boss_party4、mobile、boss_cards、dex、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
+  - 測試清單（50 支）：board_keep（約 3 分鐘）、boss_team（約 4 分鐘）、boss_return（約 3 分鐘）、boss_stop（約 2 分鐘）、gamesrc（約 1 分鐘）、death（約 2 分鐘）、bg（約 15 分鐘）、lobby（約 4 分鐘，起一個大廳＋第二台中控 /tmp/hub2 port 8788）、lobby_web（約 3 分鐘）、skillbook、smoke、boss_chain、boss_party4、mobile、boss_cards、dex、avatar、party、board_prune、revive、sell_race、agent_gate、bag_give、board_group、board_sync、boss、boss_party、delist、dual_tab、filters、forge、guild、guild_auto、guild_sell、guild_setup、guild_xfer、income、job_order、jobs_clear、lv_time、narrow、ov_switch、pets、quiz_share、roll_money、rollsell、split、switch、tab_routing、view_group（e2e_boss 約 4 分鐘、e2e_delist 約 3 分鐘）（檔名前面加 `e2e_`）。改到哪個功能就跑相關的幾支＋smoke。
 - **讀遊戲程式碼（v0.68.2 起，優先用這個）**：使用者的遊戲登入在中控的背景 Chrome（data/bg/<id>）裡，不在 Claude in Chrome 的設定檔（那邊 game.js 回 401）。用 Claude in Chrome 開 http://127.0.0.1:8787/ 分頁，`fetch('/api/bg/gamesrc?q=正規表示式&ctx=150&max=20')`（另有 words=^party 識別字清單、from=&len=（≤8000）切片、list=1 頁面載入的程式檔、file=/game/xxx.js、fresh=1、profile=帳號名、i=1 不分大小寫、skip=）。結果是 {file, status, from, len, hash, count, matches:[{i,text}]}；原始碼只在中控記憶體快取 10 分鐘。只限本機（/api/bg 的 isLocal）。
 - **實機驗證**：使用者的 Chrome（Claude in Chrome）開 http://127.0.0.1:8787/ 用 javascript 呼叫 API 看資料；做完要關掉自己開的分頁。讀遊戲程式碼用上面的 /api/bg/gamesrc（2026-11-26 使用者說「不要直接開 play.szg08.com」可以不用理；但 Claude in Chrome 那個設定檔沒登入遊戲，直接開也只看到 Google 登入頁）。輸出只取片段、識別字或計數（整段原始碼會被輸出過濾擋掉）。
 - 使用者規則：每次更新私人版與公開版一起同步；公開版不要放個人資料與 Tailscale 設定（手機版 v0.53 起公開版也有，只能走 tailscale serve；遠端版腳本／REMOTE=1／共用通行碼仍只在私人版）。公會倉庫 v0.32 起公開版也有。
@@ -304,3 +304,4 @@
   - agent idle 'map'：換圖成功後 1.2 秒 `start`（真實遊戲換圖會停掛機；派工套用、手機換圖都走這裡）。
   - 測試 tests/e2e_board_cards.py；e2e_board_prune 改成只移除 auto 的、自己加的留著；e2e_board_group、e2e_avatar 先切到工廠圖。
 - v0.70.1：實機看卡片，目標很多的打卷軸地圖卡片很長 → boardMapCard 的目標只列 dropRate 最高的 4 項，其他「…還有 N 項」（title 列出）。
+- v0.70.2（使用者：卡片「沒有比較直覺」，先改回原本的，派工再討論）：dashboard.html 從 v0.69.6 拿回來（工廠圖預設、清單＝角色池＋拖曳），只重新加上：board.auto＋只移除自動放上來的地圖（清單 mcard 多 data-bdpin「📌 留著」）、#bdExport／#bdImportBtn／#bdImportFile＋boardExport／boardImportFile。卡片檢視、角色清單（renderBoardChars、data-bdpk…）都拿掉。agent 換圖後 start 保留。測試 e2e_board_cards → e2e_board_keep；e2e_board_group、e2e_avatar、guide_shots 還原。**v0.70.0 的卡片做法使用者不喜歡**，下次派工改版前先討論清楚要的操作方式。

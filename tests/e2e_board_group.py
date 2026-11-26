@@ -23,7 +23,7 @@ async def main():
             await (dl.accept() if mode['accept'] else dl.dismiss())
         d.on('dialog', lambda dl: asyncio.ensure_future(on_dialog(dl)))
         await d.goto(HUB + '/'); await d.wait_for_timeout(1500)
-        await d.click('nav button[data-tab=board]'); await d.wait_for_timeout(1500); await d.click('#bdViewSeg [data-bview2=factory]'); await d.wait_for_timeout(1000)
+        await d.click('nav button[data-tab=board]'); await d.wait_for_timeout(1500)
         nodes = lambda: d.eval_on_selector_all('.fnode.fchar', 'ns => ns.map(n => n.dataset.fn)')
 
         print('1. 自動 → A 組（本尊劍士、弓箭分身）')
@@ -46,7 +46,7 @@ async def main():
         await d.click('#bdSellSave'); await d.wait_for_timeout(2500)
         sell = (hub_json('GET', '/api/data')['settings'].get('boards', {}).get('B', {}).get('sell') or {}).get('gms100010000')
         check(sell and sell['enabled'] and 4000000 in sell['itemIds'], '販售設定存進 B 組：' + str(sell))
-        await d.reload(); await d.wait_for_timeout(1500); await d.click('nav button[data-tab=board]'); await d.wait_for_timeout(1500); await d.click('#bdViewSeg [data-bview2=factory]'); await d.wait_for_timeout(1000)
+        await d.reload(); await d.wait_for_timeout(1500); await d.click('nav button[data-tab=board]'); await d.wait_for_timeout(1500)
         btn = await d.inner_text('.fnode[data-fn="m:gms100010000"] [data-bdsell]')
         check('1' in btn, f'重新整理後節點顯示販售設定：{btn}')
         st = hub_json('GET', '/api/data')['settings']
@@ -55,7 +55,7 @@ async def main():
         print('3. 背景掛機的先排、套用時略過')
         bd = st['boards']; bd['B']['assign'] = {'c2': 'gms104040000'}; bd['B']['lanes']['train'].append('gms104040000'); bd['B'].setdefault('sell', {})
         hub_json('POST', '/api/settings', {'boards': bd}); await d.reload(); await d.wait_for_timeout(1500)
-        await d.click('nav button[data-tab=board]'); await d.wait_for_timeout(1200); await d.click('#bdViewSeg [data-bview2=factory]'); await d.wait_for_timeout(1000)
+        await d.click('nav button[data-tab=board]'); await d.wait_for_timeout(1200)
         mode['accept'] = False; msgs.clear()
         await d.click('#bdApply'); await d.wait_for_timeout(800)
         check(any('背景掛機' in m for m in msgs), '套用時略過背景掛機的本尊小號：' + (msgs[-1][:60] if msgs else ''))
