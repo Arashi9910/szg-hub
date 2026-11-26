@@ -561,6 +561,13 @@ http.createServer((req, res) => {
     c.earned = n('earned'); c.sessionReport = { startedAt: new Date(Date.now() - n('activeMs')).toISOString(), money: n('money'), xp: 0, activeMs: n('activeMs') };
     return send(res, 200, { ok: true });
   }
+  // 測試控制：/__mock/autosell?acct=A1&char=c1&map=…&enabled=0&ids=1,2 （跟玩家在遊戲裡改自動販售一樣）
+  if (url.pathname === '/__mock/autosell') {
+    const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
+    if (!c) return send(res, 404, { error: 'no char' });
+    c.autoSell.maps[url.searchParams.get('map')] = { enabled: url.searchParams.get('enabled') === '1', itemIds: (url.searchParams.get('ids') || '').split(',').filter(Boolean).map(Number) };
+    return send(res, 200, { ok: true });
+  }
   // 測試控制：/__mock/additem?acct=A1&char=c1&key=i2000001&qty=20
   if (url.pathname === '/__mock/additem') {
     const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
