@@ -36,7 +36,7 @@ async def main():
         await tab('trade', '07-trade.png')
         await tab('bag', '08-bag.png')
         async def fac():
-            await d.click('#bdViewSeg [data-bview2=factory]')
+            await d.click('#bdViewSeg [data-bview2=list]')
         await tab('board', '09-board.png', fac, 2500)
         await tab('party', '10-party.png')
         async def boss():
