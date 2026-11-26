@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-26（v0.71.0）
+最後更新：2026-11-26（v0.71.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -313,4 +313,5 @@
   - 去處設定卡（#bdSell 重用，renderDestEditor；ui.board.destEdit={g,map}|{rules:true}）：共用規則（派工地圖套用／野王地圖套用、每類 背包／商店／公倉）、地圖自訂（每樣 背包／商店／公倉／強化，[data-dset]、沿用遊戲設定／改用去處規則／全部恢復共用規則／套用給目前在這裡的）。野王的掉落篩選抽屜改成讀寫 dest（同一份）。
   - 套用派工 A、B 兩組一起；清單檢視只剩一欄「地圖」（data-tmcfg 開去處設定）；與遊戲同步：遊戲裡改了某張派工圖的自動販售 → 記成 dest.over（第一次同步不匯入）；匯入目前設定 → dest.over；匯出／匯入設定檔 version 2 含 dest、guildIds；圖鑑「派工」→ 放上看板＋那件在那張圖設成留著。目標道具（goals）、三條線的 UI 都拿掉（資料還在）。
   - 測試：新的 unit_dest.py；e2e_board_group 改寫成城鎮圖；e2e_board_sync／keep／avatar／boss／boss_cards／dex／split 跟著改。
-  - 下一步（使用者定的順序）：②角色抽屜裝備頁（顯示 +N、剩幾格、卷軸加成 stats−cleanStats、浮動 cleanStats−baseStats，手動穿上 equip uid）③自動強化兩種模式（每次確認／每日楓幣上限）④抽屜能力點（statBatch／statPlan）、技能（learnBatch／skillPlan）、掛機設定（setting key＋value、settingsPreset、autoBuff）——遊戲指令只查過名稱，沒實際送過。
+  - 下一步（使用者定的順序）：②（v0.71.1 做完）③自動強化兩種模式（每次確認／每日楓幣上限）④抽屜能力點（statBatch／statPlan）、技能（learnBatch／skillPlan）、掛機設定（setting key＋value、settingsPreset、autoBuff）——遊戲指令只查過名稱，沒實際送過。
+- v0.71.1（派工改版第 2 階段）：角色抽屜（#charDrawer）分「裝備／基本資料」兩頁，ui.cd={tab, open, wear, msg}，poll 後會重畫（抽屜裡有輸入框在打字就不重畫）。裝備頁用快照的 gear（loc 穿戴／背包）：+N＝plus、剩幾格＝slotsLeft/maxSlots、卷軸加成＝stats−cleanStats、浮動＝cleanStats−baseStats（沒 baseStats＝浮動不明）、剛強化＝FORGE.log 24 小時內 results 的 uid。gearCanWear 只擋等級、職業（能力需求只顯示，遊戲會擋）。比較：同部位（slot 或 gtype）身上那件的 stats 差。新工作 kind equip／unequip（BAG_KINDS、KIND_MIN_AGENT 0.71.1），body.approve＋只能一件 → 直接 approved；agent 送 `{type:'equip'|'unequip', uid, characterId}`（遊戲頁 bagEquip／bagUnequip 也是這樣送），做完 batchDone 會重新同步背包。mock 加 equip／unequip（換下的放回背包、等級不夠回錯）。測試 e2e_char_gear.py。

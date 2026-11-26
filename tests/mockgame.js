@@ -350,6 +350,19 @@ function handle(a, body) {
     }
     case 'marketClaim': { const st = stallOf(c); if (st) { c.money += st.proceeds; st.proceeds = 0; } break; }
     case 'switch': if (!a.chars[body.characterId]) fail('沒有這隻角色'); a.active = body.characterId; break;
+    case 'equip': {
+      const i = c.equipmentBag.findIndex(g => g.uid === body.uid); if (i < 0) fail('背包裡沒有這件裝備');
+      const g = c.equipmentBag[i], e = equipment[g.key] || {}, meta = e.meta || {};
+      if ((meta.reqLevel || 0) > c.lv) fail(`等級不足（需要 Lv${meta.reqLevel}）`);
+      const slot = /Weapon/.test((e.type || {}).category || '') ? 'weapon' : (g.type || e.equipmentType);
+      c.equipmentBag.splice(i, 1);
+      if (c.gear[slot]) c.equipmentBag.push(c.gear[slot]);
+      c.gear[slot] = g; addLog(c, '穿上 ' + g.name); break;
+    }
+    case 'unequip': {
+      const slot = Object.keys(c.gear).find(k => c.gear[k] && c.gear[k].uid === body.uid); if (!slot) fail('沒有穿這件裝備');
+      c.equipmentBag.push(c.gear[slot]); delete c.gear[slot]; addLog(c, '脫下'); break;
+    }
     case 'inventoryLock': {
       const ids = new Set(body.ids || []);
       for (const s of c.inventoryStacks) if (ids.has(s.uid)) s.locked = !!body.locked;
