@@ -1,5 +1,7 @@
-"""派工城鎮圖（v0.71）：A 組地圖在左、B 組在右、兩組同時顯示；拖角色派遣（可多選）、不同組不能互派；
-點兩下開角色抽屜；去處規則（共用規則、地圖自訂設定、公倉／強化）；套用派工時送出去處規則算好的自動販售"""
+"""派工城鎮圖（v0.73）：A、B 組合在一起，一張圖一個節點；同隊（遊戲裡的隊伍）用隊伍框包起來、拖隊伍框整隊走，沒組隊的單隻走；
+A／B 篩選；點兩下開角色抽屜；去處規則（共用規則、地圖自訂設定、公倉／強化）；套用派工時送出去處規則算好的自動販售"""
+import os
+os.environ['MOCK_PARTY'] = 'c2,c3'  # 弓箭分身（A 組）＋本尊小號（B 組）同隊
 import asyncio, json, sys, time
 from harness import Env, hub_json, http, HUB, MOCK
 
@@ -36,35 +38,46 @@ async def main():
         await d.click('nav button[data-tab=board]'); await d.wait_for_timeout(1500)
         await d.click('[data-fzoom="fit"]'); await d.wait_for_timeout(400)
 
-        print('1. 城鎮圖：兩組同時顯示，A 左 B 右，城鎮四棟建築')
-        ma, mb = '.tmap[data-fn="m:A:gms104040000"]', '.tmap[data-fn="m:B:gms100010000"]'
-        check(await d.locator(ma).count() == 1 and await d.locator(mb).count() == 1, 'A 組、B 組的地圖都畫出來')
-        xa = await d.eval_on_selector(ma, 'n => n.offsetLeft'); xb = await d.eval_on_selector(mb, 'n => n.offsetLeft')
-        check(xa < 1600 < xb, f'A 組在城鎮左邊、B 組在右邊（{xa}、{xb}）')
+        print('1. 城鎮圖：A、B 組合在一起，一張圖一個節點；隊伍框')
+        ma, mb = '.tmap[data-fn="m:gms104040000"]', '.tmap[data-fn="m:gms100010000"]'
+        check(await d.locator(ma).count() == 1 and await d.locator(mb).count() == 1 and await d.locator('.tmap').count() == 2, 'A 組、B 組原本的地圖都畫出來（各一個節點）')
+        lanes = lambda g: sum((settings()['boards'][g]['lanes'] or {}).values(), [])
+        await asyncio.sleep(1)
         check(all([await d.locator(f'.tbuild[data-fn="{k}"]').count() == 1 for k in ['bag', 'shop', 'guild', 'forge']]), '城鎮有背包、商店、公倉、強化')
         check(await d.locator(f'{ma} [data-tav="c1"]').count() == 1 and await d.locator(f'{ma} [data-tav="c3"]').count() == 1, '射手訓練場上站著本尊劍士、弓箭分身')
-        check(await d.locator('[data-tpool] [data-tav="c2"].bgc').count() == 1, 'B 組的本尊小號（背景掛機、還沒同步過地圖）在上方的「未派遣」')
-        check(await d.locator(f'#facWires path[data-w="m:A:gms104040000>bag"]').count() == 1, '有人的地圖拉線到城鎮')
+        check(await d.locator(f'{ma} .tparty [data-tav="c3"]').count() == 1 and await d.locator(f'{ma} .tparty [data-tav="c1"]').count() == 0, '弓箭分身在隊伍框裡，本尊劍士（沒組隊）不在')
+        check(await d.locator('[data-tpool] .tparty [data-tav="c2"].bgc').count() == 1, 'B 組的本尊小號（同隊、背景掛機）在「未派遣」的隊伍框裡')
+        check('1/2' in await d.inner_text(f'{ma} .tparty .tp-hd'), '隊伍框標出這裡只有 1/2 人')
+        check(await d.locator('.tav .grp.gB').count() >= 1, '頭像上有 A／B 標籤')
+        check(await d.locator(f'#facWires path[data-w="m:gms104040000>bag"]').count() == 1, '有人的地圖拉線到城鎮')
         check('沿用遊戲' in await d.inner_text(ma) or '沒開' in await d.inner_text(ma), '舊設定沒有販售範本 → 不動遊戲設定')
+        await d.click('[data-tgf="B"]'); await d.wait_for_timeout(400)
+        check(await d.locator(f'{ma} [data-tav="c1"].tdim').count() == 1 and await d.locator('[data-tav="c2"].tdim').count() == 0, '只看 B 組：A 組的角色變淡')
+        await d.click('[data-tgf=""]'); await d.wait_for_timeout(400)
 
-        print('2. 開新地圖、拖角色派遣（多選一起拖）、不同組不能互派')
-        await d.select_option('[data-taddmap="A"]', 'gms104000400'); await d.wait_for_timeout(1200)
+        print('2. 開新地圖、沒組隊的單隻走、隊伍框整隊走（A、B 混合）')
+        await d.select_option('[data-taddmap]', 'gms104000400'); await d.wait_for_timeout(1200)
         await d.click('[data-fzoom="fit"]'); await d.wait_for_timeout(400)
-        mn = '.tmap[data-fn="m:A:gms104000400"]'
-        check(await d.locator(f'{mn}.tm-empty').count() == 1, '新地圖放在 A 組（沒有角色，排在外圈）')
-        await d.click(f'{ma} [data-tav="c1"] .tav-n'); await d.wait_for_timeout(500)
-        await d.click(f'{ma} [data-tav="c3"] .tav-n'); await d.wait_for_timeout(500)
-        check(await d.locator('.tav.sel').count() == 2, '點一下選取，兩隻都選起來')
-        await drag(d, f'{ma} [data-tav="c3"] .tav-n', mn)
+        mn = '.tmap[data-fn="m:gms104000400"]'
+        check(await d.locator(f'{mn}.tm-empty').count() == 1, '新地圖（沒有角色，排在外圈）')
+        check('gms104000400' in lanes('A') and 'gms104000400' in lanes('B'), '新地圖兩組都有')
+        await drag(d, f'{ma} [data-tav="c1"] .tav-n', mn)
         a = settings()['boards']['A']['assign']
-        check(a.get('c1') == 'gms104000400' and a.get('c3') == 'gms104000400', f'拖一隻、選起來的兩隻一起派過去：{a}')
+        check(a.get('c1') == 'gms104000400' and a.get('c3') != 'gms104000400', f'拖本尊劍士：只有它過去（{a}）')
         await d.click('[data-fzoom="fit"]'); await d.wait_for_timeout(400)
-        msgs.clear()
-        await drag(d, '[data-tpool] [data-tav="c2"] .tav-n', '.tmap[data-fn="m:A:gms104000400"]')
-        check(any('B 組' in m for m in msgs) and 'c2' not in settings()['boards']['A']['assign'], 'B 組的角色不能派到 A 組地圖')
+        await drag(d, f'{ma} .tparty .tp-hd', mn)
+        a, b = settings()['boards']['A']['assign'], settings()['boards']['B']['assign']
+        check(a.get('c3') == 'gms104000400' and b.get('c2') == 'gms104000400', f'拖隊伍框：弓箭分身（A）和本尊小號（B）一起過去（A {a}、B {b}）')
         await d.click('[data-fzoom="fit"]'); await d.wait_for_timeout(400)
-        await drag(d, '[data-tpool] [data-tav="c2"] .tav-n', mb)
-        check(settings()['boards']['B']['assign'].get('c2') == 'gms100010000', '從「未派遣」拖到 B 組地圖')
+        check(await d.locator(f'{mn} .tparty [data-tav="c2"]').count() == 1 and await d.locator(f'{mn} .tparty [data-tav="c3"]').count() == 1, '新地圖上同一個隊伍框有兩隻')
+        await drag(d, f'{mn} [data-tav="c3"] .tav-n', '[data-tpool]')
+        a, b = settings()['boards']['A']['assign'], settings()['boards']['B']['assign']
+        check(a.get('c3') != 'gms104000400' and b.get('c2') != 'gms104000400', '拖隊伍裡的一隻回「未派遣」：整隊一起回去')
+        await d.click('[data-fzoom="fit"]'); await d.wait_for_timeout(400)
+        await d.click('[data-tpool] .tparty .tp-hd'); await d.wait_for_timeout(400)
+        check(await d.locator('.tav.sel').count() == 2, '點一下隊伍框：整隊選起來')
+        await drag(d, '[data-tpool] [data-tav="c2"] .tav-n', mn)
+        check(settings()['boards']['B']['assign'].get('c2') == 'gms104000400' and settings()['boards']['A']['assign'].get('c3') == 'gms104000400', '拖回新地圖')
 
         print('3. 點兩下開角色抽屜')
         await d.click('[data-fzoom="fit"]'); await d.wait_for_timeout(400)
@@ -117,7 +130,7 @@ async def main():
 
         print('6. 重新排列、清單檢視')
         await d.click('[data-fzoom="layout"]'); await d.wait_for_timeout(800)
-        check(not (settings()['boards']['A'].get('tpos') or {}), '重新排列清掉自己拖過的位置')
+        check(not (settings()['boards']['A'].get('tpos') or {}) and not (settings()['boards']['B'].get('tpos') or {}), '重新排列清掉自己拖過的位置')
         await d.click('[data-bview2="list"]'); await d.wait_for_timeout(800)
         check(await d.locator('#bdLanes .lane').count() == 1, '清單檢視只剩一欄地圖（沒有三條線）')
         await d.click('[data-bview2="factory"]'); await d.wait_for_timeout(500)
