@@ -36,9 +36,11 @@ async def main():
         check(s == 404, '沒有的角色回 404')
 
         print('2. 組隊卡片顯示全身照、套用時帶自動販售範本')
-        sell = {'enabled': True, 'itemIds': [2000000, 4000000]}
+        # v0.71：自動販售來自去處規則（這張圖只賣紅寶殼）
+        sell = {'enabled': True, 'itemIds': [4000016]}
         hub_json('POST', '/api/settings', {'parties': [{'id': 'pA', 'name': '測試隊', 'members': ['c1', 'c3'], 'map': MAP}],
-                                           'boards': {'A': {'lanes': {'train': [MAP], 'scroll': [], 'gear': []}, 'assign': {}, 'sell': {MAP: sell}, 'goals': {}}, 'B': {}}})
+                                           'boards': {'A': {'lanes': {'train': [MAP], 'scroll': [], 'gear': []}, 'assign': {}, 'sell': {}, 'goals': {}}, 'B': {}},
+                                           'dest': {'board': True, 'over': {MAP: {'items': {'4000016': 'shop'}, 'rest': 'keep'}}}})
         ctx = await env.browser.new_context(viewport={'width': 1400, 'height': 900}); env.contexts.append(ctx)
         d = await ctx.new_page(); errs = []
         d.on('pageerror', lambda e: errs.append(str(e)))
@@ -60,10 +62,10 @@ async def main():
         n = await d.locator('#overview table.ov img.ava.ov').count()
         check(n >= 2, f'總覽角色欄有 {n} 張全身照')
         await d.click('nav button[data-tab=board]'); await d.wait_for_timeout(1500)
-        check(await d.evaluate('ui.board.view') == 'factory', '舊的「流水線」設定自動改回工廠圖')
+        check(await d.evaluate('ui.board.view') == 'factory', '舊的「流水線」設定自動改回城鎮圖')
         check(await d.locator('[data-bview2=pipe]').count() == 0, '沒有 3D 流水線按鈕')
-        n = await d.locator('#bdFactory .fnode img.ava.fn').count()
-        check(n >= 2, f'工廠圖角色節點有 {n} 張全身照')
+        n = await d.locator('#bdFactory .tav img.ava.tv').count()
+        check(n >= 2, f'城鎮圖的角色有 {n} 張全身照')
         await d.click('#bdViewSeg [data-bview2=list]'); await d.wait_for_timeout(800)
         await d.click('#bdViewSeg [data-bview2=factory]'); await d.wait_for_timeout(800)
         await d.screenshot(path='/tmp/fac_ava.png')

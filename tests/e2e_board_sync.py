@@ -28,7 +28,7 @@ async def until(d, fn, sec=40):
 
 async def main():
     async with Env() as env:
-        hub_json('POST', '/api/settings', {'board': {'lanes': {'train': [], 'scroll': [], 'gear': []}, 'assign': {}, 'sell': {}, 'goals': {}}, 'boards': None})
+        hub_json('POST', '/api/settings', {'board': {'lanes': {'train': [], 'scroll': [], 'gear': []}, 'assign': {}, 'sell': {}, 'goals': {}}, 'boards': None, 'dest': {'board': True}})
         await env.open_accounts(['A1'])
         await env.wait_chars(1)
         ctx = await env.browser.new_context(viewport={'width': 1400, 'height': 900}); env.contexts.append(ctx)
@@ -56,17 +56,18 @@ async def main():
         check(b and 'c1' not in b[0].get('assign', {}), '看板上舊的派工（弓箭手村北邊山丘）取消')
         check(b and any('在遊戲裡換到' in l['msg'] for l in b[1].get('boardSyncLog', [])), '同步紀錄有寫')
 
-        print('4. 在遊戲裡改自動販售 → 更新看板範本')
+        print('4. 在遊戲裡改自動販售 → 記成這張圖的自訂設定（去處規則）')
+        dover = lambda: (hub_json('GET', '/api/data')['settings'].get('dest') or {}).get('over', {}).get('gms104000400')
         game('A1', {'type': 'autoSell', 'characterId': 'c1', 'map': 'gms104000400', 'config': {'enabled': True, 'itemIds': [4000016, 2040805]}})
-        b = await until(d, lambda: (lambda b: b if (b[0].get('sell') or {}).get('gms104000400') else None)(board()))
-        sell = b and b[0]['sell']['gms104000400']
-        check(sell and sell['enabled'] and sorted(sell['itemIds']) == [2040805, 4000016], f'範本更新為遊戲的設定（{sell}）')
+        ov = await until(d, lambda: dover())
+        check(ov and ov.get('rest') == 'keep' and sorted(ov.get('items', {}).keys()) == ['2040805', '4000016'], f'自訂設定＝遊戲的設定（{ov}）')
+        sell = hub_json('GET', '/api/data')['destSell'].get('gms104000400')
+        check(sell and sorted(sell['itemIds']) == [2040805, 4000016], f'算出來的自動販售跟遊戲一樣（{sell}）')
 
-        print('5. 看板改範本（遊戲沒動）→ 保留看板的')
-        bd, _ = board(); bd['sell']['gms104000400'] = {'enabled': True, 'itemIds': [4000016]}
-        hub_json('POST', '/api/settings', {'boards': {'A': bd}, 'board': bd})
+        print('5. 看板改自訂設定（遊戲沒動）→ 保留看板的')
+        hub_json('POST', '/api/settings', {'dest': {'over': {'gms104000400': {'items': {'4000016': 'shop'}, 'rest': 'keep'}}}})
         await asyncio.sleep(6); await d.evaluate('poll(true)'); await asyncio.sleep(2)
-        check(board()[0]['sell']['gms104000400']['itemIds'] == [4000016], '看板改的範本沒被蓋掉（等套用時才送到遊戲）')
+        check(list((dover() or {}).get('items', {}).keys()) == ['4000016'], '看板改的設定沒被蓋掉（等套用時才送到遊戲）')
 
         print('6. 關掉同步 → 遊戲換圖不影響看板')
         await d.evaluate('poll(true)'); await d.wait_for_timeout(800)

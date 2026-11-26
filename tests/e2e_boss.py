@@ -48,10 +48,11 @@ async def main():
         print('3. 自動：出發打死王，回原本的地圖')
         home = mock_char('A2', 'c3')['map']
         hub_json('POST', '/api/settings', {'boss': {'mode': 'auto', 'chars': {'c3': True}, 'mobs': ['mBoss1'], 'estMax': 15, 'presetBoss': 2, 'presetTrain': 0,
-            'sell': {'on': True}, 'sellMaps': {'gms104000400': {'enabled': True, 'itemIds': [1082149]}}}})
+            }, 'dest': {'boss': True, 'over': {'gms104000400': {'items': {'1082149': 'shop'}, 'rest': 'keep'}}}})
         hub_json('POST', '/api/boss/run-now')
         jobs = [j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'boss']
         check(len(jobs) == 1 and jobs[0]['batches'][0]['boss']['mob'] == 'mBoss1', '建立 1 個打紅寶王的工作')
+        check(jobs and jobs[0]['batches'][0]['boss'].get('sell') == {'enabled': True, 'itemIds': [1082149]}, f"到王的地圖套用去處規則算好的自動販售（{jobs and jobs[0]['batches'][0]['boss'].get('sell')}）")
         done = await wait(lambda: next((j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'boss' and j['status'] in ('done', 'failed')), None), 90)
         check(done and done['status'] == 'done', '工作完成' + ('' if done and done['status'] == 'done' else f"：{done and done['lastMsg']}"))
         _, b = boss_char('c3')
@@ -71,7 +72,7 @@ async def main():
         check(len([j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'boss']) == 1, '冷卻中不會再派')
 
         print('4. 打很久的王：血量有在掉就打下去（不會被時間到拉走），血量不降才先回去')
-        hub_json('POST', '/api/settings', {'boss': {'mode': 'auto', 'chars': {'c3': True}, 'mobs': ['mBoss2'], 'estMax': 100000, 'stuckMin': 1, 'maxMin': 30, 'sell': {'on': False}}})
+        hub_json('POST', '/api/settings', {'boss': {'mode': 'auto', 'chars': {'c3': True}, 'mobs': ['mBoss2'], 'estMax': 100000, 'stuckMin': 1, 'maxMin': 30}, 'dest': {'boss': False}})
         hub_json('POST', '/api/boss/run-now')
         lv = await wait(lambda: next((g for g in hub_json('GET', '/api/boss')['live'] if g['hp'] is not None), None), 40)
         check(lv and lv['mob'] == 'mBoss2', '打王中：即時血量有回報' + (f"（{lv['hp']:,}）" if lv else ''))

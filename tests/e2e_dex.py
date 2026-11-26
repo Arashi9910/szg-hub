@@ -72,8 +72,10 @@ async def main():
         await d.click('.dex-card .sr [data-dexboard]'); await d.wait_for_timeout(1200)
         check(await d.evaluate("document.querySelector('nav button.on').dataset.tab") == 'board', '按「派工」→ 跳到派工')
         bs = hub_json('GET', '/api/data')['settings'].get('boards') or {}
-        b = [x for x in bs.values() if mid in ((x.get('lanes') or {}).get('gear') or [])]
-        check(b and 1452002 in [int(i) for i in (b[0].get('goals') or {}).get(mid, [])], f'看板「打裝備」加入 {mid}，目標有戰鬥弓')
+        b = [x for x in bs.values() if mid in [m for l in (x.get('lanes') or {}).values() for m in l]]
+        await d.wait_for_timeout(800)
+        dst = await d.evaluate(f"destCalc('{mid}').dest[1452002]")
+        check(b and dst != 'shop', f'看板加入 {mid}，那張圖的戰鬥弓不會被賣掉（去處：{dst}）')
         await d.click('nav button[data-tab=dex]'); await d.wait_for_timeout(300)
         await d.fill('#dexQ', ''); await d.check('#dexDrop'); await d.wait_for_timeout(300)
         n = await names()

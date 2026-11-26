@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-26（v0.70.2）
+最後更新：2026-11-26（v0.71.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -305,3 +305,12 @@
   - 測試 tests/e2e_board_cards.py；e2e_board_prune 改成只移除 auto 的、自己加的留著；e2e_board_group、e2e_avatar 先切到工廠圖。
 - v0.70.1：實機看卡片，目標很多的打卷軸地圖卡片很長 → boardMapCard 的目標只列 dropRate 最高的 4 項，其他「…還有 N 項」（title 列出）。
 - v0.70.2（使用者：卡片「沒有比較直覺」，先改回原本的，派工再討論）：dashboard.html 從 v0.69.6 拿回來（工廠圖預設、清單＝角色池＋拖曳），只重新加上：board.auto＋只移除自動放上來的地圖（清單 mcard 多 data-bdpin「📌 留著」）、#bdExport／#bdImportBtn／#bdImportFile＋boardExport／boardImportFile。卡片檢視、角色清單（renderBoardChars、data-bdpk…）都拿掉。agent 換圖後 start 保留。測試 e2e_board_cards → e2e_board_keep；e2e_board_group、e2e_avatar、guide_shots 還原。**v0.70.0 的卡片做法使用者不喜歡**，下次派工改版前先討論清楚要的操作方式。
+- v0.71.0（派工改版第 1 階段，跟使用者討論定案後做的）：
+  - **去處規則 `dest.js`**（新檔，伺服器 require、面板 `<script src="/dest.js">` 共用同一份計算；version.json files、make-public FILES 都加了）。settings.dest = {board, boss, rule{gear,scroll,book,other:'shop'|'keep', boss:'keep'|'rule'}, over{地圖:{game:true}|{items{id:'shop'|'keep'}, rest?}}, forge:[id]}；公倉＝settings.guildDep（cats 整類＋新的 ids），全部地圖共用。`D.calc(world, settings, map)` 回每樣的去處、`D.sellOf(..., 'board'|'boss')` 回給遊戲的 {enabled,itemIds} 或 null（沒開／沿用遊戲設定／沒掉落資料＝不動遊戲）。裝備判斷：row[1]==='gear'||'equip'||編號 1 開頭（mock 是 'equip'）。
+  - 伺服器：啟動時 `destMigrate()`（沒有 dest 才做）：野王 boss.sell（rule、over itemIds）＋派工 boards.*.sell → dest；沒有販售範本的派工地圖＝{game:true}；舊欄位不刪。bossSellOf → destSellOf(map,'boss')，boardSellOf → 'board'；/api/data 多 destSell（看板上的圖）、/api/boss 多 destSell（野王圖）；POST /api/settings 的 dest 欄位合併；guildPlanFor 也看 dep.ids（道具編號）。/dest.js 在通行碼檢查之前（跟 /m 一樣）。
+  - 面板「城鎮圖」（取代工廠圖，renderFactory／drawWires 重寫）：TOWN 世界 3200×2100、城鎮中心 (1600,1050)，四棟建築 data-fn bag/shop/guild/forge、外圈虛線＝共用規則（[data-trules]，下方 HUD 也有一顆）。地圖節點 data-fn=`m:組:地圖`、data-fmap、data-fgrp；A 組在左、B 組在右，townDefaults 排成直列（有人的內列、沒人的外列，6／9 個一列），自己拖的位置存 boards.組.tpos（舊的 pos 不用）。線 key `m:組:地圖>建築`，只畫有東西送去的建築；flyLoot 依 dest 決定飛到哪棟。視角存 localStorage townView。
+  - 角色：.tav[data-tav][data-tgrp]，capture 的 pointerdown 自己處理（ui.fac.drag type 'ava'）：點一下選取（ui.fac.sel 多選）、拖到 .tmap 派遣（同組才行，選取的一起）、拖回上方「未派遣」＝取消、點兩下或 [data-tinfo] 開 #charDrawer（目前只有基本資料，之後加裝備／能力點／技能／掛機）。boardCfg(g)／saveBoard(cfg, g) 可以指定組。
+  - 去處設定卡（#bdSell 重用，renderDestEditor；ui.board.destEdit={g,map}|{rules:true}）：共用規則（派工地圖套用／野王地圖套用、每類 背包／商店／公倉）、地圖自訂（每樣 背包／商店／公倉／強化，[data-dset]、沿用遊戲設定／改用去處規則／全部恢復共用規則／套用給目前在這裡的）。野王的掉落篩選抽屜改成讀寫 dest（同一份）。
+  - 套用派工 A、B 兩組一起；清單檢視只剩一欄「地圖」（data-tmcfg 開去處設定）；與遊戲同步：遊戲裡改了某張派工圖的自動販售 → 記成 dest.over（第一次同步不匯入）；匯入目前設定 → dest.over；匯出／匯入設定檔 version 2 含 dest、guildIds；圖鑑「派工」→ 放上看板＋那件在那張圖設成留著。目標道具（goals）、三條線的 UI 都拿掉（資料還在）。
+  - 測試：新的 unit_dest.py；e2e_board_group 改寫成城鎮圖；e2e_board_sync／keep／avatar／boss／boss_cards／dex／split 跟著改。
+  - 下一步（使用者定的順序）：②角色抽屜裝備頁（顯示 +N、剩幾格、卷軸加成 stats−cleanStats、浮動 cleanStats−baseStats，手動穿上 equip uid）③自動強化兩種模式（每次確認／每日楓幣上限）④抽屜能力點（statBatch／statPlan）、技能（learnBatch／skillPlan）、掛機設定（setting key＋value、settingsPreset、autoBuff）——遊戲指令只查過名稱，沒實際送過。

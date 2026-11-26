@@ -76,16 +76,17 @@ async def main():
         print('3c. 掉落篩選')
         await d.click('#bossSellOpen'); await d.wait_for_timeout(600)
         await d.click('#bossSellOn'); await d.wait_for_timeout(1000)
-        b = hub_json('GET', '/api/data')['settings']['boss']
-        sm = (b.get('sellMaps') or {}).get('gms104000400')
-        check(b['sell']['on'] and sm and sm['itemIds'] == [1082149], f"開啟後依共用規則算好：小怪的裝備賣、王會掉的（戰鬥弓、紅寶殼）保留（{sm}）")
+        bsell = lambda: hub_json('GET', '/api/boss')['destSell'].get('gms104000400')
+        sm = bsell()
+        check(hub_json('GET', '/api/data')['settings']['dest']['boss'] and sm and sm['itemIds'] == [1082149], f"開啟後依共用規則算好：小怪的裝備賣、王會掉的（戰鬥弓、紅寶殼）保留（{sm}）")
         await d.click('[data-bsrule="scroll|sell"]'); await d.wait_for_timeout(1000)
-        sm = hub_json('GET', '/api/data')['settings']['boss']['sellMaps']['gms104000400']
+        sm = bsell()
+        check(hub_json('GET', '/api/data')['settings']['dest']['rule']['scroll'] == 'shop', '掉落篩選改的就是去處規則的共用規則')
         check(sorted(sm['itemIds']) == [1082149, 2040805], f'卷軸改成賣：多了卷軸（{sm}）')
         await d.click('[data-bsedit="gms104000400"]'); await d.wait_for_timeout(500)
         await d.click('[data-bsi="1082149"]'); await d.click('[data-bssave]'); await d.wait_for_timeout(1000)
-        b = hub_json('GET', '/api/data')['settings']['boss']
-        check(b['sellMaps']['gms104000400']['itemIds'] == [2040805] and 'gms104000400' in b['sell']['over'], f"個別調整：只賣卷軸（{b['sellMaps']['gms104000400']}）")
+        sm = bsell()
+        check(sm['itemIds'] == [2040805] and 'gms104000400' in hub_json('GET', '/api/data')['settings']['dest']['over'], f"個別調整：只賣卷軸（{sm}）")
         check('個別調整' in await d.inner_text('.bb[data-bbmob="mBoss1"]') or True, '王卡片顯示個別調整')
         await d.keyboard.press('Escape')
         await d.click('#bossView [data-bview=boss]'); await d.wait_for_timeout(800)

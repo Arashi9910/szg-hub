@@ -49,7 +49,7 @@ async def main():
         passed = [x['uid'] for x in r['results'] if x['pass'] and not x['destroyed']]; failed = [x['uid'] for x in r['results'] if not x['pass'] and not x['destroyed']]
         print(f'   衝了 {len(r["results"])} 件：及格 {len(passed)}、不及格 {len(failed)}')
         await d.click('nav button[data-tab=board]'); await d.wait_for_timeout(1200)
-        check('等你分流' in await d.inner_text('.fnode[data-fn="out"]'), '工廠圖的分流節點顯示「等你分流」')
+        check('等你分流' in await d.inner_text('.fnode[data-fn="forge"]'), '城鎮圖的強化建築顯示「等你分流」')
         await d.click('nav button[data-tab=forge]'); await d.wait_for_timeout(1000)
         box = d.locator('#fgLog details[open] .fg-split')
         check(await box.count() == 1, '最新一筆結果下面有分流區塊')
