@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-26（v0.69.5）
+最後更新：2026-11-26（v0.69.6）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -295,3 +295,4 @@
 - v0.69.4 隊伍篩選不打的王（使用者：能在組隊篩選哪些王不打嗎？）：settings.boss.parties[key].skipMobs；partyCfgOf 多回 skipMobs、custom 改成「有設 mode 才算自己的打法」。server `bossAllow(unit, c)` 改成 function：隊員勾的聯集，另外掛 `set.skip`＝每個隊員所在隊伍的 skipMobs（各自打時也套用）；bossRows：denied → selected false、skip「隊伍設定不打」。/api/boss parties[].skipMobs。面板隊伍卡片王 chip `.pb-mob`（yes／no／tog）：名字 data-pbskip 切換打不打（🚫），依王決定時旁邊 data-pbtog 👥／👤；data-pbunskip 全部恢復；「改回預設」只清打法、保留 skipMobs。依王看的角色狀態「隊伍不打」。e2e_boss_team 第 4 段。
 - v0.69.5（有人回報：手機版一片空白，Tailscale 有設、5G／Wi-Fi 都一樣）：重現不出來——m.html 語法正常、沒有新語法（只有 Object.fromEntries／flatMap，iOS 12.2+）、公開版和私人版一樣；用使用者 Chrome 開 127.0.0.1:8787/m 真實資料、每個分頁都沒錯誤。雲端環境下載不到 Playwright WebKit（cdn.playwright.dev 不在白名單），沒辦法測 iPhone 引擎。m.html 的標題列是寫死的，「連標題都沒有的全白」＝網頁本身沒送到（網址／serve 問題），「有標題下面空白」＝資料或程式。加診斷：<head> 裡 ES5 的 window.onerror／unhandledrejection → `__szgShow()` 在 #bootErr 紅框顯示錯誤＋網址＋userAgent；8 秒沒拿到 D（也不是配對畫面）顯示 load.lastErr；api() 錯誤訊息帶 HTTP 狀態碼；<noscript>。e2e_mobile 加測（擋掉 /api/m/summary、丟錯誤）。等回報者截圖紅框再處理。
 - 2026-11-26 手機版全白追蹤：回報者是「整頁全白＋iPhone 加到主畫面」。全白（連深色底和標題都沒有）＝網頁沒載入，iPhone 主畫面 App 載入失敗只會全白、不顯示錯誤。已知原因：WebKit bug 256219（iOS 16.4 起，開了螢幕使用時間的「網頁內容」限制，主畫面 App 全白）、主畫面圖示是舊網址、Tailscale 沒連上。公開版 docs/mobile.md 疑難排解已補。請回報者先用 Safari 開同一個網址判斷（Safari 正常＝主畫面 App 的問題；Safari 也白＝連線／網址）。
+- v0.69.6（玩家回報：更新後野王掉落篩選被重置）：原因是**手機版** m.html `saveBoss` 送 `{...BOSS.cfg, ...patch}`——BOSS.cfg 是 /api/boss 的 bossCfg() 整理版（有 sellOn、sellMaps，沒有 sell 規則），而 POST /api/settings 是頂層整個替換 → 手機一改打王，settings.boss.sell 就不見（掉落篩選關掉、規則與個別調整消失）。修正：① server POST /api/settings 的 boss 一律和舊的合併（只改送來的欄位）；② m.html saveBoss 只送 patch（有 charMobs 才附 chars／mobs）；③ `bossSettingsFix()`（啟動時、每次存設定後）：沒有 sell 但有 sellOn===true＋sellMaps＝被蓋壞的 → sell = {on:true, rule:{}, over: 每張圖的 itemIds, restored: 時間}（效果和原本一樣），並刪掉 sellOn 這個不該存的欄位。面板掉落篩選抽屜在 restored 時顯示說明。注意：boss 設定現在是合併，要「拿掉」某個欄位要明確送 null／空值（例如 parties 整包送、sell.over 整包送）。測試：e2e_mobile 第 5 段（模擬被蓋壞→還原、手機改打王後掉落篩選還在）；e2e_boss 設定抽屜的期望值改成 1（沒送的 stuckMin 保留）。

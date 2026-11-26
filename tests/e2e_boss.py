@@ -125,7 +125,7 @@ async def main():
         red = await dash.inner_text('.bb[data-bbmob="mBoss1"]')
         check('沒人打' in red and '＋ 加角色' in red, '紅寶王（沒勾）卡片顯示「沒人打」、可以加角色：' + red.replace('\n', ' ')[:80])
         await dash.click('#bossSetOpen'); await dash.wait_for_timeout(500)
-        check(await dash.is_visible('#bossSetDrawer') and await dash.input_value('#bossStuck') == '3', '⚙ 設定抽屜：血量幾分鐘沒降就離開（預設 3）')
+        check(await dash.is_visible('#bossSetDrawer') and await dash.input_value('#bossStuck') == '1', '⚙ 設定抽屜：血量幾分鐘沒降就離開（前面設的 1，沒送的設定會保留）')
         await dash.keyboard.press('Escape'); await dash.wait_for_timeout(300)
         check(not await dash.is_visible('#bossSetDrawer'), 'Esc 關掉抽屜')
         await dash.screenshot(path='/tmp/boss.png', full_page=False)

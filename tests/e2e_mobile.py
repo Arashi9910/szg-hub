@@ -106,7 +106,11 @@ async def main():
         await p.click('#retryAll'); await p.wait_for_timeout(800)
         after = [j for j in jobs() if any('重試全部' in (l.get('msg') or '') for l in j.get('log', []))]
         check(before >= 1 and len(after) == before, f'全部重試：{before} 個失敗的都重新排隊')
-        print('5. 打王勾選')
+        print('5. 打王勾選（v0.69.6：手機存打王設定不會清掉電腦設的掉落篩選）')
+        # 模擬舊版手機蓋壞的設定：只剩 sellOn 和算好的 sellMaps → 中控自動還原成每張圖的個別調整
+        hub_json('POST', '/api/settings', {'boss': {'sellOn': True, 'sellMaps': {'gms104000400': {'enabled': True, 'itemIds': [1082149]}}}})
+        sb = hub_json('GET', '/api/data')['settings']['boss']
+        check(sb.get('sell', {}).get('on') and sb['sell'].get('over', {}).get('gms104000400', {}).get('itemIds') == [1082149] and 'sellOn' not in sb, f"被清掉的掉落篩選自動還原（{sb.get('sell')}）")
         await p.click('nav [data-v="boss"]')
         await wait(lambda: True, 0)
         for _ in range(20):
@@ -117,6 +121,8 @@ async def main():
         check(len(cm.get('c3', [])) == 1, f'點王 → c3 勾一隻（{cm}）')
         await p.click('#bossMode [data-bm="preview"]'); await p.wait_for_timeout(800)
         check(hub_json('GET', '/api/boss')['cfg']['mode'] == 'preview', '打王改成試跑')
+        sb = hub_json('GET', '/api/data')['settings']['boss']
+        check(sb.get('sell', {}).get('on') and sb['sell'].get('over', {}).get('gms104000400') and 'sellOn' not in sb, '手機改打王（勾王、模式）之後，掉落篩選還在')
         print('6. 組隊套用')
         hub_json('POST', '/api/settings', {'parties': [{'id': 'pM', 'name': '手機隊', 'members': ['c1', 'c3'], 'map': 'gms104040000'}]})
         await p.click('nav [data-v="party"]'); await p.click('#refresh'); await p.wait_for_timeout(1200)
