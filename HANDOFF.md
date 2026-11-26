@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-26（v0.70.0）
+最後更新：2026-11-26（v0.70.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -303,3 +303,4 @@
   - 匯出／匯入：#bdExport → `boardExport()` 下載 JSON {app, kind:'board', version:1, exportedAt, mapNames, groups:{A,B:{lanes, sell, goals}}}（不含 assign、pos、auto）；#bdImportBtn → #bdImportFile → `boardImportFile()` 合併（地圖加進對應路線、sell／goals 覆蓋、找不到的地圖略過並列出、匯入的地圖不是 auto）。
   - agent idle 'map'：換圖成功後 1.2 秒 `start`（真實遊戲換圖會停掛機；派工套用、手機換圖都走這裡）。
   - 測試 tests/e2e_board_cards.py；e2e_board_prune 改成只移除 auto 的、自己加的留著；e2e_board_group、e2e_avatar 先切到工廠圖。
+- v0.70.1：實機看卡片，目標很多的打卷軸地圖卡片很長 → boardMapCard 的目標只列 dropRate 最高的 4 項，其他「…還有 N 項」（title 列出）。
