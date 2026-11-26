@@ -1,4 +1,5 @@
-"""派工空地圖自動移除：沒有角色的地圖超過設定時間就從看板移除（販售範本保留）；有角色、有派工的不動；可以關掉"""
+"""派工空地圖自動移除：「與遊戲同步」自動放上來的地圖沒有角色超過設定時間就從看板移除（販售範本保留）；
+有角色、有派工的不動；自己加的（v0.70 起）不會被移除；可以關掉"""
 import asyncio, sys, time
 from harness import Env, hub_json
 
@@ -24,8 +25,9 @@ async def until(d, fn, sec=60):
 async def main():
     async with Env() as env:
         # 射手訓練場：本尊劍士在那裡；弓箭手村北邊山丘：有派工（本尊小號要去）；傷害測試場：沒人 → 應該被移除
-        bd = {'lanes': {'train': ['gms104040000', 'gms100010000', 'gms990040001'], 'scroll': [], 'gear': []}, 'assign': {'c2': 'gms100010000'},
-              'sell': {'gms990040001': {'enabled': True, 'itemIds': [4000000]}}, 'goals': {}}
+        bd = {'lanes': {'train': ['gms104040000', 'gms100010000', 'gms990040001', 'gms104000400'], 'scroll': [], 'gear': []}, 'assign': {'c2': 'gms100010000'},
+              'sell': {'gms990040001': {'enabled': True, 'itemIds': [4000000]}}, 'goals': {},
+              'auto': {'gms104040000': 1, 'gms100010000': 1, 'gms990040001': 1}}   # 海岸草叢3（gms104000400）是自己加的
         hub_json('POST', '/api/settings', {'board': bd, 'boards': {'A': bd}, 'boardPruneMin': 0.3, 'boardSync': False})
         await env.open_accounts(['A1'])
         await env.wait_chars(1)
@@ -39,10 +41,11 @@ async def main():
         check(b, '傷害測試場 1（沒人）已從看板移除')
         check(b and {'gms104040000', 'gms100010000'} <= set(b[0]['lanes']['train']), '有人的、有派工的地圖還在')
         check(b and (b[0].get('sell') or {}).get('gms990040001'), '它的販售範本保留著')
+        check(b and 'gms104000400' in b[0]['lanes']['train'], '自己加的空地圖（海岸草叢3）不會被移除')
         check(b and any('沒有角色' in l['msg'] for l in b[1].get('boardSyncLog', [])), '紀錄有寫')
         print('2. 關掉 → 不移除')
         await d.click('#bdPrune'); await d.wait_for_timeout(500)
-        bd2, _ = board(); bd2 = {**bd2, 'lanes': {**bd2['lanes'], 'train': bd2['lanes']['train'] + ['gms990040001']}}
+        bd2, _ = board(); bd2 = {**bd2, 'lanes': {**bd2['lanes'], 'train': bd2['lanes']['train'] + ['gms990040001']}, 'auto': {**(bd2.get('auto') or {}), 'gms990040001': 1}}
         hub_json('POST', '/api/settings', {'board': bd2, 'boards': {'A': bd2}})
         for _ in range(12): await d.evaluate('poll(true)'); await asyncio.sleep(2)
         check('gms990040001' in board()[0]['lanes']['train'], '關掉後空地圖留著')
