@@ -1,4 +1,5 @@
-"""打王強制停止：隊伍兩隻一起打很久的王 → 面板只停其中一隻（回原地圖、另一隻繼續）→「全部停止」→ 兩隻都回去、30 分鐘內不再派 →「恢復」"""
+"""打王強制停止：隊伍兩隻一起打很久的王 → 面板只停其中一隻（v0.69.3 整隊同進退：隊友也一起回去，只有被停的暫停打王）→
+另一隻很久的王用卡片「全部停止」→ 兩隻都回去、30 分鐘內不再派 →「恢復」"""
 import asyncio, os, sys, time, json
 os.environ['MOCK_BOSS_DPS'] = '300'
 os.environ['MOCK_BOSS_RESPAWN_MS'] = '3600000'
@@ -53,15 +54,23 @@ async def main():
         check(done4 and done4['status'] == 'done', f"c4 的工作結束（{done4 and done4['status']}）")
         c4 = mock_char('A3', 'c4')
         check(c4['map'] == homes['c4'] and c4['auto'], 'c4 回到原本的地圖並開始掛機')
-        j3 = job_of('c3')
-        check(j3 and j3['status'] in ('approved', 'running') and mock_char('A2', 'c3')['map'] == 'gms100000005', 'c3 繼續打')
+        done3 = await wait(lambda: (lambda j: j if j and j['status'] in ('done', 'failed', 'cancelled') else None)(job_of('c3')), 40)
+        check(done3 and done3['status'] == 'done' and mock_char('A2', 'c3')['map'] == homes['c3'], '整隊同進退：c3 也跟著回原本的地圖')
+        held = {c['charId']: bool(c['held']) for c in hub_json('GET', '/api/boss')['chars']}
+        check(held.get('c4') and not held.get('c3'), f'只有被停的 c4 暫停打王（{held}）')
         log = hub_json('GET', '/api/boss')['log']
         check(any('強制停止' in l['msg'] and l['charId'] == 'c4' for l in log), '紀錄有 c4 強制停止')
+        hub_json('POST', '/api/boss/unhold', {})
+        http('GET', MOCK + '/__mock/boss?acct=A2&char=c3&mob=mBoss1&hp=900000000&cd=0')   # 紅寶王也打很久
+        hub_json('POST', '/api/settings', {'boss': {'mode': 'auto', 'charMobs': {'c3': ['mBoss1']}, 'estMax': 100000}})
+        hub_json('POST', '/api/boss/run-now')
+        check(len([j for j in boss_jobs() if j['status'] in ('approved', 'running')]) == 2, '兩隻一起去打紅寶王')
+        await wait(lambda: next((g for g in hub_json('GET', '/api/boss')['live'] if g['mob'] == 'mBoss1' and g['hp'] is not None), None), 60)
 
         print('3. 全部停止（卡片上的按鈕）')
         await d.evaluate('loadBoss(true).then(() => renderBoss(true))'); await d.wait_for_timeout(1500)
-        await d.click('.bb[data-bbmob="mBoss2"] [data-bstopall]'); await d.wait_for_timeout(1000)
-        done3 = await wait(lambda: (lambda j: j if j and j['status'] in ('done', 'failed', 'cancelled') else None)(job_of('c3')), 40)
+        await d.click('.bb[data-bbmob="mBoss1"] [data-bstopall]'); await d.wait_for_timeout(1000)
+        done3 = await wait(lambda: (lambda j: j if j and j['status'] in ('done', 'failed', 'cancelled') else None)(next((x for x in reversed(boss_jobs()) if x['fromCharId'] == 'c3'), None)), 40)
         check(done3 and done3['status'] == 'done', f"c3 的工作結束（{done3 and done3['status']}）")
         c3 = mock_char('A2', 'c3')
         check(c3['map'] == homes['c3'] and c3['auto'], 'c3 回到原本的地圖並開始掛機')
@@ -69,7 +78,7 @@ async def main():
 
         print('4. 30 分鐘內不再派、恢復')
         hub_json('POST', '/api/boss/run-now')
-        check(len(boss_jobs()) == 2, '停止的角色不會馬上又被派去打王')
+        check(len(boss_jobs()) == 4, '停止的角色不會馬上又被派去打王')
         b = hub_json('GET', '/api/boss')
         check(all(c['held'] > time.time() * 1000 for c in b['chars'] if c['charId'] in ('c3', 'c4')), '兩隻都標暫停打王')
         await d.evaluate('loadBoss(true).then(() => renderBoss(true))'); await d.wait_for_timeout(1000)
