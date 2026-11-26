@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-27（v0.73.0）
+最後更新：2026-11-27（v0.73.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -321,3 +321,4 @@
 - v0.72.0（派工改版第 4 階段：角色抽屜的能力點／技能／掛機設定）：agent 快照 char.prog＝progOf(c)：{ap, sp, base(stats 的 str/dex/int/luk), total(totalStats，沒有就用 stats), skills[{id(字串),name,tier,max,lv,req{id:lv},type,buff}], need{2,3,4}（遊戲的 tierNeeded 公式）, statPlan, skillPlan, auto{autoSkills,autoStats,autoPotion,autoStartOnMap}, autoBuffs, active}，技能沿 catalog.jobs parent 找、需要 catalog.skills（agent 現在留著）。送設定走 /api/idle targets {charId, action:'cfg', cmd, label}；server cleanCfg 白名單：statBatch（includeSocial:false，≤4 筆，amount 1..999，from 0..9999）、learnBatch（≤60，amount 1..30）、statPlan（target 4..1999）、skillPlan（target 1..30）、setting（只有 autoSkills/autoStats/autoPotion/autoStartOnMap，布林）、autoBuff、skill；有 cfg 的工作 minAgent 0.72.0。agent cfgIds 把技能 id 換回 catalog 原本的型別再送（不確定遊戲是數字還是字串 id）。面板：抽屜分頁 裝備／能力點／技能／掛機設定／基本資料；能力點、技能都是草稿（ui.cd.stat/skill，sig 變了就清掉）→「確認分配」confirm 後送；技能顯示前置條件（cdSkillCheck）、掛機用這招（attack/heal）、Buff 自動施放、自動配技能計畫；計畫編輯 ui.cd.sp/kp。settingsPreset 遊戲有這個指令但參數沒查，**沒做**。mock 加 MOCK_SKILLS、ap/sp/skills 和這些指令（from 對不上會拒絕）。測試 e2e_char_cfg.py。**真實遊戲還沒實際送過這些指令**（分配點數不可逆，沒在使用者帳號上試），請使用者先拿一隻角色加 1 點試。
   - 下一步：派工改版 4 個階段都做完；手機版仍是列表（去處規則、抽屜沒同步到手機，使用者說維持列表）。
 - v0.73.0（使用者：A／B 混合組隊在同一張圖卻分左右兩邊，不方便 → 合併；隊伍框整隊走、沒組隊單隻走；左右分開拿掉）：資料結構不變（settings.boards.A／B 各自的 lanes、assign），只改畫法：townLanes()＝兩組 lanes 聯集，townWhereAll() 用角色自己那組的 assign；lanes 不自動補齊（試過在畫面上自動存，會跟中控／測試直接寫的設定搶，蓋掉剛改的 assign）：畫面、套用（對齊販售）、與遊戲同步（另一組有這張圖就不再放）、空地圖移除（兩組的角色都算有人）都用聯集；開新地圖、拖進地圖會同時放進兩組 lanes，✕ 兩組都拿掉（清單檢視的 data-bddel／bdpin／tmcfg 還是 g|id，handler 兩種都吃）。節點 key 改 `m:<map>`（線 data-w `m:<map>>sink`、flyLoot 跟著改），位置存 boards.A.tpos['t:'+map]（舊的 m: 位置不用，左右重新排）。地圖左右輪流放，線從節點在城鎮哪一邊決定入口。隊伍：townParties() 用每隻的 DATA.chars[id].party.party（2 人以上，leader＝members 裡 leader:true），ui.fac.pt={parties, of}；townAvas() 畫 .tparty 框（.tp-hd data-tpdrag）；townExpand() 拖曳時把同隊的加進來（選取、拖頭像、拖框都會）；townMove 有人等級不夠整隊不動。A／B 篩選 ui.fac.gf（localStorage townGf）只加 .tdim。去處自訂設定不再分組（套用給目前在這張圖的全部有分頁角色）。測試 e2e_board_group 改寫（MOCK_PARTY=c2,c3 跨 A／B）。清單檢視、手機版還是分組。
+- v0.73.1（玩家回報：王的個別設定存不起來）：renderBossSell 呼叫 bossSellCalc(map, sc)，第二個參數是 noOver，傳了設定物件＝永遠不看覆寫 → 清單一直顯示「共用規則」、再按調整時草稿從共用規則開始（v0.71.0 改寫時留下的）。伺服器、遊戲端一直有照 dest.over 賣，只是畫面錯；但玩家再調整、再存就會用共用規則的勾選蓋掉。拿掉第二個參數；e2e_boss_cards 加檢查（清單顯示個別調整、再調整看到存好的、改共用規則不蓋掉）。
