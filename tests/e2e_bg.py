@@ -305,6 +305,18 @@ async def main():
         check(ok, f"開始時自動結束殘留的 Chrome，背景照常啟動（{prof(pid)['state']} {prof(pid)['msg']}）")
         check(stale.poll() is not None, '殘留的那個 Chrome 已被結束')
         hub_json('POST', '/api/bg/stop', {'id': pid}); await until(lambda: not chrome_procs(pid), 20)
+        print('8b. 自動開始（中控重開、定時檢查）時有不是中控開的 Chrome 開著（例如登入視窗）→ 不關掉，等它關了才開')
+        win = subprocess.Popen([CHROMIUM, '--headless=new', '--no-sandbox', f'--user-data-dir={d1}', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        await asyncio.sleep(3)
+        bgc = hub_json('GET', '/api/data')['settings']['bg']
+        bgc['profiles'] = [{**x, 'on': True} if x['id'] == pid else x for x in bgc['profiles']]
+        hub_json('POST', '/api/settings', {'bg': bgc})
+        w = await until(lambda: prof(pid)['state'] == 'wait' or None, 40)
+        check(w and win.poll() is None, f"那個視窗沒被關掉，狀態顯示等它關掉（{prof(pid)['state']} {prof(pid)['msg'][:40]}）")
+        win.terminate(); win.wait()
+        ok = await until(lambda: prof(pid)['state'] == 'running', 60)
+        check(ok, '視窗關掉後自動開始背景執行')
+        hub_json('POST', '/api/bg/stop', {'id': pid}); await until(lambda: not chrome_procs(pid), 20)
         print('9. Chrome 一啟動就結束 → 錯誤寫出原因')
         bad = '/tmp/_szg_badchrome.sh'
         open(bad, 'w').write('#!/bin/sh\necho "fake chrome: profile is broken" >&2\nexit 21\n'); os.chmod(bad, 0o755)
