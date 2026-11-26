@@ -131,6 +131,16 @@ async def main():
         await p2.fill('#pairIn', f'http://100.64.0.1:8787/m#t={tok}'); await p2.click('#pairGo'); await p2.wait_for_timeout(2000)
         check(await p2.locator('#chars [data-ch]').count() >= 2, '貼上網址後配對成功、看到角色')
         check(not errs, '手機頁面沒有 JS 錯誤' + ('：' + errs[0] if errs else ''))
+        print('出錯時顯示原因（v0.69.5）')
+        check(not await p.is_visible('#bootErr'), '正常時不顯示錯誤框')
+        p2 = await ctx.new_page()
+        await p2.route('**/api/m/summary', lambda r: asyncio.ensure_future(r.abort()))
+        await p2.goto(HUB + f'/m#t={tok}'); await p2.wait_for_timeout(9000)
+        t2 = await p2.inner_text('#bootErr') if await p2.is_visible('#bootErr') else ''
+        check('8 秒還沒收到中控的資料' in t2 and '瀏覽器' in t2, '連不到中控：畫面顯示原因與瀏覽器資訊：' + t2.replace('\n', ' ')[:80])
+        await p2.evaluate("setTimeout(() => { throw new Error('測試錯誤') }, 0)"); await p2.wait_for_timeout(500)
+        check('測試錯誤' in await p2.inner_text('#bootErr'), '程式錯誤也會顯示在畫面上')
+        await p2.close()
 
         print('7. 電腦面板配對')
         dctx = await env.browser.new_context(viewport={'width': 1300, 'height': 900}); env.contexts.append(dctx)
