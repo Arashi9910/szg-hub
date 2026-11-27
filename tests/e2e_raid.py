@@ -57,15 +57,25 @@ async def main():
         check(any('建立' in m for m in msgs), '建立前先確認')
         await d.wait_for_timeout(1500)
         await d.click('[data-rdact="join"]')
-        t = await wait(lambda: (lambda tm: tm if tm and len(tm['members']) == 3 else None)((raid()['views'].get('c1') or {}).get('view', {}).get('team')) or (hub_json('POST', '/api/raid/act', {'targets': [{'charId': 'c1', 'cmd': {'type': 'sync'}}]}) and None), 60, 2)
-        check(t, '弓箭分身、倉庫分身都加入了')
-        await d.wait_for_timeout(1500)
-        txt = await d.inner_text('#rdTeam')
+        # 不手動同步隊長：中控要自己讀到最新的隊伍（v0.77.2 實機：隊長的資料停在建立時，隊伍表只有 1 人）
+        async def team_txt():
+            return await d.inner_text('#rdTeam')
+        txt = ''
+        for _ in range(40):
+            txt = await team_txt()
+            if '弓箭分身' in txt and '倉庫分身' in txt and '還沒加入' not in txt: break
+            await d.wait_for_timeout(1000)
+        check('弓箭分身' in txt and '倉庫分身' in txt and '還沒加入' not in txt, '弓箭分身、倉庫分身都加入了（隊伍表自己更新，不用手動重新整理）')
         check('弓箭分身' in txt and '倉庫分身' in txt and '未準備' in txt and '本週剩' in txt, '隊伍表格列出隊員、未準備、本週剩幾場')
+        msgs.clear()
         await d.click('[data-rdact="ready"]')
-        hub_json('POST', '/api/raid/act', {'targets': [{'charId': 'c1', 'cmd': {'type': 'sync'}}]})
-        t = await wait(lambda: (lambda tm: tm if tm and all(m['leader'] or m['ready'] for m in tm['members']) else None)((raid()['views'].get('c1') or {}).get('view', {}).get('team')) or (hub_json('POST', '/api/raid/act', {'targets': [{'charId': 'c1', 'cmd': {'type': 'sync'}}]}) and None), 60, 3)
-        check(t, '隊員都準備好了')
+        await d.wait_for_timeout(500)
+        check(not any('都已經準備好了' in m for m in msgs), '按「全部準備」有送出（不是誤判成都準備好了）')
+        for _ in range(40):
+            txt = await team_txt()
+            if '未準備' not in txt: break
+            await d.wait_for_timeout(1000)
+        check('未準備' not in txt, '隊員都準備好了（隊伍表自己更新）')
 
         print('3. 開始 → 戰況每秒更新')
         await d.wait_for_timeout(1500)
