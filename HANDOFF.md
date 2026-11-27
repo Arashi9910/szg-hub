@@ -354,3 +354,15 @@
   - 注意：Claude in Chrome 的遊戲分頁在背景時 setInterval 會被節流，錄製要放在前景分頁（中控分頁那份 1 秒一筆比較完整）。用別帳號的 characterId 呼叫 sync 會回自己帳號的角色。
 - v0.77.2（使用者建好隊伍、隊員也進來了，要按準備；並要求「除了中控也要看遊戲畫面對照」）：實機對照——遊戲：佐藤嵐思的隊伍 12/12 已滿、上鎖；中控隊伍表卻只有隊長 1 人、11 隻顯示「還沒加入」，因為面板只看隊長的 view，而隊長的 view 停在建立當下（加入的指令只會更新加入者自己的 view）。③ 全部準備用的也是這份舊名單 → 跳「都已經準備好了」。改：面板 raidLeaderView 改取計畫角色中同隊伍代碼、最新的 view；agent raidLiveTick 的回報者（隊長）沒開打時每 5 秒 raidOnly sync 一次並回報 view。實機另外看到：(1) 遊戲 state.raidTeam 是「帳號層級」——同帳號沒入隊的另一隻也顯示在隊伍中（live 24 筆都帶同一個代碼），遊戲提示要切換到那隻角色才能操作它的準備／離開／投降；raidOnly 指令帶 characterId 可以直接操作，不用切換。(2) 真實隊員列沒有 mage 欄位，改用職業判斷（icemage、priest…）。(3) 在隊伍裡時 view.teams 是空的。e2e_raid 拿掉手動同步隊長（以前測試靠它蓋掉這個 bug）。
 - v0.77.1（使用者：組隊就有問題，貼了遊戲規則：Lv100+、2～12 人、至少 1 名法師、每人 1000 萬楓幣＋20 點、20 分鐘、每週 7 場；有創建隊伍／創建上鎖隊伍／重新整理）：使用者在 Claude in Chrome 開了遊戲（那個設定檔現在有登入）。用遊戲頁面 raidOnly sync 讀到真實格式：raid＝{raid, raids:[{id,name,left,requireMage,open,minLevel,minMembers,maxMembers,feeMesos,feePoints,weeklyRuns,minutes}], rules, self:{characterId,name,job,lv,left,resetAt,mage}, team:null|…, teams:[{code,name,count,max,full,locked}], battle}；回應頂層 raidOnly、characterId、money、cashPoints、serverTime、summary、raid（**沒有 character**）。想建隊伍看 team 格式被權限系統擋（要使用者同意才動遊戲資料），team 欄位照 game.js raidMemberRow。開始時才扣費（全員符合＋準備後隊長開始，系統向每人扣），通關才扣場數。改：agent 回報 raids／rules／self／teams、成員 mage；server 隊員上限 12；面板規則列、每隻本週剩幾場／法師、警告（人數、法師、等級、場數用完）、上鎖（settings.raid.lock／password，建立帶 password、加入自動帶）、開始前列出入場費合計、其他招募中的隊伍；打開分頁沒有規則時自動對計畫裡的角色 sync 一次。mock 加 raids/rules/self/teams、requireMage、入場費（MOCK_RAID_FEE）。。
+## 直連驗證（2026-11-28，不開分頁直接呼叫遊戲 API）
+- 目的：背景 Chrome 太吃記憶體（12 帳號 8～11 GB），評估改成中控拿 cookie 直接打 /api/game。
+- 實測（佐藤十字軍 pmwta796x，只送 sync／account，唯讀）：**可行**。Node fetch 帶 3 樣就過：
+  - Cookie：只有一個 `__Host-maple_session`（play.szg08.com、HttpOnly、Secure、SameSite=Lax、長度 43）。從背景 Chrome 讀：`data/bg/<id>/DevToolsActivePort` 接 browser 端點 → `Storage.getCookies`。
+  - `Origin: https://play.szg08.com`（沒帶回 403「來源不符」）＋ Referer /game/。
+  - `X-Game-Version`：`/game/client-update.js` 裡的 40 碼 hex 常數（當時 9d1f9a01…），被拒「遊戲已更新」就重抓。
+- `{type:'sync', characterId}` 回完整狀態（沒有 viewDelta；一隻 46～112 KB），lv／xp／map／auto 和分頁 sessionStorage 一致；沒收到 Set-Cookie。
+- **cookie 從登入起固定 7 天到期，使用中不會延長**（11/23 登入的 12 個帳號都是 11/30 17:23～22:23 到期，11/27 登入的是 12/4）。使用者已知道，不用再測。
+- 讀 game.js：沒有 WebSocket／EventSource／captcha／指紋；/api/presence 只是在線人數與離開回報；掛機在伺服器算（離線掛機也照算）。
+- 直連做不到的：全身照（appearance.js 在頁面畫）；不需要的：離線掛機叫醒。
+- 驗證腳本沒放 repo（在工作階段 scratchpad 的 direct-probe.mjs、cookie-expiry.mjs）。`data/bg/pmwtd8181` 沒有 DevToolsActivePort（可能是停用的帳號）。
+- 下一步建議：帳號分頁加「直連」模式 MVP（掛機、換圖、sync、賣東西），不支援的工作臨時開分頁；背景 Chrome 只留來登入。
