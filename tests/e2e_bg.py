@@ -239,6 +239,35 @@ async def main():
         await dash.close()
         await until(lambda: len(prof(pid)['live']) == 2, 20)
 
+        print('4g. 背景分頁顯示的角色跑掉（兩頁都是同一隻）→ 自動換回；面板按「切換」也是換背景分頁')
+        def drift(src, dst):
+            port = open(os.path.join(HUB_DIR, 'data', 'bg', pid, 'DevToolsActivePort')).read().split()[0]
+            js = (f"(async()=>{{const j=await (await fetch('http://127.0.0.1:{port}/json/version')).json();const w=new WebSocket(j.webSocketDebuggerUrl);let n=0;const P={{}};"
+                  "const send=(m,p,s)=>new Promise(r=>{const id=++n;P[id]=r;w.send(JSON.stringify({id,method:m,params:p||{},sessionId:s}));});"
+                  "w.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&P[m.id])P[m.id](m.result||{});};"
+                  "w.onopen=async()=>{const t=await send('Target.getTargets');for(const x of t.targetInfos){if(x.type!=='page')continue;const a=await send('Target.attachToTarget',{targetId:x.targetId,flatten:true});"
+                  "const v=await send('Runtime.evaluate',{expression:\"sessionStorage.getItem('mapleCharacter')\",returnByValue:true},a.sessionId);"
+                  f"if(v.result&&v.result.value==='{src}'){{await send('Runtime.evaluate',{{expression:\"location.href='/game/?szgChar={dst}'\"}},a.sessionId);console.log('ok');process.exit(0);}}}}process.exit(1);}};}})()")
+            return subprocess.run(['node', '-e', js], timeout=20, capture_output=True, text=True).stdout.strip() == 'ok'
+        await until(lambda: len(prof(pid)['live']) == 2 and all(l['char'] for l in prof(pid)['live']), 30)
+        check(drift('c2', 'c1'), '讓 c2 那一頁跑成 c1（模擬遊戲把分頁換掉）')
+        p = await until(lambda: (lambda x: x if sorted(l['char'] for l in x['live']) == ['c1', 'c1'] else None)(prof(pid)), 30, 0.5)
+        print('    （兩頁都顯示 c1）' if p else '    （沒看到兩頁同一隻的狀態，可能已經換回）')
+        p = await until(lambda: (lambda x: x if sorted(l['char'] for l in x['live']) == ['c1', 'c2'] else None)(prof(pid)), 60)
+        check(p is not None and any('換回' in l['msg'] for l in p['logs']), f"自動把多出來的那頁換回 c2（{[l['char'] for l in prof(pid)['live']]}）")
+        t0 = time.time() * 1000
+        d = await until(lambda: (lambda d: d if d['tabs'].get('c2', {}).get('at', 0) > t0 and d['tabs']['c2'].get('bg') else None)(hub_json('GET', '/api/data')), 40)
+        check(d is not None, 'c2 又有自己的背景分頁（會自動續掛）')
+        await until(lambda: all(l['char'] for l in prof(pid)['live']), 30)
+        await asyncio.sleep(3)
+        check(drift('c2', 'c1'), '再跑掉一次')
+        p = await until(lambda: (lambda x: x if sorted(l['char'] for l in x['live']) == ['c1', 'c1'] else None)(prof(pid)), 30, 0.5)
+        r = hub_json('POST', '/api/idle', {'targets': [{'charId': 'c2', 'action': 'switch'}]})
+        check(not r.get('jobs') and r.get('skipped') and '背景' in r['skipped'][0], f"面板按 c2 的「切換」：不送遊戲的切換，改換背景分頁（{r.get('skipped') or r}）")
+        p = await until(lambda: (lambda x: x if sorted(l['char'] for l in x['live']) == ['c1', 'c2'] else None)(prof(pid)), 40)
+        check(p is not None, 'c2 的背景分頁換回來了')
+        await until(lambda: all(l['char'] for l in prof(pid)['live']), 30)
+
         print('4f. 顯示的視窗打開 Google 登入 → 自動換成一般的登入視窗（Google 會擋自動化的瀏覽器）')
         hub_json('POST', '/api/bg/show', {'id': pid, 'char': 'c1'})
         await until(lambda: prof(pid)['visible'] == 'c1' and prof(pid)['state'] == 'running', 40)

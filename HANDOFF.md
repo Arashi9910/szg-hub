@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-27（v0.74.1）
+最後更新：2026-11-27（v0.74.2）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -324,3 +324,4 @@
 - v0.73.1（玩家回報：王的個別設定存不起來）：renderBossSell 呼叫 bossSellCalc(map, sc)，第二個參數是 noOver，傳了設定物件＝永遠不看覆寫 → 清單一直顯示「共用規則」、再按調整時草稿從共用規則開始（v0.71.0 改寫時留下的）。伺服器、遊戲端一直有照 dest.over 賣，只是畫面錯；但玩家再調整、再存就會用共用規則的勾選蓋掉。拿掉第二個參數；e2e_boss_cards 加檢查（清單顯示個別調整、再調整看到存好的、改共用規則不蓋掉）。
 - v0.74.0（使用者：所有結果設定一次，未來的角色不用再套用，照表操課）：settings.dest.enforce。server destEnforceTick 每分鐘（SZG_ENFORCE_MS 可改，測試 3 秒）：destEnforcePlan 看每隻 charHasTab 的角色、快照 autoSell（agent 回報的是目前地圖那張）＝目前地圖才比；王圖用 destSellOf(map,'boss')（dest.boss 開才有），否則看板聯集 lanes 上的圖用 'board'；null（沿用遊戲設定、規則沒開、沒掉落資料）不動；有 pending/approved/running 的 boss 工作或 idle map/autosell 目標的角色跳過。不同就 createIdleJobs autosell（job.auto＝true），db.destEnforceLog 留 60 筆。防重送：同角色同圖、同樣的 from（遊戲現在的設定）＋同樣的 sell，10 分鐘內只送一次（遊戲又被改過 from 就不同，會再送）。/api/data 加 destEnforce {log, todo}（todo 不管開關都算＝開了會改幾隻）。面板 enforceBox() 放在共用規則和野王掉落篩選，開啟前 confirm。enforce 開著時 dashboard 的「與遊戲同步」不再把遊戲裡改的自動販售記成這張圖的自訂設定（以中控為準）。mock 加 /__mock/autosell。測試 e2e_dest_enforce.py。
 - v0.74.1（使用者：自動登入跳「這個瀏覽器或應用程式可能有安全疑慮」，Google 無法登入）：Google 會擋有遠端除錯／CDP 接著的 Chrome。登入視窗本來就是不接 DevTools 的一般 Chrome，但兩種情況會變成被擋的那個：①在「顯示」的視窗（--remote-debugging-port）裡按 Google 登入；②按「登入」時 stop() 只用 CDP Browser.close，中控開的 Chrome 沒完全結束 → 新開的 Chrome 因為同一個資料夾只會有一個程序，變成舊程序（有遠端除錯）的一個視窗。修正：probe 時 r.visible 且頁面或任何 page target 的網址符合 GOOGLE_LOGIN（^https://accounts.google.com/，測試用 SZG_GOOGLE_LOGIN_RE）→ r.toLogin、自動 login(id)；login() 在 stop 後 chromeOf 還有帶 --remote-debugging-port 的就 killStale。帳號分頁需要登入／登入視窗開著時加說明。e2e_bg 加 4f（CDP Target.createTarget 開模擬的 Google 頁 → state login → login-done 回到背景）。實機當時 12 個背景帳號都正常執行、沒有需要登入的，所以沒在使用者電腦重現。
+- v0.74.2（使用者：帳號都是背景執行，卻有角色跳「切換」、不會自動續掛）：實機 12 個帳號有 2 個兩頁都顯示第 2 隻（key c0 的頁顯示 c1），另外 2 個是兩頁對調（無害）。可能原因：bg 分頁沒回應（Runtime.evaluate 逾時）→ closePage＋openPage，新分頁 tabBeat 看到舊分頁的 charTab 標記還沒過期（背景分頁 hidden → 100 秒）→ dupTab → becomeOther() 換成同帳號「沒有分頁」的另一隻（那時另一頁也卡住、標記過期）。修正：①agent becomeOther 在 BG.key 有指定時直接 return；②bg.js healPages：每輪 probe 後，某個 want key 的角色沒有任何分頁顯示、而有分頁顯示重複的角色 → Page.navigate 到 /game/?szgChar=<key>（同頁 3 分鐘內一次、一輪只換一頁，要 hasState、不忙、沒讓位）；③面板「切換」（/api/idle switch）如果那隻是背景帳號該顯示的、目前沒有分頁顯示 → bg.repinChar 換背景分頁，不送遊戲的 switch（遊戲的 switch 會改伺服器的目前角色，同帳號另一頁可能跟著跑掉）。bg 加 charPage(charId)（同步）、repinChar；makeBg 加 charName。e2e_bg 4g（用 location.href=/game/?szgChar= 模擬跑掉）。
