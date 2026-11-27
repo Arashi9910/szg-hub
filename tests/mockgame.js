@@ -6,7 +6,82 @@
 'use strict';
 const http = require('http');
 const PORT = Number(process.argv[2]) || 9900;
-const GAME_VERSION = '1';
+// 真實遊戲（2026-11-28 實測）：版本是 /game/client-update.js 裡的 40 字元十六進位常數，它包住 fetch、在 /api/game 加 X-Game-Version。
+// 版本不符回 409。/__mock/version?v=<40hex> 可以在執行中換版本（測重新抓 client-update.js）。
+// 舊測試直接打 /api/game 時帶 'x-game-version': '1'＋x-acct：有 x-acct（測試用的後門，真的瀏覽器不會帶）時 '1' 也算對。
+let GAME_VERSION = process.env.MOCK_GAME_VERSION || '3f2a9c1e7b4d8a6f0e5c2b9d1a7f3e8c4b6d0a2f';
+const TEST_VERSION = '1';
+const HEX40 = /^[0-9a-f]{40}$/;
+const clientUpdateJs = () => `// client-update.js（模擬）
+(() => {
+  const CLIENT_VERSION = '${GAME_VERSION}';
+  window.__gameClientVersion = CLIENT_VERSION;
+  const nativeFetch = window.fetch;
+  window.fetch = function (input, init) {
+    init = init || {};
+    const u = String((input && input.url) || input);
+    if (u.includes('/api/game')) init.headers = Object.assign({}, init.headers || {}, { 'X-Game-Version': CLIENT_VERSION });
+    return nativeFetch.call(this, input, init);
+  };
+})();
+`;
+// MOCK_STRICT_ORIGIN=1：跟真實遊戲一樣，/api/game 的 Origin 沒帶或不是遊戲的網址 → 403 {error:'來源不符'}
+// （接受 https://play.szg08.com 和 mock 自己的 http://127.0.0.1:<port>／localhost；有 x-acct 的測試請求不檢查，harness 的轉送不會帶 Origin）
+const STRICT_ORIGIN = process.env.MOCK_STRICT_ORIGIN === '1';
+const okOrigin = o => o === 'https://play.szg08.com' || o === `http://127.0.0.1:${PORT}` || o === `http://localhost:${PORT}`;
+// 請求計數（/__mock/hits）：game＝每個帳號的 /api/game 次數、sync＝其中 type sync 的次數
+const hits = { game: {}, sync: {}, origin403: 0, version409: 0, auth401: 0, viewDelta: 0, omitted: 0 };
+const bump = (k, acct) => { hits[k][acct] = (hits[k][acct] || 0) + 1; };
+// 登入的工作階段：/__mock/login 發 sid=<帳號>.<序號> cookie；/__mock/logout?acct= 把序號加 1 → 舊的 sid 失效（401／請先登入頁）
+// 沒有 sid 的請求（harness 直接設 acct cookie／x-acct）照舊有效
+const sessGen = {};
+
+// ---------------- viewDelta（MOCK_VIEW_DELTA=1） ----------------
+// 真實遊戲：sync 帶 acceptViewDelta:1, viewCache:{characterId, parts, logs} 時，可能回 viewDelta 並省略大欄位，
+// 由 /game/view-delta.mjs 的 mergeViewDelta(previous, next) 在前端合併。真實檔案的內容沒有存在 repo 裡，
+// 這裡是「自己前後一致」的模擬：每個欄位一個雜湊，前端送回上次的雜湊，一樣的欄位就不送。
+const VIEW_DELTA = process.env.MOCK_VIEW_DELTA === '1';
+const VIEW_FIELDS = ['inventory', 'inventoryStacks', 'equipmentBag', 'warehouse', 'warehouseGear'];
+const VIEW_LOGS = ['log', 'experienceLog'];
+function fnv(s) { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16).padStart(8, '0'); }
+const partHash = v => { const s = JSON.stringify(v === undefined ? null : v); return fnv(s) + ':' + s.length; };
+function applyViewDelta(res, body) {
+  const ch = res && res.character; if (!ch) return res;
+  const parts = {}, logs = {}, omitted = [];
+  for (const f of VIEW_FIELDS) if (f in ch) parts[f] = partHash(ch[f]);
+  for (const f of VIEW_LOGS) if (f in ch) logs[f] = partHash(ch[f]);
+  const vc = body.viewCache;
+  if (vc && vc.characterId === ch.id) {
+    for (const f of Object.keys(parts)) if (vc.parts && vc.parts[f] === parts[f]) omitted.push(f);
+    for (const f of Object.keys(logs)) if (vc.logs && vc.logs[f] === logs[f]) omitted.push(f);
+  }
+  const character = { ...ch }; for (const f of omitted) delete character[f];
+  hits.viewDelta++; hits.omitted += omitted.length;
+  return { ...res, character, viewDelta: { version: 1, characterId: ch.id, parts, logs, omitted } };
+}
+const VIEW_DELTA_MJS = `// view-delta.mjs（模擬；真實遊戲的實作不同，這裡只求跟 mockgame.js 一致）
+export const VIEW_FIELDS = ${JSON.stringify(VIEW_FIELDS)};
+export const VIEW_LOGS = ${JSON.stringify(VIEW_LOGS)};
+export function viewCacheHint(state) {
+  const d = state && state.viewDelta, c = state && state.character;
+  if (!d || !c || d.characterId !== c.id) return null;
+  return { characterId: d.characterId, parts: { ...(d.parts || {}) }, logs: { ...(d.logs || {}) } };
+}
+export function mergeViewDelta(previous, next) {
+  const d = next && next.viewDelta;
+  if (!d || !next.character) return next;
+  const omitted = d.omitted || [];
+  if (!omitted.length) return next;
+  const prev = previous && previous.character;
+  if (!prev || prev.id !== d.characterId || next.character.id !== d.characterId) throw new Error('viewDelta characterId mismatch');
+  const character = { ...next.character };
+  for (const f of omitted) {
+    if (!(f in prev)) throw new Error('viewDelta missing previous field: ' + f);
+    character[f] = prev[f];
+  }
+  return { ...next, character };
+}
+`;
 
 // ---------------- 目錄 ----------------
 const items = {
@@ -574,16 +649,18 @@ const MOCK_AVA_GIF = 'R0lGODlhKAAoAIEAAAAAAPrSqjx43CgoPCH5BAEAAAAALAAAAAAoACgAQA
 // ---------------- 頁面 ----------------
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>上漲谷（模擬）</title></head><body>
 <h3>上漲谷模擬遊戲</h3><img src="/game/res/test.png" width="1" height="1" alt=""><div id="who"></div><pre id="st"></pre>
+<script src="/game/client-update.js"></script>
 <script>
-// 模擬遊戲的 client-update.js：所有 /api/game 請求補上版本標頭
-(function(){ const f = window.fetch; window.fetch = function(input, init){ init = init || {}; const u = String((input && input.url) || input);
-  if (u.includes('/api/game')) { init.headers = Object.assign({}, init.headers || {}, { 'X-Game-Version': '${GAME_VERSION}' }); } return f.call(this, input, init); }; })();
 // 跟真實遊戲一樣：同步用的是記憶體裡「畫面上的角色」，同步完再把它寫回 sessionStorage
-let cur = null;
+let cur = null, VD = null, last = null;
+${VIEW_DELTA ? "import('/game/view-delta.mjs').then(m => { VD = m; }).catch(() => {});" : ''}
 async function sync(){
   cur = cur || sessionStorage.getItem('mapleCharacter');
-  const r = await fetch('/api/game', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'sync', characterId: cur }) });
-  const j = await r.json(); if (!j.character) return;
+  const body = { type: 'sync', characterId: cur };
+  if (VD) { body.acceptViewDelta = 1; const h = last && last.character && last.character.id === cur ? VD.viewCacheHint(last) : null; if (h) body.viewCache = h; }
+  const r = await fetch('/api/game', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  let j = await r.json(); if (!j.character) return;
+  if (VD) { try { j = VD.mergeViewDelta(last, j); } catch (_) { last = null; return; } last = j; }
   cur = j.character.id; sessionStorage.setItem('mapleCharacter', j.character.id);
   sessionStorage.setItem('mapleSessionView', JSON.stringify({ state: j }));
   document.getElementById('who').textContent = j.character.name + ' Lv' + j.character.lv + ' 楓幣 ' + j.character.money.toLocaleString();
@@ -607,15 +684,45 @@ http.createServer((req, res) => {
   // 圖片請求計數（背景執行省資源模式要擋掉）：只算不是 harness（沒有 x-acct 標頭）的＝背景 Chrome 的
   if (url.pathname.endsWith('.png') && !req.headers['x-acct']) { pngHits++; res.writeHead(200, { 'Content-Type': 'image/png' }); return res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64')); }
   if (url.pathname === '/__mock/pnghits') return send(res, 200, { n: pngHits });
-  if (url.pathname === '/__mock/login') { res.writeHead(302, { 'Set-Cookie': `acct=${encodeURIComponent(url.searchParams.get('acct') || 'A1')}; Path=/; Max-Age=2592000`, Location: '/game/' }); return res.end(); }
+  if (url.pathname === '/__mock/login') {
+    const ac = url.searchParams.get('acct') || 'A1', gen = sessGen[ac] || 0;
+    res.writeHead(302, { 'Set-Cookie': [`acct=${encodeURIComponent(ac)}; Path=/; Max-Age=2592000`, `sid=${encodeURIComponent(ac + '.' + gen)}; Path=/; Max-Age=2592000; HttpOnly`], Location: '/game/' });
+    return res.end();
+  }
+  // 測試控制：/__mock/logout?acct=A1 讓這個帳號目前的登入 cookie 失效（之後 /api/account、/api/game 回 401，/game/ 是「請先登入」頁）
+  if (url.pathname === '/__mock/logout') { const ac = url.searchParams.get('acct') || 'A1'; sessGen[ac] = (sessGen[ac] || 0) + 1; return send(res, 200, { ok: true, acct: ac, gen: sessGen[ac] }); }
+  // 測試控制：/__mock/version?v=<40 字元十六進位> 換遊戲版本（不給 v＝只查詢）
+  if (url.pathname === '/__mock/version') {
+    const v = url.searchParams.get('v');
+    if (v != null) { if (!HEX40.test(v)) return send(res, 400, { error: '版本要是 40 字元十六進位' }); GAME_VERSION = v; }
+    return send(res, 200, { version: GAME_VERSION });
+  }
+  // 測試控制：/__mock/hits（?reset=1 歸零）
+  if (url.pathname === '/__mock/hits') {
+    const out = JSON.parse(JSON.stringify(hits));
+    if (url.searchParams.get('reset') === '1') { hits.game = {}; hits.sync = {}; hits.origin403 = hits.version409 = hits.auth401 = hits.viewDelta = hits.omitted = 0; }
+    return send(res, 200, out);
+  }
+  {
+    const m = /(?:^|;\s*)sid=([^;]+)/.exec(req.headers.cookie || '');
+    if (m && !url.pathname.startsWith('/__mock/')) {
+      const [ac, gen] = decodeURIComponent(m[1]).split('.');
+      if (Number(gen) !== (sessGen[ac] || 0)) {
+        if (url.pathname.startsWith('/game')) return send(res, 200, '<!doctype html><title>請登入</title><body>請先登入</body>', 'text/html; charset=utf-8');
+        if (url.pathname.startsWith('/api/')) { hits.auth401++; return send(res, 401, { error: '請先登入' }); }
+      }
+    }
+  }
   if (process.env.MOCK_REQUIRE_LOGIN && !/(?:^|;\s*)acct=/.test(req.headers.cookie || '') && !req.headers['x-acct'] && !url.pathname.startsWith('/__mock/')) {
     if (url.pathname.startsWith('/game')) return send(res, 200, '<!doctype html><title>請登入</title><body>請先登入</body>', 'text/html; charset=utf-8');
-    return send(res, 401, { error: '請先登入' });
+    hits.auth401++; return send(res, 401, { error: '請先登入' });
   }
   const a = acctOf(req);
   if (!a) return send(res, 404, { error: '沒有這個帳號' });
   // 模擬遊戲程式碼（真實遊戲的 /game/game.js 要登入才拿得到）：給 /api/bg/gamesrc 測試
   if (url.pathname === '/game/game.js') return send(res, 200, "function partyCreate(){}\nfunction partyJoin(code){ return code }\nconst mobAttack = e => ({ kind: 'mobAttack', target: e.target, damage: e.damage });\n// 模擬遊戲\n", 'text/javascript; charset=utf-8');
+  if (url.pathname === '/game/client-update.js') { res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(clientUpdateJs()); }
+  if (url.pathname === '/game/view-delta.mjs') { if (!VIEW_DELTA) return send(res, 404, { error: 'not found' }); return send(res, 200, VIEW_DELTA_MJS, 'text/javascript; charset=utf-8'); }
   if (url.pathname.startsWith('/game')) return send(res, 200, PAGE, 'text/html; charset=utf-8');
   // 外觀圖（真實遊戲 appearance.js 的 fetchPart：/api/appearance?<外觀參數>&action=stand|attack…）
   if (url.pathname === '/api/appearance') { if (url.searchParams.get('action') !== 'stand') return send(res, 404, { error: 'mock only has stand' }); res.writeHead(200, { 'Content-Type': 'image/gif' }); return res.end(Buffer.from(MOCK_AVA_GIF, 'base64')); }
@@ -700,9 +807,13 @@ http.createServer((req, res) => {
   if (url.pathname === '/__mock/luck') { scrollQueue = (url.searchParams.get('seq') || '').split(',').filter(x => x !== '').map(Number); return send(res, 200, { ok: true, n: scrollQueue.length }); }
   if (url.pathname === '/api/game' && req.method === 'POST') {
     let buf = ''; req.on('data', d => buf += d); req.on('end', () => {
-      if (req.headers['x-game-version'] !== GAME_VERSION) return send(res, 409, { error: '遊戲已更新，請重新整理後再試' });
+      bump('game', a.acct);
+      if (STRICT_ORIGIN && !req.headers['x-acct'] && !okOrigin(req.headers.origin)) { hits.origin403++; return send(res, 403, { error: '來源不符' }); }
+      const ver = req.headers['x-game-version'];
+      if (ver !== GAME_VERSION && !(ver === TEST_VERSION && req.headers['x-acct'])) { hits.version409++; return send(res, 409, { error: '遊戲已更新，請重新整理後再試' }); }
       let body; try { body = JSON.parse(buf); } catch (_) { return send(res, 400, { error: '格式錯誤' }); }
-      try { send(res, 200, handle(a, body)); }
+      if (body && body.type === 'sync') bump('sync', a.acct);
+      try { const out = handle(a, body); send(res, 200, VIEW_DELTA && body.acceptViewDelta ? applyViewDelta(out, body) : out); }
       catch (e) { if (!e.game) console.error(e); send(res, e.game ? 400 : 500, { error: e.message }); }
     });
     return;

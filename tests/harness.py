@@ -150,7 +150,8 @@ const GM_xmlhttpRequest = o => { window.__gmx({ method: o.method, url: o.url, he
                 return await r.fulfill(status=s, body=b, content_type='image/gif')
             s, t = await asyncio.to_thread(http, req.method, MOCK + path, None, hdr) if not req.post_data else \
                 await asyncio.to_thread(lambda: http_raw(req.method, MOCK + path, req.post_data, hdr))
-            await r.fulfill(status=s, body=t, content_type='text/html; charset=utf-8' if path.startswith('/game') else 'application/json; charset=utf-8')
+            js = path.split('?', 1)[0].endswith(('.js', '.mjs'))  # 遊戲頁面用 <script src="/game/client-update.js">、import('/game/view-delta.mjs')
+            await r.fulfill(status=s, body=t, content_type='text/javascript; charset=utf-8' if js else 'text/html; charset=utf-8' if path.startswith('/game') else 'application/json; charset=utf-8')
         await ctx.route('https://play.szg08.com/**', route)
         await ctx.add_init_script(self.init_script())
         page = await ctx.new_page()
