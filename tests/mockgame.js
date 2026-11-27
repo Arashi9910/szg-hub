@@ -256,9 +256,29 @@ function marketView(a, c) {
 // ---------------- 遊戲 API ----------------
 const strip = c => { const { _simAt, _boss, _stall, pendingHits, ...rest } = c; return rest; };
 // 回應裡的 character：請求指定的角色（同一個帳號開兩個分頁時，每個分頁拿到自己的角色）
+// ---- 副本（真實遊戲 2026-11-28 讀 game.js：raidCreate／raidJoin／raidReady／raidStart／raidLeave／surrenderRaid／leaveRaid；
+// 回應帶 raid＝{team, battle, raid}；主控台 state.raidTeam、state.raidBattle；王的血量在 enemies）
+const raidTeams = {}; let raidSeq = 0;
+const raidTeamOf = c => Object.values(raidTeams).find(t => t.members.includes(c.id));
+const RAID_BOSS = { papulatus: { id: 'mPapulatus', hp: 2000000 }, zakum: { id: 'mZakum', hp: 3000000 } };
+function raidTick(t) {
+  const b = t.battle; if (!b) return;
+  const now = Date.now(), dt = Math.max(0, now - Math.max(b.lastAt, b.prepUntil));
+  b.lastAt = now;
+  if (now > b.prepUntil && !b.invulnerable) b.hp = Math.max(0, b.hp - Math.round(dt / 1000 * b.maxHp * Number(process.env.MOCK_RAID_DPS || 0.05)));
+  if (b.phase === 1 && b.hp <= b.maxHp / 2) { b.phase = 2; b.bloodAt = now + 3000; for (const id of t.members) { const x = charById(id); if (x) x.diseases = { seal: now + 4000 }; } }
+  if (b.hp <= 0) { t.result = 'clear'; t.battle = null; for (const id of t.members) { const x = charById(id); if (x) delete x.diseases; } }
+}
+function raidBattleOf(t) { const b = t && t.battle; return b ? { code: t.code, raid: t.raid, phase: b.phase, prepUntil: b.prepUntil, deadline: b.deadline, surrender: b.surrender, bloodAt: b.bloodAt || 0, invulnerable: !!b.invulnerable, orbs: b.orbs || 0 } : null; }
+function raidViewOf(c) {
+  const t = raidTeamOf(c); if (!t) return { raid: null, team: null, battle: null };
+  return { raid: t.raid, battle: raidBattleOf(t), team: { code: t.code, isLeader: t.leader === c.id, members: t.members.map(id => { const x = charById(id); const ok = x.lv >= 10;
+    return { id, name: x.name, job: x.job, lv: x.lv, leader: id === t.leader, ready: !!t.ready[id], online: true, ok, issues: ok ? [] : ['等級不足 10'], self: id === c.id, mine: true, left: 3 }; }) } };
+}
 function sessionView(a, cid) {
   const c = a.chars[cid] || a.chars[a.active];
-  return { serverTime: Date.now(), cashPoints: a.cashPoints, character: strip(c), characters: Object.values(a.chars).map(x => ({ id: x.id, name: x.name, lv: x.lv, job: x.job, auto: x.auto })), party: partyOf(c), knowledge: { ready: false, remaining: 0 } };
+  const rt = raidTeamOf(c); if (rt) raidTick(rt);
+  return { raidTeam: rt ? { code: rt.code, raid: rt.raid } : null, raidBattle: raidBattleOf(rt), serverTime: Date.now(), cashPoints: a.cashPoints, character: strip(c), characters: Object.values(a.chars).map(x => ({ id: x.id, name: x.name, lv: x.lv, job: x.job, auto: x.auto })), party: partyOf(c), knowledge: { ready: false, remaining: 0 } };
 }
 function tradeEligible(a, cid) {
   const c = a.chars[cid] || a.chars[a.active];
@@ -297,6 +317,7 @@ function handle(a, body) {
       for (const x of Object.values(a.chars)) evs = evs.concat(simulate(x, now));
       for (const x of Object.values(a.chars)) if (x.pendingHits && x.pendingHits.length) { evs = evs.concat(x.pendingHits); x.pendingHits = []; }
       const res = { ...sessionView(a, c.id), summary: { events: evs }, tradeEligible: tradeEligible(a, c.id), enemies: enemiesOf(c), bossTimers: {} };
+      { const rt = raidTeamOf(c); if (rt && rt.battle) res.enemies = [{ id: RAID_BOSS[rt.raid].id, hp: rt.battle.hp, maxHp: rt.battle.maxHp, spawnId: 'raid' }]; if (body.raidOnly) res.raid = raidViewOf(c); }
       if (body.tradeOnly) res.trade = null;
       if (body.includeMarket) res.market = marketView(a, c);
       if (body.includeBossRespawns) res.bossRespawns = bossRespawnsOf(c);
@@ -308,6 +329,39 @@ function handle(a, body) {
       // 真實遊戲（2026-11-20 實測）：換地圖會停止掛機（MOCK_MAP_STOPS_IDLE=1 模擬）
       if (process.env.MOCK_MAP_STOPS_IDLE === '1' && c.auto) { c.auto = false; c.until = now; }
       break;
+    case 'raidCreate': {
+      if (raidTeamOf(c)) fail('你已經在副本隊伍裡');
+      const raid = RAID_BOSS[body.raid] ? body.raid : 'papulatus', code = 'RD' + String(++raidSeq).padStart(4, '0');
+      raidTeams[code] = { code, raid, leader: c.id, members: [c.id], ready: {}, password: body.password || '' };
+      return { ...sessionView(a, c.id), raid: raidViewOf(c), summary: { events: [] } };
+    }
+    case 'raidJoin': {
+      const t = raidTeams[body.code]; if (!t) fail('找不到這個副本隊伍');
+      if (raidTeamOf(c)) fail('你已經在副本隊伍裡');
+      if (t.password && t.password !== body.password) fail('密碼不對');
+      if (t.members.length >= 6) fail('隊伍已滿');
+      if (t.battle) fail('隊伍已經在戰鬥中');
+      t.members.push(c.id); return { ...sessionView(a, c.id), raid: raidViewOf(c), summary: { events: [] } };
+    }
+    case 'raidReady': { const t = raidTeamOf(c); if (!t) fail('你不在副本隊伍裡'); t.ready[c.id] = !!body.ready; return { ...sessionView(a, c.id), raid: raidViewOf(c), summary: { events: [] } }; }
+    case 'raidKick': { const t = raidTeamOf(c); if (!t || t.leader !== c.id) fail('只有隊長可以移除'); t.members = t.members.filter(x => x !== body.memberId); return { ...sessionView(a, c.id), raid: raidViewOf(c), summary: { events: [] } }; }
+    case 'raidStart': {
+      const t = raidTeamOf(c); if (!t) fail('你不在副本隊伍裡'); if (t.leader !== c.id) fail('只有隊長可以開始');
+      if (t.battle) fail('已經在戰鬥中');
+      const ids = Array.isArray(body.memberIds) ? body.memberIds : [];
+      if (ids.length !== t.members.length || t.members.some(x => !ids.includes(x))) fail('隊員有變動，請重新整理');
+      if (t.members.some(x => x !== t.leader && !t.ready[x])) fail('還有隊員沒有準備');
+      const now = Date.now(), B = RAID_BOSS[t.raid];
+      t.battle = { phase: 1, prepUntil: now + Number(process.env.MOCK_RAID_PREP_MS || 10000), deadline: now + 20 * 60e3, lastAt: now, hp: B.hp, maxHp: B.hp, surrender: [] };
+      return { ...sessionView(a, c.id), raid: raidViewOf(c), summary: { events: [] } };
+    }
+    case 'raidLeave': {
+      const t = raidTeamOf(c); if (!t) fail('你不在副本隊伍裡'); if (t.battle) fail('戰鬥中不能離開隊伍');
+      if (t.leader === c.id) delete raidTeams[t.code]; else t.members = t.members.filter(x => x !== c.id);
+      return { ...sessionView(a, c.id), raid: raidViewOf(c), summary: { events: [] } };
+    }
+    case 'surrenderRaid': { const t = raidTeamOf(c); if (!t || !t.battle) fail('不在副本戰鬥中'); if (!t.battle.surrender.includes(c.id)) t.battle.surrender.push(c.id); if (t.battle.surrender.length === t.members.length) { t.result = 'surrender'; t.battle = null; } return { ...sessionView(a, c.id), summary: { events: [] } }; }
+    case 'leaveRaid': { const t = raidTeamOf(c); if (!t) fail('不在副本裡'); t.members = t.members.filter(x => x !== c.id); if (!t.members.length || t.leader === c.id) delete raidTeams[t.code]; return { ...sessionView(a, c.id), summary: { events: [] } }; }
     case 'autoSell':
       if (body.map !== c.map) fail('只能設定角色目前所在地圖的自動販售');
       // 真實遊戲 2026-11-27：rule 2（itemIds＝保留清單）；舊格式不收

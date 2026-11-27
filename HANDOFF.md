@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-27（v0.76.0）
+最後更新：2026-11-28（v0.77.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -338,3 +338,5 @@
   - state.raidBattle：{ raid, code, phase, prepUntil（開場 10 秒準備，只能放輔助）, deadline, surrender[ids], 拉圖斯：bloodAt（血魔歸一預備：全隊 HP/MP 變 1）, invulnerable＋orbs（黑球，法師清）, 炎魔：windupAt（火焰）、immuneUntil（物免魔免）、invulnerable＋arms（手臂）、minions（熔岩像，本體傷害減半）、guardUntil }。王血量應該在 sync 的 enemies（沒實際看過副本中的資料）。
   - 角色異常：c.diseases {seal 封印（不能放主動技能）, darkness 黑暗（命中-100）, stun 暈眩: until}；state.raid lockUntil＝鎖水（不能喝恢復藥水）。倒下只能由主教「復甦之光」復活。遊戲沒有「中了異常自動喝解除藥水」的設定。
   - 戰前設定指令：supply {supply:{hpItem,mpItem,hpPct,mpPct,onEmpty,extra:{stat,item,pct}|null,bombFloor,buffPotion{enabled,item},buffPotion2,buffPotion3,…}, enable:true}（要整份送，先讀 c.supply 再改）；attackSlot {slot, skill, targets:[怪 id], map, continuous(slot0)}（每張圖各自一組）；conditionalSkill {slot, skill}（技能有 castCondition）；partyBuff {slot 0..2, config:{enabled, skill}}（effect.party、type support）；partyHeal／selfHeal {config:{enabled, threshold 1..100}}（群體治癒門檻＝祭司補血％）；lowHpSkill {config:{enabled, threshold 1..99, skill}}；quickCast、castSkill、useItem {item}。
+
+- v0.77.0（副本第 1 階段：組隊＋即時戰況；**戰前設定還沒做**）：settings.raid {kind papulatus|zakum, leader, members[≤5]}。server cleanRaidCmd 白名單（sync{raid}／raidCreate{raid,password}／raidJoin{code,password}／raidReady{ready}／raidStart{memberIds}／raidKick／raidLeave／surrenderRaid／leaveRaid），走 idle action 'raid'（minAgent 0.77.0）。agent raidGame()：payload 加 raidOnly、includeSocial/Leisure false、requestId，503／忙碌同 requestId 重送 3 次；做完 POST /api/raid/view {charId, view:{raid, team:{code,isLeader,members[id,name,job,lv,leader,ready,online,ok,issues,left]}, notice, held, battle}}。即時：agent 每秒 raidLiveTick（passive 不做）：readState() 有 raidTeam／raidBattle 才回報 POST /api/raid/live {inRaid, team, battle:{code,raid,phase,prepUntil,deadline,surrender,bloodAt,invulnerable,orbs,windupAt,immuneUntil,arms,minions,guardUntil}, enemies[id,hp,maxHp], me{hp,maxhp,mp,maxmp,diseases,lockUntil,map}}；沒開打 5 秒一次；server 回 reporter（計畫隊長在回報就是隊長，不然第一個隊員）→ 回報者戰鬥中自己多 sync 一次拿 enemies。server 只放記憶體 raidViews／raidLive（live 15 秒過期）。面板「副本」分頁 renderRaid 每秒讀 /api/raid。mock：raidTeams、raidTick（準備時間後王掉血、半血第 2 階段＋全隊封印 4 秒、0 血結束），sessionView 帶 raidTeam／raidBattle，sync 帶 enemies（王）、raidOnly 帶 raid。測試 e2e_raid.py。**沒在真實遊戲試過**：真實的 sessionStorage 裡 state 有沒有 raidTeam／raidBattle、王的血量是不是在 enemies，要等使用者第一次實際打。下一步：戰前設定（supply、attackSlot（副本地圖）、conditionalSkill、partyBuff、partyHeal／selfHeal、lowHpSkill）。
