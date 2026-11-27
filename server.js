@@ -537,6 +537,141 @@ function guildAutoTick(force) {
 }
 setInterval(() => { try { guildAutoTick(false); } catch (e) { console.warn('[公倉自動存入]', e); } }, Number(process.env.SZG_GUILD_TICK_MS) || 60 * 1000);
 
+// ================= 公倉自動補給（低於 X 個自動從公倉領到 Y 個） =================
+// 設定：settings.guildRestock = { on, rules: [{ id, on, key:'i…', name, below, target, charSpec:{mode}, chars:[角色id]|null }] }（chars null＝全部角色）
+// 只處理道具（key 是 i 開頭），工作只有 items、沒有 gear，永遠不碰楓幣、點數。
+// 每 2 分鐘（SZG_RESTOCK_TICK_MS）看一次：在線、有自己分頁、不在副本戰鬥、不在離線掛機、背包沒滿、沒有公倉工作在跑的角色，
+// 背包數量 < below 且公倉有貨 → 建一個 guildWithdraw（restock:true，直接排隊）領到 target；公倉不夠就領能領的。
+// 同一隻同一道具建立後冷卻 SZG_RESTOCK_CD_MS（預設 10 分鐘）。公倉內容太舊（SZG_RESTOCK_VIEW_MS，預設 10 分鐘）先讀一次再分配。
+// agent 執行時會先讀公倉、照當下背包重算要領幾個（不會因為資料舊領太多、也不會因為公倉不夠整批失敗）。
+// 紀錄 db.restockLog（最近 50 筆）；db.restockCd = {'角色|道具': 時間}；db.restockFull = {角色: 時間}（領取時遊戲回背包滿，30 分鐘內不再試）
+const RESTOCK_TICK_MS = Number(process.env.SZG_RESTOCK_TICK_MS) || 2 * 60e3;
+const RESTOCK_CD_MS = Number(process.env.SZG_RESTOCK_CD_MS) || 10 * 60e3;
+const RESTOCK_VIEW_MS = Number(process.env.SZG_RESTOCK_VIEW_MS) || 10 * 60e3;
+const RESTOCK_FULL_MS = 30 * 60e3, RESTOCK_NOTE_MS = 30 * 60e3;
+function restockLog(e) {
+  const log = db.restockLog || (db.restockLog = []);
+  log.push({ at: Date.now(), ...e });
+  if (log.length > 50) log.splice(0, log.length - 50);
+}
+// 同一個提醒（公倉沒貨、在副本中…）30 分鐘內只記一次，避免每 2 分鐘洗版
+function restockNote(k, msg) {
+  const n = db.restockNote || (db.restockNote = {});
+  if (n[k] && n[k].msg === msg && Date.now() - n[k].at < RESTOCK_NOTE_MS) return;
+  n[k] = { at: Date.now(), msg };
+  restockLog({ kind: 'note', msg });
+}
+function restockRules() {
+  const c = db.settings.guildRestock || {};
+  return (c.rules || []).filter(r => r && r.on !== false && /^i\w+$/.test(String(r.key || '')) && Number(r.below) > 0)
+    .map(r => ({ ...r, below: Math.floor(Number(r.below)), target: Math.max(Math.floor(Number(r.below)), Math.floor(Number(r.target) || 0)) }));
+}
+const restockBagQty = (snap, key) => (snap.items || []).filter(it => it.loc === '背包' && it.key === key).reduce((t, it) => t + (Number(it.qty) || 0), 0);
+// 這隻角色現在能不能領：不能的話回傳原因（null＝可以）
+function restockBlock(snap) {
+  if (!snap.playerCode || Date.now() - (snap.receivedAt || 0) > ONLINE_MS) return '不在線';
+  if (!tabOf(snap.playerCode, snap.char.id)) return '沒有自己的遊戲分頁';
+  if (snap.idleOffline) return '在離線掛機';
+  const rl = raidLive[snap.char.id];
+  if (rl && rl.battle && Date.now() - rl.at < 15000) return '在副本戰鬥中';
+  const full = (db.restockFull || {})[snap.char.id];
+  if (full && Date.now() - full < RESTOCK_FULL_MS) return '背包滿了';
+  const mine = db.jobs.filter(j => String(j.kind).startsWith('guild') && j.fromCharId === snap.char.id);
+  if (mine.some(j => ['pending', 'approved', 'running'].includes(j.status))) return '有公倉工作在排隊';
+  const lastDone = Math.max(0, ...mine.filter(j => j.kind !== 'guildView').map(j => ((j.log || []).slice(-1)[0] || {}).at || 0));
+  if (lastDone && (snap.receivedAt || 0) < lastDone + 2000) return '剛做完公倉工作，等新的背包資料';
+  return null;
+}
+function guildRestockTick(force) {
+  const cfg = db.settings.guildRestock || {};
+  if (!cfg.on) { if (force) { restockLog({ kind: 'note', msg: '自動補給是關閉的，沒有檢查' }); save(); } return; }
+  const rules = restockRules();
+  db.restockAt = Date.now();
+  if (!rules.length) { if (force) restockLog({ kind: 'note', msg: '還沒有開啟的補給規則' }); save(); return; }
+  const cd = db.restockCd || (db.restockCd = {});
+  for (const [k, at] of Object.entries(cd)) if (Date.now() - at > RESTOCK_CD_MS) delete cd[k];
+  // 1. 誰缺什麼（只看資料，還沒看公倉）
+  const needs = [];
+  for (const r of rules) {
+    const ids = Array.isArray(r.chars) ? new Set(r.chars) : null;
+    for (const snap of Object.values(db.chars)) {
+      if (!snap || !snap.char || (ids && !ids.has(snap.char.id))) continue;
+      if (Date.now() - (snap.receivedAt || 0) > ONLINE_MS) continue; // 不在線的角色資料是舊的，不算
+      const have = restockBagQty(snap, r.key);
+      if (have >= r.below) continue;
+      if (cd[snap.char.id + '|' + r.key]) continue;
+      needs.push({ r, snap, have, want: r.target - have });
+    }
+  }
+  if (!needs.length) { if (force) restockLog({ kind: 'note', msg: '檢查完：沒有角色低於設定的數量' }); save(); return; }
+  // 2. 公倉內容：遊戲不會跟著同步送來，太舊就先讀一次，讀完（POST /api/guild）馬上再跑一次
+  const g = db.guild && db.guild.data, age = Date.now() - ((db.guild && db.guild.at) || 0);
+  if (!g || age > RESTOCK_VIEW_MS) {
+    try {
+      createGuildView();
+      db.restockWantView = Date.now();
+      restockLog({ kind: 'note', msg: g ? `公倉內容是 ${Math.round(age / 60e3)} 分鐘前讀的，先重新讀取再分配` : '還沒讀過公倉，先讀取一次再分配' });
+    } catch (e) { restockNote('view', `要補給但讀不到公倉：${e.message}`); }
+    save(); return;
+  }
+  // 3. 照順序分配：規則順序 → 同一條規則裡背包最少的先領（同數量照名稱）
+  // 公倉數量要扣掉還沒做完的領取工作（那些還沒反映在公倉內容裡）
+  const avail = {};
+  for (const [k, n] of Object.entries(g.items || {})) if (/^i\w+$/.test(k)) avail[k] = Number(n) || 0;
+  for (const j of db.jobs) if (j.kind === 'guildWithdraw' && ['pending', 'approved', 'running'].includes(j.status) && (j.createdAt || 0) > ((db.guild && db.guild.at) || 0))
+    for (const it of (j.batches[0] || {}).items || []) if (avail[it.key] != null) avail[it.key] = Math.max(0, avail[it.key] - (Number(it.qty) || 0));
+  needs.sort((a, b) => rules.indexOf(a.r) - rules.indexOf(b.r) || a.have - b.have || cmpName(a.snap.char.name, b.snap.char.name));
+  const plan = new Map(), taken = new Set(), blocked = new Map();
+  const nameOf = r => r.name || r.key;
+  const short = {}; // 道具 → { name, lines: [] }（公倉不夠時寫清楚誰拿到多少）
+  for (const n of needs) {
+    const id = n.snap.char.id, k = id + '|' + n.r.key;
+    if (taken.has(k)) continue; // 同一隻同一道具有兩條規則：用第一條
+    const why = blocked.has(id) ? blocked.get(id) : restockBlock(n.snap);
+    blocked.set(id, why);
+    if (why) { restockNote('skip|' + k + '|' + why, `${n.snap.char.name} 的 ${nameOf(n.r)} 只剩 ${fmtN(n.have)} 個，但${why}，這次略過`); continue; }
+    taken.add(k);
+    const left = avail[n.r.key] || 0, qty = Math.min(n.want, left);
+    if (left < n.want) (short[n.r.key] || (short[n.r.key] = { name: nameOf(n.r), lines: [] })).lines.push(`${n.snap.char.name} 要 ${fmtN(n.want)}${qty > 0 ? ` 只分到 ${fmtN(qty)}` : ' 分不到'}`);
+    if (!(qty > 0)) continue;
+    avail[n.r.key] = left - qty;
+    const p = plan.get(id) || plan.set(id, { snap: n.snap, items: [], rows: [] }).get(id);
+    p.items.push({ key: n.r.key, name: nameOf(n.r), qty, target: n.r.target, ...(qty < n.want ? { limit: true } : {}) }); // limit：公倉不夠分，最多只能領 qty（不然腳本照當下背包補到 target）
+    p.rows.push({ ...n, qty, guildHad: left });
+  }
+  for (const [key, s] of Object.entries(short)) restockNote('short|' + key + '|' + s.lines.join(), `公倉的 ${s.name} 不夠（剩 ${fmtN(Number((g.items || {})[key]) || 0)}），照順序分配：${s.lines.join('、')}`);
+  // 4. 每隻角色一個領取工作（直接排隊，領出來的可以再存回去）
+  for (const p of plan.values()) {
+    let job;
+    try { job = createBagJob({ kind: 'guildWithdraw', fromCharId: p.snap.char.id, batches: [{ items: p.items, gear: [] }] }); }
+    catch (e) { restockLog({ kind: 'note', msg: `${p.snap.char.name} 建立領取工作失敗：${e.message}` }); continue; }
+    job.batches[0].restock = true; job.restock = true; job.auto = true;
+    job.status = 'approved'; job.approvedAt = Date.now();
+    jobLog(job, '公倉自動補給：' + p.items.map(x => `${x.name} ×${fmtN(x.qty)}`).join('、'));
+    for (const x of p.rows) {
+      cd[p.snap.char.id + '|' + x.r.key] = Date.now();
+      restockLog({ kind: 'take', status: 'queued', jobId: job.id, charId: p.snap.char.id, name: p.snap.char.name, key: x.r.key, item: nameOf(x.r), have: x.have, target: x.r.target, want: x.want, qty: x.qty, guildHad: x.guildHad,
+        msg: `${p.snap.char.name} 的 ${nameOf(x.r)} 剩 ${fmtN(x.have)}（低於 ${fmtN(x.r.below)}），從公倉領 ${fmtN(x.qty)} 個${x.qty < x.want ? `（要 ${fmtN(x.want)}，公倉不夠）` : `，補到 ${fmtN(x.r.target)}`}` });
+    }
+  }
+  if (!plan.size && force) restockLog({ kind: 'note', msg: '檢查完：有角色低於設定，但這次沒有可以領的（看上面的紀錄）' });
+  save();
+}
+const fmtN = n => Number(n || 0).toLocaleString('en-US');
+const cmpName = (a, b) => String(a || '').localeCompare(String(b || ''), 'zh-Hant');
+// 補給工作結束：把結果寫回紀錄（agent 在 batchDone 帶 got＝實際領到的 {道具: 數量}）
+function restockJobEnd(job, ev) {
+  const rows = (db.restockLog || []).filter(x => x.jobId === job.id);
+  for (const x of rows) {
+    if (job.status === 'failed') { x.status = 'failed'; x.result = ev.msg || ''; continue; }
+    x.status = 'done';
+    if (ev.got && typeof ev.got === 'object') x.got = Number(ev.got[x.key]) || 0;
+    if (ev.got && x.got !== x.qty) x.result = x.got ? `實際領到 ${fmtN(x.got)} 個（領的時候重算過背包和公倉）` : '領的時候已經不缺或公倉沒有了，沒有領';
+  }
+  if (job.status === 'failed' && /滿|full/i.test(ev.msg || '')) { (db.restockFull || (db.restockFull = {}))[job.fromCharId] = Date.now(); restockLog({ kind: 'note', msg: `${job.fromName} 背包滿了，30 分鐘內不再自動補給` }); }
+}
+setInterval(() => { try { guildRestockTick(false); } catch (e) { console.warn('[公倉自動補給]', e); } }, RESTOCK_TICK_MS);
+
 // ================= 自動強化（v0.71.4） =================
 // settings.forgeAuto = { mode: 'off'|'confirm'|'auto', everyMin, dailyCap（楓幣；auto 模式每天最多自動花多少）, rules: [{id, on, charId, gearName, item, count, stopAfter, stopOnFail, minSucc}] }
 //   confirm：照規則建立強化工作，要在「工作」按確認才衝；auto：今天花的（含進行中的預估）加上這次最多會花的不超過上限就直接衝，超過的、詛咒卷軸一律等確認
@@ -1848,12 +1983,14 @@ const server = http.createServer(async (req, res) => {
 
     // ---- 交易工作 ----
     // 公會倉庫內容：遊戲不會在同步時送，只在查看／存取後回傳，所以存最後一次看到的
-    if (req.method === 'GET' && url.pathname === '/api/guild') return send(res, 200, { ...(db.guild || { data: null }), log: (db.guildLog || []).slice(-40), autoAt: db.guildAutoAt || 0 });
+    if (req.method === 'GET' && url.pathname === '/api/guild') return send(res, 200, { ...(db.guild || { data: null }), log: (db.guildLog || []).slice(-40), autoAt: db.guildAutoAt || 0, restock: { log: (db.restockLog || []).slice(-50), at: db.restockAt || 0, everyMs: RESTOCK_TICK_MS, cdMs: RESTOCK_CD_MS } });
     if (req.method === 'POST' && url.pathname === '/api/guild/auto-run') { guildAutoTick(true); return send(res, 200, { ok: true, log: (db.guildLog || []).slice(-5) }); }
+    if (req.method === 'POST' && url.pathname === '/api/guild/restock/run') { guildRestockTick(true); return send(res, 200, { ok: true, log: (db.restockLog || []).slice(-10) }); }
     if (req.method === 'POST' && url.pathname === '/api/guild') {
       const b = JSON.parse(await readBody(req));
       if (!b || !b.data || typeof b.data !== 'object') return send(res, 400, { error: 'bad guild data' });
       db.guild = { at: Date.now(), charId: b.charId || null, charName: b.charName || '', data: b.data };
+      if (db.restockWantView) { db.restockWantView = 0; setTimeout(() => { try { guildRestockTick(false); } catch (e) { console.warn('[公倉自動補給]', e); } }, 300); } // 自動補給等著這份公倉內容
       save();
       return send(res, 200, { ok: true });
     }
@@ -2267,6 +2404,7 @@ const server = http.createServer(async (req, res) => {
         job.batchIndex++;
         if (job.batchIndex >= job.batches.length) { job.status = 'done'; job.lastMsg = '全部完成'; jobLog(job, '全部完成'); }
       }
+      if (job.restock && (job.status === 'done' || job.status === 'failed')) restockJobEnd(job, ev);
       job.updatedAt = Date.now();
       save();
       return send(res, 200, { ok: true });

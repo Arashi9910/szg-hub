@@ -460,6 +460,8 @@
   .g-drawer { width: min(860px, 96vw); }
   .g-drawer summary .gd-lb { width: auto; margin-right: 8px; } .g-drawer h3 { color: var(--text); font-size: 14px; }
   .g-drawer .card { border: 0; padding: 4px 0 12px; border-bottom: 1px solid var(--line); border-radius: 0; }
+  .gr-rule { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin: 6px 0; } .gr-rule.off { opacity: .6; }
+  .gr-rule .bar { margin: 2px 0; } .gr-log { max-height: 320px; overflow: auto; } .gr-log > div { padding: 2px 0; border-bottom: 1px dashed var(--line); }
   @media (max-width: 1100px) { .g-xfer { grid-template-columns: 1fr; } .g-mid { position: static; padding-top: 0; flex-direction: row; flex-wrap: wrap; } .g-act { flex-direction: row; flex-wrap: wrap; align-items: center; } }
 
   /* ===== 背包：角色卡收合（v0.35）===== */
@@ -1059,7 +1061,7 @@
       <div class="g-st-cap" id="gsCap"></div>
       <div class="g-st-money" id="gsMoney"></div>
       <div class="g-st-auto" id="gsAuto"></div>
-      <div class="g-st-btns"><button class="btn" id="gwRefresh" title="請一個在線的遊戲分頁讀取公會倉庫（只讀）"><span data-ic="refresh-cw"></span> 重新整理</button><button class="btn" id="gRulesOpen" title="自動存入、存入規則、部位設定"><span data-ic="settings-2"></span> 存入規則</button><button class="btn" id="gMoneyOpen" title="存入或提領楓幣、點數"><span data-ic="coins"></span> 楓幣／點數</button></div>
+      <div class="g-st-btns"><button class="btn" id="gwRefresh" title="請一個在線的遊戲分頁讀取公會倉庫（只讀）"><span data-ic="refresh-cw"></span> 重新整理</button><button class="btn" id="gRulesOpen" title="自動存入、存入規則、部位設定"><span data-ic="settings-2"></span> 存入規則</button><button class="btn" id="gMoneyOpen" title="存入或提領楓幣、點數"><span data-ic="coins"></span> 楓幣／點數</button><button class="btn" id="gRestockOpen" title="角色背包的道具低於設定數量時，自動從公倉領到指定數量"><span data-ic="pill"></span> 自動補給</button></div>
     </div>
     <div id="gGuideWrap">
     <div class="card">
@@ -1143,6 +1145,19 @@
       <div class="bar" id="gmQuick"></div>
       <div id="gmOut"></div>
       <div class="bar" style="margin-top:8px"><button class="btn primary" id="gmCreate">建立存入工作</button><span class="dim" id="gmSum"></span><span class="dim" id="gmMsg"></span></div>
+    </div>
+    </aside>
+    <aside id="gRestockDrawer" class="drawer g-drawer" style="display:none">
+      <div class="dhd"><b>公倉自動補給</b><span class="dim" style="flex:1">背包的道具低於設定數量時，自動從公倉領到指定數量（只領道具，不碰楓幣、點數）</span><button class="btn" data-gclose="gRestockDrawer">關閉 ✕</button></div>
+    <div class="card" id="grCard">
+      <div class="bar"><label class="gr-on"><input type="checkbox" id="grOn"> <b>開啟自動補給</b></label><span class="dim sm" id="grInfo"></span><span style="flex:1"></span><button class="btn" id="grRun">立即檢查一次</button></div>
+      <div class="bar"><span class="sm" id="grGuild"></span><button class="btn sm" id="grRefresh" title="請一個在線的遊戲分頁讀取公會倉庫（只讀）">重新讀取公倉</button></div>
+      <div class="sm dim">只替<b>在線、有自己遊戲分頁</b>的角色領；在副本戰鬥中、離線掛機、背包滿、有公倉工作在排隊的會略過。多隻同時缺、公倉不夠時，照規則順序、背包最少的先分。領取時會再讀一次公倉、照當下背包重算數量。</div>
+      <h3 style="margin-top:10px">規則 <span class="dim sm">改了會自動存檔；從上到下依序分配</span></h3>
+      <div id="grRules"></div>
+      <div class="bar"><button class="btn sm" id="grAdd">＋ 新增規則</button><span class="dim sm" id="grMsg"></span></div>
+      <h3 style="margin-top:10px">最近紀錄 <span class="dim sm">最近 50 筆</span></h3>
+      <div id="grLog" class="gr-log"></div>
     </div>
     </aside>
   </section>
@@ -5907,7 +5922,7 @@ function gearFits(g) {
 }
 function renderGuild() {
   fillIcons($('#guild'));
-  loadGuild().then(() => { renderGuildStatus(); renderGuildBag(); renderGuildOut(); renderGuideSteps(); if ($('#gRulesDrawer').style.display !== 'none') { renderGuildDeposit(); renderGuildAuto(); } if ($('#gMoneyDrawer').style.display !== 'none') renderGuildMoney(); });
+  loadGuild().then(() => { renderGuildStatus(); renderGuildBag(); renderGuildOut(); renderGuideSteps(); if ($('#gRulesDrawer').style.display !== 'none') { renderGuildDeposit(); renderGuildAuto(); } if ($('#gMoneyDrawer').style.display !== 'none') renderGuildMoney(); if ($('#gRestockDrawer').style.display !== 'none') renderGuildRestock(); });
 }
 function renderGuildAuto() {
   setTimeout(() => enhanceSegs($('#gRulesDrawer')), 0);
@@ -6059,16 +6074,18 @@ function renderGuildStatus() {
   $('#gsName').innerHTML = g ? `<b>${esc(g.guildName || '公會倉庫')}</b> <span class="dim sm">${job ? '讀取中…' : ago(Date.now() - (GUILD.at || 0)) + '更新'}</span>` : `<b>公會倉庫</b> <span class="dim sm">${job ? '讀取中…' : '還沒讀過，按「重新整理」'}</span>`;
   $('#gsCap').innerHTML = g ? meter('道具', Object.values(g.items || {}).filter(n => n > 0).length, cap.items) + meter('裝備', (g.gear || []).length, cap.gear) : '';
   $('#gsMoney').innerHTML = g ? `<span class="lbl">楓幣</span><b class="nfont">${short(g.mesos || 0)}</b><span class="lbl">點數</span><b class="nfont">${fmt(g.cashPoints || 0)}</b>` : '';
-  $('#gsAuto').innerHTML = `<div>${autoTxt}</div><div class="dim sm">規則：${gdShortSummary()}</div>`;
+  const rc = S.guildRestock || {}, rn = (rc.rules || []).filter(r => r.on !== false && r.key).length;
+  $('#gsAuto').innerHTML = `<div>${autoTxt}</div><div class="dim sm">規則：${gdShortSummary()}</div><div class="sm">${rc.on ? `自動補給：開（${rn} 條規則）` : '<span class="dim">自動補給：關閉</span>'}</div>`;
 }
-function openGDrawer(id) { document.querySelectorAll('.g-drawer').forEach(x => { x.style.display = x.id === id ? '' : 'none'; }); if (id === 'gMoneyDrawer') renderGuildMoney(); if (id === 'gRulesDrawer') { renderGuildDeposit(); renderGuildAuto(); } }
+function openGDrawer(id) { document.querySelectorAll('.g-drawer').forEach(x => { x.style.display = x.id === id ? '' : 'none'; }); if (id === 'gMoneyDrawer') renderGuildMoney(); if (id === 'gRulesDrawer') { renderGuildDeposit(); renderGuildAuto(); } if (id === 'gRestockDrawer') renderGuildRestock(true); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.g-drawer').forEach(x => { x.style.display = 'none'; }); });
 document.addEventListener('change', e => { if (e.target.id === 'gxJudge') { ui.gx.judge = e.target.value; renderGuildBag(); } });
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-gxpick],[data-gxsel],#gxDeposit,#gRulesOpen,#gMoneyOpen,[data-gclose]'); if (!t || !t.closest('#guild')) return;
+  const t = e.target.closest('[data-gxpick],[data-gxsel],#gxDeposit,#gRulesOpen,#gMoneyOpen,#gRestockOpen,[data-gclose]'); if (!t || !t.closest('#guild')) return;
   if (t.dataset.gclose) { $('#' + t.dataset.gclose).style.display = 'none'; return; }
   if (t.id === 'gRulesOpen') { openGDrawer('gRulesDrawer'); return; }
   if (t.id === 'gMoneyOpen') { openGDrawer('gMoneyDrawer'); return; }
+  if (t.id === 'gRestockOpen') { openGDrawer('gRestockDrawer'); return; }
   if (t.dataset.gxpick) {
     const rk = t.dataset.gxpick, list = ui.gx.shown;
     if (e.shiftKey && ui.gx.last && list.includes(ui.gx.last)) { const [i, j] = [list.indexOf(ui.gx.last), list.indexOf(rk)].sort((x, y) => x - y); for (const k of list.slice(i, j + 1)) ui.gx.sel.add(k); }
@@ -6359,6 +6376,101 @@ document.addEventListener('change', e => {
 document.addEventListener('input', e => {
   if (e.target.id === 'gwQ') { ui.gw.q = e.target.value; renderGuildOut(); }
   if (e.target.id === 'gdQ') { gdState().q = e.target.value; renderGuildDeposit(); }
+});
+// ---- 公倉自動補給：背包低於 X 個自動從公倉領到 Y 個（settings.guildRestock；伺服器每 2 分鐘檢查、建立 guildWithdraw）----
+// 規則 { id, on, key:'i…', name, below, target, charSpec:{mode,ids}, chars:[角色id]|null（null＝全部角色）}；只有道具，沒有楓幣、點數
+function grCfg() { if (!S.guildRestock) S.guildRestock = { on: false, rules: [] }; if (!Array.isArray(S.guildRestock.rules)) S.guildRestock.rules = []; return S.guildRestock; }
+const grRule = id => grCfg().rules.find(r => r.id === id);
+const grSave = () => saveSettings({ guildRestock: grCfg() });
+// 公倉裡的道具（只列 i 開頭的道具，裝備不能補給）
+function grItems() {
+  const g = GUILD && GUILD.data;
+  return Object.entries((g && g.items) || {}).filter(([k, n]) => /^i\w+$/.test(k) && n > 0).map(([key, n]) => ({ key, n, name: keyName(key) })).sort((a, b) => cmp(a.name, b.name));
+}
+const grBag = (s, key) => (s.items || []).filter(it => it.loc === '背包' && it.key === key).reduce((t, it) => t + (Number(it.qty) || 0), 0);
+// 角色選擇器：每條規則一個（全部／A／B／有分頁的是動態的，角色變了就重存展開後的清單給伺服器）
+function grRegisterCP() {
+  let changed = false;
+  for (const r of grCfg().rules) {
+    const rid = r.id;
+    CP['gr' + rid] = { get: () => (grRule(rid) || {}).charSpec || { mode: 'all' },
+      set: spec => { const x = grRule(rid); if (!x) return; x.charSpec = spec; x.chars = spec.mode === 'all' ? null : cpIds(spec); grSave(); renderGuildRestock(true); } };
+    const m = r.charSpec && r.charSpec.mode;
+    if ((m === 'A' || m === 'B' || m === 'tab') && snaps().length) {
+      const want = cpIds(r.charSpec), have = r.chars || [];
+      if (want.length !== have.length || want.some(id => !have.includes(id))) { r.chars = want; changed = true; }
+    }
+  }
+  if (changed) grSave();
+}
+function grNowLine(r) {
+  if (!r.key) return '先選要補給的道具';
+  const ids = Array.isArray(r.chars) ? new Set(r.chars) : null;
+  const list = snaps().filter(s => !ids || ids.has(s.char.id)).map(s => ({ s, n: grBag(s, r.key) })).sort((a, b) => a.n - b.n || cmp(a.s.char.name, b.s.char.name));
+  if (!list.length) return '沒有套用的角色';
+  const low = list.filter(x => x.n < Number(r.below));
+  return low.length ? `目前低於 ${fmt(r.below)}：${low.slice(0, 8).map(x => `${esc(x.s.char.name)} ${fmt(x.n)}`).join('、')}${low.length > 8 ? ` 等 ${low.length} 隻` : ''}` : `目前 ${list.length} 隻都夠（最少 ${esc(list[0].s.char.name)} ${fmt(list[0].n)}）`;
+}
+function grRuleHTML(r, i, items) {
+  const opts = items.slice();
+  if (r.key && !opts.some(x => x.key === r.key)) opts.unshift({ key: r.key, n: 0, name: r.name || keyName(r.key) });
+  const sel = `<select data-grf="key" data-grid="${esc(r.id)}"><option value="">（選公倉裡的道具）</option>${opts.map(x => `<option value="${esc(x.key)}" ${x.key === r.key ? 'selected' : ''}>${esc(x.name)}（公倉 ${x.n ? fmt(x.n) : '沒有'}）</option>`).join('')}</select>`;
+  const bad = Number(r.target) < Number(r.below);
+  return `<div class="gr-rule ${r.on === false ? 'off' : ''}" data-grrule="${esc(r.id)}">
+    <div class="bar"><label title="開關這條規則"><input type="checkbox" data-grf="on" data-grid="${esc(r.id)}" ${r.on !== false ? 'checked' : ''}> ${i + 1}.</label>${sel}
+      <span>低於</span><input type="number" min="1" data-grf="below" data-grid="${esc(r.id)}" value="${esc(r.below)}" style="width:80px"><span>個時，補到</span><input type="number" min="1" data-grf="target" data-grid="${esc(r.id)}" value="${esc(r.target)}" style="width:80px"><span>個</span>
+      ${bad ? '<span class="warn sm">「補到」要大於等於「低於」</span>' : ''}<span style="flex:1"></span>
+      ${i ? `<button class="btn sm" data-grup="${esc(r.id)}" title="往上移（公倉不夠時先分配）">↑</button>` : ''}<button class="btn sm" data-grdel="${esc(r.id)}">刪除</button></div>
+    <div class="bar"><span class="gd-lb">哪些角色</span>${charPickHTML('gr' + r.id, {})}</div>
+    <div class="sm dim">${grNowLine(r)}</div></div>`;
+}
+const GR_ST = { queued: ['排隊中', ''], approved: ['排隊中', ''], pending: ['待確認', 'warn'], running: ['領取中', 'good'], done: ['✓ 完成', 'good'], failed: ['✗ 失敗', 'bad'], cancelled: ['已取消', 'dim'] };
+function renderGuildRestock(full) {
+  if (!$('#grCard')) return;
+  const c = grCfg(), R = (GUILD && GUILD.restock) || {}, ae = document.activeElement;
+  if (ae !== $('#grOn')) $('#grOn').checked = !!c.on;
+  $('#grInfo').textContent = `每 ${Math.max(1, Math.round((R.everyMs || 120000) / 60e3))} 分鐘檢查一次・同一隻同一道具 ${Math.max(1, Math.round((R.cdMs || 600000) / 60e3))} 分鐘內只領一次${R.at ? `・上次檢查 ${clock(R.at)}` : ''}`;
+  const g = GUILD && GUILD.data, job = (DATA.jobs || []).find(j => j.kind === 'guildView' && ['approved', 'running'].includes(j.status));
+  $('#grGuild').innerHTML = job ? '公倉內容：讀取中…' : g ? `公倉內容：<b>${ago(Date.now() - (GUILD.at || 0))}</b>讀的（${grItems().length} 種道具）` : '<span class="warn">還沒讀過公倉，按「重新讀取公倉」</span>';
+  // 正在改規則（輸入框、下拉有焦點）時不重畫規則，只更新紀錄
+  if (full || !($('#grRules').contains(ae) && /INPUT|SELECT/.test(ae.tagName))) {
+    grRegisterCP();
+    const items = grItems();
+    $('#grRules').innerHTML = c.rules.length ? c.rules.map((r, i) => grRuleHTML(r, i, items)).join('') : '<div class="dim">還沒有規則。按「＋ 新增規則」，例如：特殊藥水低於 50 個時補到 200 個。</div>';
+  }
+  const jobs = new Map((DATA.jobs || []).map(j => [j.id, j]));
+  $('#grLog').innerHTML = (R.log || []).slice().reverse().map(x => {
+    let st = '';
+    if (x.kind === 'take') { const j = jobs.get(x.jobId), k = x.status === 'queued' && j ? j.status : x.status, s = GR_ST[k] || [k, '']; st = ` <b class="${s[1]}">${s[0]}</b>`; }
+    return `<div class="sm"><span class="dim">${clock(x.at)}</span> ${esc(x.msg)}${st}${x.result ? ` <span class="dim">${esc(x.result)}</span>` : ''}</div>`;
+  }).join('') || '<div class="dim">還沒有紀錄</div>';
+}
+document.addEventListener('change', e => {
+  const t = e.target; if (!t.closest || !t.closest('#gRestockDrawer')) return;
+  const c = grCfg();
+  if (t.id === 'grOn') {
+    if (t.checked && !confirm('開啟後，角色背包的道具低於規則的數量時，會自動從公倉領取（直接執行、不用確認；只領道具，不碰楓幣、點數）。確定開啟？')) { t.checked = false; return; }
+    c.on = t.checked; grSave().then(() => { renderGuildRestock(true); renderGuildStatus(); }); return;
+  }
+  if (t.dataset.grf) {
+    const r = grRule(t.dataset.grid); if (!r) return;
+    const f = t.dataset.grf;
+    if (f === 'on') r.on = t.checked;
+    else if (f === 'key') { r.key = t.value; r.name = t.value ? keyName(t.value) : ''; }
+    else r[f] = Math.max(1, Math.floor(Number(t.value) || 1));
+    grSave(); renderGuildRestock(true); renderGuildStatus(); return;
+  }
+});
+document.addEventListener('click', async e => {
+  const t = e.target.closest && e.target.closest('#grAdd,#grRun,#grRefresh,[data-grdel],[data-grup]'); if (!t || !t.closest('#gRestockDrawer')) return;
+  const c = grCfg();
+  try {
+    if (t.id === 'grAdd') { c.rules.push({ id: Math.random().toString(36).slice(2, 10), on: true, key: '', name: '', below: 20, target: 100, charSpec: { mode: 'all' }, chars: null }); await grSave(); renderGuildRestock(true); return; }
+    if (t.dataset.grdel) { const r = grRule(t.dataset.grdel); if (r && r.key && !confirm(`刪除規則「${r.name || r.key}」？`)) return; c.rules = c.rules.filter(x => x.id !== t.dataset.grdel); await grSave(); renderGuildRestock(true); renderGuildStatus(); return; }
+    if (t.dataset.grup) { const i = c.rules.findIndex(x => x.id === t.dataset.grup); if (i > 0) { [c.rules[i - 1], c.rules[i]] = [c.rules[i], c.rules[i - 1]]; await grSave(); renderGuildRestock(true); } return; }
+    if (t.id === 'grRun') { t.disabled = true; await api('/api/guild/restock/run', {}); await loadGuild(true); await poll(true); renderGuildRestock(); t.disabled = false; return; }
+    if (t.id === 'grRefresh') { t.disabled = true; await api('/api/guild/refresh', {}); $('#grMsg').textContent = '已請遊戲分頁讀取公倉，幾秒後更新'; await poll(true); setTimeout(async () => { t.disabled = false; await loadGuild(true); renderGuildRestock(true); }, 4000); return; }
+  } catch (err) { t.disabled = false; $('#grMsg').textContent = '失敗：' + err.message; }
 });
 // ---- 背包分頁：選取的東西直接存進公倉 ----
 function bagGuildPlan() {

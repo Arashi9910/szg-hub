@@ -1971,12 +1971,27 @@ function agentMain(ctx) {
           else if (!gearTradable(cur)) skipped.push(g.name + '（已鎖定或不可交易）');
           else rows.push({ kind: 'gear', uid: g.uid, name: g.name });
         }
+      } else if (b.restock) {
+        // 公倉自動補給：中控的背包、公倉資料可能是幾分鐘前的 → 先讀公倉，照「現在的背包」重算要領幾個（補到 target 為止），公倉不夠就領剩下的
+        // 只領道具，楓幣、點數不碰
+        let gw = null;
+        try { const v = await gameRetry({ type: 'guildWarehouseView', characterId: c.id }); gw = v && v.summary && v.summary.guildWarehouse; if (gw) postGuild(v, c); } catch (_) {}
+        if (!gw) return report(job, { event: 'error', msg: '讀不到公會倉庫內容，這次沒有領' });
+        for (const it of b.items || []) {
+          if (!/^i\w+$/.test(String(it.key || ''))) continue;
+          const have = (c.inventory || {})[it.key] || 0, inG = Number((gw.items || {})[it.key]) || 0;
+          const need = it.target != null ? Math.max(0, Number(it.target) - have) : Number(it.qty) || 0;
+          // 中控的背包資料可能是舊的：沒有分配上限（limit）時照現在的背包補到 target；公倉不夠分給多隻時最多領分到的 qty
+          const qty = Math.min(it.limit || it.target == null ? Number(it.qty) || 0 : Infinity, need, inG);
+          if (qty > 0) rows.push({ kind: 'item', item: it.key, qty, name: it.name });
+          else skipped.push(it.name + (need <= 0 ? `（背包已經有 ${have} 個）` : '（公倉沒有了）'));
+        }
       } else {
         for (const it of b.items || []) if (Number(it.qty) > 0) rows.push({ kind: 'item', item: it.key, qty: Number(it.qty), name: it.name });
         for (const g of b.gear || []) rows.push({ kind: 'gear', uid: g.uid, name: g.name });
       }
       if (skipped.length) await report(job, { event: 'log', msg: '略過：' + skipped.join('、') });
-      if (!rows.length) { await report(job, { event: 'log', msg: '沒有可以處理的物品' }); return report(job, { event: 'batchDone', skippedEmpty: true }); }
+      if (!rows.length) { await report(job, { event: 'log', msg: '沒有可以處理的物品' }); return report(job, { event: 'batchDone', skippedEmpty: true, ...(b.restock ? { got: {} } : {}) }); }
       const op = job.kind === 'guildDeposit' ? 'deposit' : 'withdraw', label = op === 'deposit' ? '存入' : '領取';
       // 遊戲伺服器對單次請求另有上限（實測 98 種、一萬多張卷軸會回「請求過大」，門檻不明）：
       // 被拒就把這一批切半重送；只剩一種道具還太大時，把數量切半
@@ -2004,7 +2019,7 @@ function agentMain(ctx) {
       if (halvings) await report(job, { event: 'log', msg: `遊戲限制單次請求大小，分成較小的批次送出（每批最多 ${size} 項）` });
       const names = rows.map(r => r.name + (r.kind === 'item' ? ' ×' + r.qty : ''));
       await report(job, { event: 'log', msg: `已${label} ${rows.length} 項：${names.slice(0, 30).join('、')}${names.length > 30 ? '…' : ''}` });
-      return report(job, { event: 'batchDone' });
+      return report(job, { event: 'batchDone', ...(b.restock ? { got: rows.reduce((m, r) => (r.kind === 'item' && (m[r.item] = (m[r.item] || 0) + r.qty), m), {}) } : {}) });
     }
     // 公倉楓幣／點數：遊戲格式 {type:'guildWarehouseMesos'|'guildWarehouseCash', op:'deposit'|'withdraw', amount, characterId}
     // 金錢動作不自動重試（避免回應遺失時重複執行）；先讀一次公倉，存入檢查身上夠、提領檢查公倉夠，做完比對公倉與身上的餘額（提領會被扣公會稅）
