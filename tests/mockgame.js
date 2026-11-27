@@ -623,6 +623,22 @@ http.createServer((req, res) => {
   if (url.pathname === '/api/catalog') return send(res, 200, catalog);
   // 測試控制：查看／重設狀態
   if (url.pathname === '/__mock/state') return send(res, 200, { accounts, guild });
+  // 測試控制：/__mock/guild?key=i2000000&qty=50 設定公倉某樣道具的數量（0＝拿掉）；&mesos=…&cash=… 設定公倉楓幣／點數
+  if (url.pathname === '/__mock/guild') {
+    const k = url.searchParams.get('key');
+    if (k) { const q = Number(url.searchParams.get('qty') || 0); if (q > 0) guild.items[k] = q; else delete guild.items[k]; }
+    if (url.searchParams.has('mesos')) guild.mesos = Number(url.searchParams.get('mesos')) || 0;
+    if (url.searchParams.has('cash')) guild.cashPoints = Number(url.searchParams.get('cash')) || 0;
+    return send(res, 200, { ok: true, guild: guildView() });
+  }
+  // 測試控制：/__mock/setitem?acct=A1&char=c1&key=i2000000&qty=3 把角色背包某樣道具設成指定數量（模擬用掉藥水）
+  if (url.pathname === '/__mock/setitem') {
+    const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
+    if (!c) return send(res, 404, { error: 'no char' });
+    const k = url.searchParams.get('key'), q = Number(url.searchParams.get('qty') || 0);
+    if (q > 0) c.inventory[k] = q; else delete c.inventory[k];
+    rebuildStacks(c); return send(res, 200, { ok: true });
+  }
   // 測試控制：/__mock/session?acct=A1&char=c1&money=120000&activeMs=7200000&earned=9000000 設定本次掛機報告與累計賺得
   if (url.pathname === '/__mock/session') {
     const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
