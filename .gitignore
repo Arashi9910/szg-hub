@@ -2,3 +2,5 @@ data/
 backup/
 .update-tmp/
 __pycache__/
+.claude/worktrees/
+tests/.logs/
