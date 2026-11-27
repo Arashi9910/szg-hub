@@ -704,7 +704,72 @@ function cleanCfg(c) {
   }
   if (c.type === 'setting') return CFG_SETTINGS.includes(c.key) ? { type: 'setting', key: c.key, value: !!c.value } : null;
   if (c.type === 'autoBuff' || c.type === 'skill') return skillId(c.skill) ? { type: c.type, skill: skillId(c.skill) } : null;
-  return null;
+  return cleanIdleCfg(c);
+}
+// 角色抽屜「掛機設定」頁（從遊戲搬到中控）：補給、隊友 Buff、補血、設定組合、自動購買（格式見 HANDOFF「角色掛機設定的真實格式」）
+// 道具一律是 'i' 開頭的道具 id（null＝不用）；百分比 1～100；不合格就整筆擋掉（不要送半套設定給遊戲）
+const cfgItem = v => (v == null || v === '' ? null : typeof v === 'string' && /^i\d{1,10}$/.test(v) ? v : undefined);
+function cleanSupply(s) {
+  if (!s || typeof s !== 'object') return null;
+  const o = {};
+  for (const k of ['hpItem', 'mpItem']) { const v = cfgItem(s[k]); if (v === undefined) return null; o[k] = v; }
+  for (const k of ['hpPct', 'mpPct']) { const v = int(s[k], 1, 100); if (v == null) return null; o[k] = v; }
+  o.onEmpty = s.onEmpty === 'continue' ? 'continue' : 'stop';
+  o.autoCure = !!s.autoCure;
+  for (const k of ['buffPotion', 'buffPotion2', 'buffPotion3']) {
+    const b = s[k]; if (b == null) continue;
+    if (typeof b !== 'object') return null;
+    const item = cfgItem(b.item); if (item === undefined) return null;
+    o[k] = { enabled: !!b.enabled && !!item, item };
+  }
+  // extra（額外補給）中控不編輯：有送才檢查（agent 會跟遊戲裡目前那份合併，沒送的欄位保留）
+  if ('extra' in s) {
+    const x = s.extra;
+    if (x == null) o.extra = null;
+    else { const item = cfgItem(x.item), pct = int(x.pct, 1, 100); if (!item || pct == null || !/^\w{1,12}$/.test(String(x.stat || ''))) return null; o.extra = { stat: String(x.stat), item, pct }; }
+  }
+  return o;
+}
+function cleanIdleCfg(c) {
+  const on = x => x && typeof x === 'object';
+  switch (c.type) {
+    case 'supply': { const s = cleanSupply(c.supply); return s ? { type: 'supply', supply: s, enable: true } : null; }
+    case 'partyBuff': {
+      const slot = int(c.slot, 0, 2), cf = on(c.config) ? c.config : null; if (slot == null || !cf) return null;
+      const skill = cf.skill == null || cf.skill === '' ? null : skillId(cf.skill); if (skill === null && cf.skill != null && cf.skill !== '') return null;
+      if (cf.enabled && !skill) return null;
+      return { type: 'partyBuff', slot, config: { enabled: !!cf.enabled, skill } };
+    }
+    case 'partyHeal': case 'selfHeal': {
+      const cf = on(c.config) ? c.config : null, th = cf && int(cf.threshold, 1, 100); if (th == null) return null;
+      return { type: c.type, config: { enabled: !!cf.enabled, threshold: th } };
+    }
+    case 'conditionalSkill': {
+      const slot = int(c.slot, 0, 9); if (slot == null) return null;
+      const skill = c.skill == null || c.skill === '' ? null : skillId(c.skill); if (skill === null && c.skill != null && c.skill !== '') return null;
+      return { type: 'conditionalSkill', slot, skill };
+    }
+    case 'lowHpSkill': {
+      const cf = on(c.config) ? c.config : null, th = cf && int(cf.threshold, 1, 99); if (th == null) return null;
+      const skill = cf.skill == null || cf.skill === '' ? null : skillId(cf.skill); if ((cf.enabled && !skill) || (skill === null && cf.skill != null && cf.skill !== '')) return null;
+      return { type: 'lowHpSkill', config: { enabled: !!cf.enabled, threshold: th, skill } };
+    }
+    case 'settingsPreset': { const slot = int(c.slot, 1, 3); return slot ? { type: 'settingsPreset', slot } : null; }
+    // 自動購買：遊戲 character.autoBuy 的格式（2026-11-28 讀到），**指令名稱 autoBuy 是照欄位名稱猜的，還沒在真實遊戲驗證**
+    case 'autoBuy': {
+      const cf = on(c.config) ? c.config : null; if (!cf) return null;
+      const reserve = int(cf.reserve == null ? 0 : cf.reserve, 0, 2e9); if (reserve == null) return null;
+      const rules = [];
+      for (const r of Array.isArray(cf.rules) ? cf.rules.slice(0, 20) : []) {
+        const item = cfgItem(r && r.item), below = int(r && r.below, 0, 30000), target = int(r && r.target, 1, 30000);
+        if (!item || below == null || target == null || target <= below) return null;
+        rules.push({ item, below, target });
+      }
+      return { type: 'autoBuy', config: { enabled: !!cf.enabled, reserve, rules } };
+    }
+    case 'read': return { type: 'read' }; // 「從遊戲重新讀取」：agent 向遊戲同步一次並立刻回報
+    default: return null;
+  }
 }
 // 遊戲的地圖自動販售設定：{ enabled, itemIds }（遊戲只接受角色「目前所在地圖」的設定）
 const cleanIds = a => [...new Set((a || []).map(Number).filter(n => Number.isFinite(n) && n > 0))].slice(0, 500);

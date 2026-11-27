@@ -382,7 +382,7 @@ function handle(a, body) {
       c.autoSell.maps[body.map] = { enabled: !!body.config.enabled, itemIds: (body.config.itemIds || []).map(Number), ...(body.config.keepAboveBase ? { keepAboveBase: true } : {}) };
       break;
     // 掛機設定組合 1／2／3（真實遊戲：character.settingsSlot，沒設定過＝1）
-    case 'settingsPreset': { const n = Number(body.slot); if (![1, 2, 3].includes(n)) fail('設定組合只有 1、2、3'); c.settingsSlot = n; (c.presetLog || (c.presetLog = [])).push({ n, map: c.map, auto: c.auto }); break; }
+    case 'settingsPreset': { const n = Number(body.slot); if (![1, 2, 3].includes(n)) fail('設定組合只有 1、2、3'); idlePresetSwitch(c, n); c.settingsSlot = n; (c.presetLog || (c.presetLog = [])).push({ n, map: c.map, auto: c.auto }); break; }
     // 死亡／原地復活（真實遊戲：死亡＝hp <= 0，{type:'revive'}；這裡復活後停止掛機，讓中控要再開始）
     case 'revive': if (c.hp > 0) fail('角色沒有死亡'); c.hp = c.maxhp; c.revives = (c.revives || 0) + 1; addLog(c, '原地復活'); break;
     case 'partyCreate': {
@@ -564,11 +564,72 @@ function handle(a, body) {
       rebuildStacks(c);
       return { ...sessionView(a, c.id), summary: { events: [], guildWarehouse: guildView() } };
     }
-    default: fail('模擬遊戲沒有實作：' + body.type);
+    default: if (idleCfgHandle(c, body)) break; fail('模擬遊戲沒有實作：' + body.type);
   }
   rebuildStacks(c);
   return { ...sessionView(a, c.id), summary: { events: [] } };
 }
+
+// ---------------- 掛機設定（角色抽屜「掛機設定」頁）----------------
+// 照 HANDOFF「2026-11-28 角色掛機設定的真實格式」：supply、partyBuffs、partyHeal／selfHeal、autoBuy…；
+// 三套設定組合各自獨立，sync 只帶目前那套；第一次切到沒用過的那套是空白的
+Object.assign(items, {
+  i2000002: { id: 2000002, name: '白色藥水', type: '消耗', sellPrice: 160 },
+  i2002002: { id: 2002002, name: '戰士藥水', type: '消耗', sellPrice: 250 },
+  i2050004: { id: 2050004, name: '萬能療傷藥', type: '消耗', sellPrice: 200 },
+});
+for (const k of ['i2000002', 'i2002002', 'i2050004']) keyById[items[k].id] = k;
+// 隊友 Buff 技能（遊戲：effect.party、type support）
+MOCK_SKILLS.push({ id: 's1001005', msId: 1001005, name: '群體激勵', job: 'swordman', tier: 1, maxLevel: 10, type: 'support', buffSupported: true, effect: { party: true }, levels: [{}] });
+const IDLE_PRESET_KEYS = ['autoPotion', 'potionThreshold', 'supply', 'autoBuffs', 'partyBuffs', 'partyHeal', 'selfHeal', 'lowHpSkill', 'continuousAttack', 'attackSlots', 'conditionalSkills', 'quickCast', 'autoBuy'];
+const idleBlankSupply = () => ({ buffPotion: { enabled: false, item: null }, buffPotion2: { enabled: false, item: null }, buffPotion3: { enabled: false, item: null }, autoCure: false, onEmpty: 'stop', hpItem: null, mpItem: null, hpPct: 50, mpPct: 30, extra: null });
+function idleBlank() {
+  return { autoPotion: false, potionThreshold: 0.5, supply: idleBlankSupply(), autoBuffs: [], partyBuffs: [{ enabled: false, skill: null }, { enabled: false, skill: null }, { enabled: false, skill: null }],
+    partyHeal: { enabled: false, threshold: 50 }, selfHeal: { enabled: false, threshold: 50 }, lowHpSkill: { enabled: false, threshold: 30, skill: null }, continuousAttack: false, attackSlots: [null], conditionalSkills: [], quickCast: [],
+    autoBuy: { enabled: false, reserve: 0, rules: [] } };
+}
+const idlePresets = {}; // 角色 id → { 1: {...}, 2: {...}, 3: {...} }（不在目前那套的內容；sync 看不到）
+const idleClone = v => JSON.parse(JSON.stringify(v));
+function idleCfgInit(c) {
+  const b = idleBlank();
+  for (const k of IDLE_PRESET_KEYS) if (!(k in c)) c[k] = b[k];
+  c.supply = { ...idleBlankSupply(), hpPct: 60, mpPct: 20, ...c.supply };
+}
+function idlePresetSwitch(c, n) {
+  const cur = Number(c.settingsSlot) || 1; if (cur === n) return;
+  const p = idlePresets[c.id] || (idlePresets[c.id] = {});
+  p[cur] = idleClone(Object.fromEntries(IDLE_PRESET_KEYS.map(k => [k, c[k]])));
+  Object.assign(c, idleClone(p[n] || idleBlank()));
+}
+function idleItemOk(v) { if (v == null) return null; if (typeof v !== 'string' || !items[v]) fail('沒有這個道具：' + v); return v; }
+function idlePct(v, lo = 1, hi = 100) { const n = Number(v); if (!Number.isInteger(n) || n < lo || n > hi) fail(`門檻要在 ${lo}～${hi}`); return n; }
+function idleCfgHandle(c, body) {
+  switch (body.type) {
+    case 'supply': {
+      const s = body.supply; if (!s || typeof s !== 'object') fail('補給設定不正確');
+      for (const k of ['hpItem', 'mpItem']) idleItemOk(s[k]);
+      for (const k of ['buffPotion', 'buffPotion2', 'buffPotion3']) if (s[k]) idleItemOk(s[k].item);
+      idlePct(s.hpPct); idlePct(s.mpPct);
+      c.supply = idleClone(s); if (body.enable) c.autoPotion = true; return true;
+    }
+    case 'partyBuff': {
+      const i = Number(body.slot), cf = body.config || {}; if (![0, 1, 2].includes(i)) fail('隊友 Buff 只有 3 格');
+      if (cf.skill != null) { const sk = MOCK_SKILLS.find(x => x.id === cf.skill); if (!sk || !(sk.effect && sk.effect.party)) fail('這個技能不能給隊友'); if (!c.skills[cf.skill]) fail('還沒學這個技能'); }
+      c.partyBuffs[i] = { enabled: !!cf.enabled, skill: cf.skill == null ? null : cf.skill }; return true;
+    }
+    case 'partyHeal': case 'selfHeal': { const cf = body.config || {}; c[body.type] = { enabled: !!cf.enabled, threshold: idlePct(cf.threshold) }; return true; }
+    case 'lowHpSkill': { const cf = body.config || {}; if (cf.skill != null && !c.skills[cf.skill]) fail('還沒學這個技能'); c.lowHpSkill = { enabled: !!cf.enabled, threshold: idlePct(cf.threshold, 1, 99), skill: cf.skill == null ? null : cf.skill }; return true; }
+    case 'conditionalSkill': { const i = Number(body.slot); if (!Number.isInteger(i) || i < 0) fail('格子不正確'); if (body.skill != null && !c.skills[body.skill]) fail('還沒學這個技能'); c.conditionalSkills[i] = body.skill == null ? null : { skill: body.skill }; return true; }
+    case 'autoBuy': {
+      const cf = body.config || {}, rules = Array.isArray(cf.rules) ? cf.rules : [];
+      for (const r of rules) { idleItemOk(r.item); if (!(r.target > r.below)) fail('買到的數量要比門檻多'); }
+      c.autoBuy = { enabled: !!cf.enabled, reserve: Number(cf.reserve) || 0, rules: rules.map(r => ({ item: r.item, below: Number(r.below), target: Number(r.target) })) }; return true;
+    }
+    default: return false;
+  }
+}
+for (const a of Object.values(accounts)) for (const c of Object.values(a.chars)) idleCfgInit(c);
+{ const c1 = accounts.A1.chars.c1; c1.skills.s1001005 = 1; c1.inventory.i2000002 = 50; c1.inventory.i2002002 = 10; rebuildStacks(c1); }
 
 const MOCK_AVA_GIF = 'R0lGODlhKAAoAIEAAAAAAPrSqjx43CgoPCH5BAEAAAAALAAAAAAoACgAQAiuAAEIHEiwoMGDCBMeDMCwocOHDBVKLAjx4cSLAgVo3MixI0aJAgaIHBlypEgBHydWdJhS4cqXLQ92nMkxpkyaNG0eNCkSAM8BOiVaDIrwJUSiAo1WRApAKUumOHNCjepxKtWNTAFcrZn1p0+eWQV69Rq27EeYZp0GCKs2ItK2Dd/CXStXLVunZpuuNLsVq9WtWftqDCyYcF/DgP9eDTsWLGOwZLtCdizZ5FfLEwMCADs=';
 // ---------------- 頁面 ----------------

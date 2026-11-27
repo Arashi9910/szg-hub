@@ -306,6 +306,11 @@
   #charDrawer .cd-stat td { padding: 3px 4px; } #charDrawer .cd-stat button { padding: 0 6px; }
   #charDrawer .cdsk .cdg-hd button { padding: 0 6px; }
   #charDrawer .cd-sw { display: block; margin: 6px 0; }
+  #charDrawer .cdic { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; margin-bottom: 6px; }
+  #charDrawer .cdic .bar { margin: 3px 0; flex-wrap: wrap; } #charDrawer .cdic select { max-width: 170px; } #charDrawer .cdic input[type=number] { width: 64px; }
+  #charDrawer .cdcp-row { display: flex; gap: 6px; align-items: flex-start; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; margin: 3px 0; cursor: pointer; user-select: none; }
+  #charDrawer .cdcp-row:hover { border-color: var(--accent); } #charDrawer .cdcp-row.on { border-color: var(--accent); background: rgba(90,169,230,.08); }
+  #charDrawer .cdcp-row input { pointer-events: none; margin-top: 2px; }
   .enforce-box { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin: 6px 0; flex-wrap: wrap; }
   .enforce-log > div { margin-left: 10px; }
   .tparty { display: inline-flex; flex-wrap: wrap; align-items: flex-start; gap: 4px; padding: 14px 4px 3px; margin: 2px; border: 1.5px solid #8a6cd8; border-radius: 10px; background: rgba(138,108,216,.08); position: relative; vertical-align: top; }
@@ -4895,10 +4900,164 @@ function cdProgBody(id, s) {
       <div class="dim sm">照順序把技能點到目標等級，再換下一列。</div>
       ${cdPlanRows('kp', (ui.cd.kp && ui.cd.kp.id === id ? ui.cd.kp.rows : (ui.cd.kp = { id, rows: pr.skillPlan.map(r => ({ ...r })) }).rows), pr.skills.map(x => [x.id, x.name]), 1, 30, 'skill')}`;
   } else {
-    h += `<h4 class="cd-h">掛機設定</h4>${CD_AUTO.map(([k, n, tip]) => `<label class="cd-sw" title="${esc(tip)}"><input type="checkbox" class="sw" data-cdauto="${k}" ${pr.auto[k] ? 'checked' : ''}> ${n} <span class="dim sm">${esc(tip)}</span></label>`).join('')}`;
+    h += `<h4 class="cd-h">掛機開關</h4>${CD_AUTO.map(([k, n, tip]) => `<label class="cd-sw" title="${esc(tip)}"><input type="checkbox" class="sw" data-cdauto="${k}" ${pr.auto[k] ? 'checked' : ''}> ${n} <span class="dim sm">${esc(tip)}</span></label>`).join('')}`;
+    h += cdIdleBody(id, s, pr);
   }
   return h;
 }
+// ---- 角色抽屜「掛機設定」：遊戲的掛機設定（1／2／3 套、補給、隊友 Buff、補血、自動購買）搬到中控改，改完送回遊戲 ----
+// 資料：agent 回報的 char.idleCfg（遊戲裡目前那一套＋背包的消耗品）；草稿 ui.cd.ic（遊戲那份變了就換成新的）
+const CD_CURE = 'i2050004', CD_BP = ['buffPotion', 'buffPotion2', 'buffPotion3'];
+const cdPct = (v, d) => { const n = Math.round(Number(v)); return n >= 1 && n <= 100 ? n : d; };
+function cdIcEditable(ic) {
+  const s = ic.supply || {}, bp = x => ({ enabled: !!(x && x.enabled), item: (x && x.item) || null }), th = (x, d) => ({ enabled: !!(x && x.enabled), threshold: cdPct(x && x.threshold, d) }), ab = ic.autoBuy || {};
+  return { supply: { hpItem: s.hpItem || null, mpItem: s.mpItem || null, hpPct: cdPct(s.hpPct, 50), mpPct: cdPct(s.mpPct, 30), onEmpty: s.onEmpty === 'continue' ? 'continue' : 'stop', autoCure: !!s.autoCure, ...Object.fromEntries(CD_BP.map(k => [k, bp(s[k])])) },
+    partyBuffs: [0, 1, 2].map(i => { const x = (ic.partyBuffs || [])[i] || {}; return { enabled: !!x.enabled, skill: x.skill || null }; }),
+    partyHeal: th(ic.partyHeal, 50), selfHeal: th(ic.selfHeal, 50),
+    autoBuy: { enabled: !!ab.enabled, reserve: Number(ab.reserve) || 0, rules: (ab.rules || []).map(r => ({ item: r.item, below: Number(r.below) || 0, target: Number(r.target) || 0 })) } };
+}
+function cdIcDraft(id, ic) {
+  const sig = JSON.stringify([ic.slot, ic.supply, ic.partyBuffs, ic.partyHeal, ic.selfHeal, ic.autoBuy]);
+  if (!ui.cd.ic || ui.cd.ic.id !== id || ui.cd.ic.sig !== sig) ui.cd.ic = { id, sig, v: cdIcEditable(ic) };
+  return ui.cd.ic;
+}
+const cdIcQty = (ic, key) => { const x = ic && (ic.items || []).find(i => i.id === key); return x ? x.qty : 0; };
+const cdIcName = (ic, key) => { const x = ic && (ic.items || []).find(i => i.id === key); return x ? x.name : (WORLD && WORLD.names && WORLD.names[key] && WORLD.names[key][0]) || key; };
+const cdSkName = (pr, id) => ((pr && pr.skills || []).find(x => x.id === id) || {}).name || id;
+function cdIcItemSel(ic, path, cur, none = '（不使用）') {
+  const list = [...(ic.items || [])]; if (cur && !list.some(x => x.id === cur)) list.push({ id: cur, name: cdIcName(ic, cur), qty: 0 });
+  return `<select data-cdic="${path}" data-t="item"><option value="">${none}</option>${list.map(x => `<option value="${esc(x.id)}" ${x.id === cur ? 'selected' : ''}>${esc(x.name)}（${x.qty}）</option>`).join('')}</select>`;
+}
+// 這份草稿要送的指令（base＝遊戲裡現在的，v＝要改成的）；parts 限制要送哪幾塊（複製到其他角色用）；skip(i) 隊友 Buff 哪幾格不送
+function cdIcCmds(ic, pr, base, v, opt = {}) {
+  const parts = opt.parts || { supply: 1, pbuff: 1, heal: 1, buy: 1 }, out = [], same = (a, b) => JSON.stringify(a) === JSON.stringify(b), nm = k => (k ? cdIcName(ic, k) : '');
+  if (parts.supply && (opt.force || !same(base.supply, v.supply))) {
+    const sp = v.supply, bps = CD_BP.map((k, i) => sp[k].enabled && sp[k].item ? `Buff 藥水${i + 1} ${nm(sp[k].item)}` : '').filter(Boolean);
+    out.push({ cmd: { type: 'supply', supply: v.supply, enable: true }, label: `補給：HP ${sp.hpItem ? nm(sp.hpItem) + ' ' + sp.hpPct + '%' : '不喝'}、MP ${sp.mpItem ? nm(sp.mpItem) + ' ' + sp.mpPct + '%' : '不喝'}${bps.length ? '、' + bps.join('、') : ''}、自動解除異常${sp.autoCure ? '開' : '關'}、用完${sp.onEmpty === 'continue' ? '繼續掛機' : '停止掛機'}` });
+    // 遊戲的補給指令會順便打開自動喝水（enable:true）：原本是關的就再關回去
+    if (opt.keepPotionOff) out.push({ cmd: { type: 'setting', key: 'autoPotion', value: false }, label: '自動喝水維持關閉' });
+  }
+  if (parts.pbuff) v.partyBuffs.forEach((x, i) => { if ((opt.force || !same(base.partyBuffs[i], x)) && !(opt.skip && opt.skip(i))) out.push({ cmd: { type: 'partyBuff', slot: i, config: { enabled: x.enabled && !!x.skill, skill: x.skill } }, label: `隊友 Buff 第 ${i + 1} 格：${x.enabled && x.skill ? cdSkName(pr, x.skill) : '關閉'}` }); });
+  if (parts.heal) for (const [k, n] of [['partyHeal', '隊友補血'], ['selfHeal', '自己補血']]) if (opt.force || !same(base[k], v[k])) out.push({ cmd: { type: k, config: v[k] }, label: `${n}：${v[k].enabled ? `HP 低於 ${v[k].threshold}%` : '關閉'}` });
+  if (parts.buy && (opt.force || !same(base.autoBuy, v.autoBuy))) { const b = v.autoBuy; out.push({ cmd: { type: 'autoBuy', config: b }, label: `自動購買：${b.enabled ? (b.rules.map(r => `${nm(r.item)} 低於 ${r.below} 買到 ${r.target}`).join('；') || '沒有規則') + (b.reserve ? `，保留 ${b.reserve.toLocaleString()} 楓幣` : '') : '關閉'}` }); }
+  return out;
+}
+function cdIcCheck(v) {
+  const sp = v.supply;
+  if (![sp.hpPct, sp.mpPct, v.partyHeal.threshold, v.selfHeal.threshold].every(n => Number.isInteger(n) && n >= 1 && n <= 100)) return '百分比要在 1～100 之間';
+  if (v.partyBuffs.some(x => x.enabled && !x.skill)) return '隊友 Buff 勾了但沒選技能';
+  if (v.autoBuy.rules.some(r => !r.item || !(r.target > r.below) || r.below < 0)) return '自動購買：每一條都要選道具，「買到」要比「低於」多';
+  return '';
+}
+// 套到別隻角色時的警告：藥水不在它背包、沒有萬能療傷藥、隊友 Buff 技能它沒學（那一格不送）
+function cdCopyIssues(v, src, sT) {
+  const ic = sT.char.idleCfg, pr = sT.char.prog, w = [], skip = new Set(), parts = ui.cd.cp.parts;
+  if (!ic) w.push('它的遊戲分頁還是舊腳本，沒辦法檢查背包');
+  if (ic && parts.supply) {
+    const sp = v.supply, need = [sp.hpItem, sp.mpItem, ...CD_BP.map(k => sp[k].enabled && sp[k].item)].filter(Boolean);
+    for (const k of [...new Set(need)]) if (!cdIcQty(ic, k)) w.push(`背包沒有 ${cdIcName(src, k)}`);
+    if (sp.autoCure && !cdIcQty(ic, CD_CURE)) w.push('沒有萬能療傷藥（自動解除異常不會有效）');
+  }
+  if (parts.pbuff) v.partyBuffs.forEach((x, i) => { if (x.enabled && x.skill && !((pr && pr.skills) || []).some(k => k.id === x.skill && k.lv > 0)) { w.push(`沒學 ${cdSkName(src.__pr, x.skill)}（隊友 Buff 第 ${i + 1} 格不套用）`); skip.add(i); } });
+  return { w, skip };
+}
+function cdIdleBody(id, s, pr) {
+  const ic = s.char.idleCfg;
+  if (!ic) return '<div class="card attn sm" style="margin-top:8px;padding:6px 10px">補給、隊友 Buff、補血這些設定要等這隻的遊戲分頁換上新版中控腳本（重新整理遊戲分頁）才看得到。</div>';
+  const d = cdIcDraft(id, ic), v = d.v, sp = v.supply, cure = cdIcQty(ic, CD_CURE), dirty = cdIcCmds(ic, pr, cdIcEditable(ic), v).length;
+  const ck = (path, on) => `<input type="checkbox" data-cdic="${path}" data-t="bool" ${on ? 'checked' : ''}>`, num = (path, val, lo = 1, hi = 100) => `<input type="number" min="${lo}" max="${hi}" data-cdic="${path}" data-t="num" value="${esc(val)}">`;
+  const miss = k => k && !cdIcQty(ic, k) ? ' <span class="tag warn">背包沒有</span>' : '';
+  const pskills = pr.skills.filter(x => x.party && x.lv > 0);
+  const skSel = (path, cur) => { const list = [...pskills]; if (cur && !list.some(x => x.id === cur)) list.push({ id: cur, name: cdSkName(pr, cur) + '（沒學／不能給隊友）' }); return `<select data-cdic="${path}" data-t="str"><option value="">（不使用）</option>${list.map(x => `<option value="${esc(x.id)}" ${x.id === cur ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`; };
+  let h = `<h4 class="cd-h">掛機設定組合 <span class="sm">目前第 <b id="cdicSlot">${ic.slot}</b> 套</span><span style="flex:1"></span><span class="seg">${[1, 2, 3].map(n => `<button data-cdpreset="${n}" class="${ic.slot === n ? 'on' : ''}" ${ic.slot === n ? 'disabled' : ''}>${n}</button>`).join('')}</span></h4>
+    <div class="dim sm">下面顯示的是遊戲裡第 ${ic.slot} 套的內容；三套各自獨立，沒用過的那套是空白的。</div>
+    <div class="bar"><button class="btn sm" data-cdicread="1" title="放棄還沒套用的修改，向遊戲重新讀一次">⟳ 從遊戲重新讀取</button>${dirty ? `<span class="warn sm">有 ${dirty} 項還沒套用</span>` : '<span class="dim sm">跟遊戲一樣</span>'}</div>
+    <div class="cdic"><b>補給（喝水）</b>
+      <div class="bar">HP 藥水 ${cdIcItemSel(ic, 'supply.hpItem', sp.hpItem, '（不喝）')} 低於 ${num('supply.hpPct', sp.hpPct)}% 喝${miss(sp.hpItem)}</div>
+      <div class="bar">MP 藥水 ${cdIcItemSel(ic, 'supply.mpItem', sp.mpItem, '（不喝）')} 低於 ${num('supply.mpPct', sp.mpPct)}% 喝${miss(sp.mpItem)}</div>
+      ${CD_BP.map((k, i) => `<div class="bar"><label>${ck(`supply.${k}.enabled`, sp[k].enabled)} Buff 藥水 ${i + 1}</label> ${cdIcItemSel(ic, `supply.${k}.item`, sp[k].item)}${sp[k].enabled ? miss(sp[k].item) : ''}</div>`).join('')}
+      <div class="bar"><label>${ck('supply.autoCure', sp.autoCure)} 自動解除異常</label><span class="sm ${cure ? 'dim' : 'warn'}" id="cdicCure">背包有萬能療傷藥 ${cure} 個${cure ? '' : sp.autoCure ? '：勾了也不會用（怪物掉落）' : ''}</span></div>
+      <div class="dim sm">中了封印、黑暗、詛咒、虛弱、中毒等自動吃萬能療傷藥，每次 1 個。</div>
+      <div class="bar">藥水用完時 <select data-cdic="supply.onEmpty" data-t="str"><option value="stop" ${sp.onEmpty === 'stop' ? 'selected' : ''}>停止掛機</option><option value="continue" ${sp.onEmpty === 'continue' ? 'selected' : ''}>繼續掛機</option></select></div></div>
+    <div class="cdic"><b>隊友 Buff</b>${pskills.length ? '' : ' <span class="dim sm">這隻沒有學可以給隊友的 Buff 技能</span>'}
+      ${v.partyBuffs.map((x, i) => `<div class="bar"><label>${ck(`partyBuffs.${i}.enabled`, x.enabled)} 第 ${i + 1} 格</label> ${skSel(`partyBuffs.${i}.skill`, x.skill)}</div>`).join('')}</div>
+    <div class="cdic"><b>補血</b>
+      <div class="bar"><label>${ck('partyHeal.enabled', v.partyHeal.enabled)} 隊友補血</label> HP 低於 ${num('partyHeal.threshold', v.partyHeal.threshold)}%</div>
+      <div class="bar"><label>${ck('selfHeal.enabled', v.selfHeal.enabled)} 自己補血</label> HP 低於 ${num('selfHeal.threshold', v.selfHeal.threshold)}%</div></div>
+    <div class="cdic"><b>自動購買</b> <label class="sm">${ck('autoBuy.enabled', v.autoBuy.enabled)} 開啟</label>
+      <div class="dim sm">低於幾個就自動去商店買到幾個（只限商店有賣的；會花楓幣）。</div>
+      <div class="bar">保留楓幣 ${num('autoBuy.reserve', v.autoBuy.reserve, 0, 2000000000)}<span class="dim sm">不會花到這個數以下</span></div>
+      ${v.autoBuy.rules.map((r, i) => `<div class="bar">${cdIcItemSel(ic, `autoBuy.rules.${i}.item`, r.item, '（選道具）')} 低於 ${num(`autoBuy.rules.${i}.below`, r.below, 0, 30000)} 買到 ${num(`autoBuy.rules.${i}.target`, r.target, 1, 30000)}<button class="btn sm" data-cdicbuydel="${i}">✕</button></div>`).join('')}
+      <div class="bar"><button class="btn sm" data-cdicbuyadd="1">＋ 加一條</button></div></div>
+    <div class="dim sm">遊戲裡另外設的：自動 Buff ${ic.autoBuffs.length ? ic.autoBuffs.map(k => esc(cdSkName(pr, k))).join('、') : '無'}・快速施放 ${ic.quickCast.length} 個・連續攻擊${ic.continuousAttack ? '開' : '關'}${ic.lowHpSkill && ic.lowHpSkill.enabled ? `・低血技能 ${esc(cdSkName(pr, ic.lowHpSkill.skill))} ${ic.lowHpSkill.threshold}%` : ''}（自動 Buff 在「技能」頁改）</div>
+    <div class="bar" style="margin-top:6px"><button class="btn sm primary" data-cdicapply="1">套用到遊戲</button><button class="btn sm" data-cdicreset="1">還原</button><span style="flex:1"></span><button class="btn sm" data-cdcpopen="1">複製到其他角色…</button></div>`;
+  if (ui.cd.cp && ui.cd.cp.id === id) h += cdCopyBox(id, s, ic, pr, v);
+  return h;
+}
+function cdCopyBox(id, s, ic, pr, v) {
+  const cp = ui.cd.cp, src = { ...ic, __pr: pr }, others = snaps().filter(x => x.char && x.char.id !== id).sort((a, b) => String(a.char.name).localeCompare(String(b.char.name)));
+  const parts = [['supply', '補給（藥水、Buff 藥水、解除異常、用完時）'], ['pbuff', '隊友 Buff'], ['heal', '隊友補血／自己補血'], ['buy', '自動購買']];
+  return `<div class="cdic" id="cdCopy"><div class="bar"><b>複製 ${esc(s.char.name)} 的設定到其他角色</b><span style="flex:1"></span><button class="btn sm" data-cdcpclose="1">✕</button></div>
+    <div class="dim sm">用上面顯示的內容（含還沒套用的修改），套到每隻角色「目前那一套」。</div>
+    ${parts.map(([k, n]) => `<label class="sm cd-sw"><input type="checkbox" data-cdcppart="${k}" ${cp.parts[k] ? 'checked' : ''}> ${n}</label>`).join('')}
+    <div class="bar"><button class="btn sm" data-cdcpall="1">全選</button><button class="btn sm" data-cdcpnone="1">全不選</button><span class="dim sm">已選 ${cp.sel.length} 隻</span></div>
+    ${others.map(o => { const on = cp.sel.includes(o.char.id), is = cdCopyIssues(v, src, o), oic = o.char.idleCfg;
+      return `<div class="cdcp-row ${on ? 'on' : ''}" data-cdcprow="${esc(o.char.id)}"><input type="checkbox" ${on ? 'checked' : ''} tabindex="-1"><div><b>${esc(o.char.name)}</b> <span class="dim sm">Lv${o.char.lv}・${esc(o.char.jobName || '')}${oic ? `・第 ${oic.slot} 套` : ''}</span>${is.w.length ? `<div class="warn sm">⚠ ${is.w.map(esc).join('；')}</div>` : ''}</div></div>`; }).join('') || '<div class="dim sm">沒有其他角色的資料</div>'}
+    <div class="bar"><button class="btn sm primary" data-cdcpgo="1" ${cp.sel.length ? '' : 'disabled'}>套用到 ${cp.sel.length} 隻</button></div></div>`;
+}
+document.addEventListener('change', e => {
+  const t = e.target; if (!t.closest || !t.closest('#charDrawer') || !(t.dataset.cdic || t.dataset.cdcppart)) return;
+  if (t.dataset.cdcppart) { ui.cd.cp.parts[t.dataset.cdcppart] = t.checked; renderCharDrawer(); return; }
+  const d = ui.cd.ic; if (!d || d.id !== ui.charDrawer) return;
+  const ks = t.dataset.cdic.split('.'), last = ks.pop(); let o = d.v; for (const k of ks) o = o[k];
+  const ty = t.dataset.t; o[last] = ty === 'bool' ? t.checked : ty === 'num' ? Math.round(Number(t.value)) : ty === 'item' ? (t.value || null) : t.value || null;
+  if (last === 'skill' && !o[last]) o.enabled = false;
+  renderCharDrawer(); // 輸入框還在打字時 renderCharDrawer 自己會跳過
+});
+document.addEventListener('click', async e => {
+  const t = e.target.closest && e.target.closest('#charDrawer [data-cdpreset],#charDrawer [data-cdicread],#charDrawer [data-cdicapply],#charDrawer [data-cdicreset],#charDrawer [data-cdicbuyadd],#charDrawer [data-cdicbuydel],#charDrawer [data-cdcpopen],#charDrawer [data-cdcpclose],#charDrawer [data-cdcprow],#charDrawer [data-cdcpall],#charDrawer [data-cdcpnone],#charDrawer [data-cdcpgo]'); if (!t) return;
+  const id = ui.charDrawer, s = DATA.chars[id], pr = s && s.char.prog, ic = s && s.char.idleCfg; if (!pr || !ic) return;
+  const dd = t.dataset, d = cdIcDraft(id, ic), v = d.v, name = s.char.name;
+  if (dd.cdpreset) {
+    const n = Number(dd.cdpreset), dirty = cdIcCmds(ic, pr, cdIcEditable(ic), v).length;
+    if (!confirm(`把 ${name} 換成第 ${n} 套掛機設定？\n\n三套各自獨立：沒用過的那一套是空白的（沒有藥水、Buff、補血設定），換過去後請在這裡設好再套用。\n第 ${ic.slot} 套的內容會留在第 ${ic.slot} 套。${dirty ? `\n\n還沒套用的 ${dirty} 項修改會放棄。` : ''}`)) return;
+    ui.cd.ic = null; await cdSend(id, { type: 'settingsPreset', slot: n }, `換成第 ${n} 套掛機設定`); return;
+  }
+  if (dd.cdicread) { ui.cd.ic = null; await cdSend(id, { type: 'read' }, '從遊戲重新讀取掛機設定'); return; }
+  if (dd.cdicreset) { ui.cd.ic = null; renderCharDrawer(); return; }
+  if (dd.cdicbuyadd) { v.autoBuy.rules.push({ item: v.supply.hpItem || null, below: 10, target: 200 }); renderCharDrawer(); return; }
+  if (dd.cdicbuydel) { v.autoBuy.rules.splice(Number(dd.cdicbuydel), 1); renderCharDrawer(); return; }
+  if (dd.cdicapply) {
+    const bad = cdIcCheck(v); if (bad) { alert(bad); return; }
+    const cmds = cdIcCmds(ic, pr, cdIcEditable(ic), v, { keepPotionOff: !pr.auto.autoPotion }); if (!cmds.length) { alert('沒有改任何設定'); return; }
+    if (!confirm(`${name}（第 ${ic.slot} 套）要改這些掛機設定：\n・${cmds.map(c => c.label).join('\n・')}\n\n確定套用到遊戲？`)) return;
+    try { await api('/api/idle', { targets: cmds.map(c => ({ charId: id, action: 'cfg', cmd: c.cmd, label: c.label })) }); ui.cd.msg = `已送出 ${cmds.length} 項掛機設定，幾秒內會更新`; await poll(true); }
+    catch (err) { alert('失敗：' + err.message); }
+    return;
+  }
+  if (dd.cdcpopen) { ui.cd.cp = { id, sel: [], parts: { supply: true, pbuff: true, heal: true, buy: true } }; renderCharDrawer(); const b = $('#cdCopy'); if (b && b.scrollIntoView) b.scrollIntoView({ block: 'nearest' }); return; }
+  const cp = ui.cd.cp; if (!cp || cp.id !== id) return;
+  if (dd.cdcpclose) { ui.cd.cp = null; renderCharDrawer(); return; }
+  if (dd.cdcprow) { const k = dd.cdcprow; cp.sel = cp.sel.includes(k) ? cp.sel.filter(x => x !== k) : [...cp.sel, k]; renderCharDrawer(); return; }
+  if (dd.cdcpall) { cp.sel = snaps().map(x => x.char.id).filter(x => x !== id); renderCharDrawer(); return; }
+  if (dd.cdcpnone) { cp.sel = []; renderCharDrawer(); return; }
+  if (dd.cdcpgo) {
+    const bad = cdIcCheck(v); if (bad) { alert(bad); return; }
+    if (!Object.values(cp.parts).some(Boolean)) { alert('至少勾一項要複製的設定'); return; }
+    const src = { ...ic, __pr: pr }, targets = [], lines = [];
+    for (const tid of cp.sel) {
+      const o = DATA.chars[tid]; if (!o) continue;
+      const is = cdCopyIssues(v, src, o), oic = o.char.idleCfg, base = oic ? cdIcEditable(oic) : null;
+      const cmds = cdIcCmds(ic, pr, base || cdIcEditable({}), v, { parts: cp.parts, force: !base, skip: i => is.skip.has(i), keepPotionOff: !pr.auto.autoPotion });
+      for (const c of cmds) targets.push({ charId: tid, action: 'cfg', cmd: c.cmd, label: '複製 ' + name + '：' + c.label });
+      lines.push(`・${o.char.name}：${cmds.length ? cmds.length + ' 項' : '已經一樣'}${is.w.length ? '\n    ⚠ ' + is.w.join('；') : ''}`);
+    }
+    if (!targets.length) { alert('勾選的角色設定都已經一樣了'); return; }
+    if (!confirm(`把 ${name} 的掛機設定套到 ${cp.sel.length} 隻角色（各自目前那一套）：\n${lines.join('\n')}\n\n確定套用？`)) return;
+    try { await api('/api/idle', { targets }); ui.cd.msg = `已送出：複製到 ${cp.sel.length} 隻角色（${targets.length} 項），幾秒內會更新`; ui.cd.cp = null; await poll(true); }
+    catch (err) { alert('失敗：' + err.message); }
+  }
+});
 function cdPlanRows(key, rows, opts, lo, hi, field = 'stat') {
   return `<div class="cd-plan">${rows.map((r, i) => `<div class="bar"><span class="dim sm">${i + 1}.</span><select data-cdpl="${key}|${i}|${field}">${opts.map(([v, n]) => `<option value="${esc(v)}" ${String(r[field]) === String(v) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select><span class="sm">到</span><input type="number" min="${lo}" max="${hi}" data-cdpl="${key}|${i}|target" value="${esc(r.target)}" style="width:70px"><button class="btn sm" data-cdpldel="${key}|${i}">✕</button></div>`).join('')}
     <div class="bar"><button class="btn sm" data-cdpladd="${key}">＋ 加一列</button><button class="btn sm primary" data-cdplsave="${key}">儲存計畫</button></div></div>`;
