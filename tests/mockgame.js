@@ -270,9 +270,16 @@ function raidTick(t) {
   if (b.hp <= 0) { t.result = 'clear'; t.battle = null; for (const id of t.members) { const x = charById(id); if (x) delete x.diseases; } }
 }
 function raidBattleOf(t) { const b = t && t.battle; return b ? { code: t.code, raid: t.raid, phase: b.phase, prepUntil: b.prepUntil, deadline: b.deadline, surrender: b.surrender, bloodAt: b.bloodAt || 0, invulnerable: !!b.invulnerable, orbs: b.orbs || 0 } : null; }
-function raidViewOf(c) {
-  const t = raidTeamOf(c); if (!t) return { raid: null, team: null, battle: null };
-  return { raid: t.raid, battle: raidBattleOf(t), team: { code: t.code, isLeader: t.leader === c.id, members: t.members.map(id => { const x = charById(id); const ok = x.lv >= 10;
+const RAID_RULES = { papulatus: { name: '拉圖斯', requireMage: true }, zakum: { name: '殘暴炎魔', requireMage: false } };
+const isMage = x => /mage|wizard|cleric|priest|magician/i.test(x.job || '');
+function raidLobby(c, kind) {
+  const rule = id => ({ id, name: RAID_RULES[id].name, left: 3, requireMage: RAID_RULES[id].requireMage, open: true, minLevel: 10, minMembers: 2, maxMembers: 12, feeMesos: Number(process.env.MOCK_RAID_FEE || 10000000), feePoints: 20, weeklyRuns: 7, minutes: 20 });
+  return { raids: Object.keys(RAID_RULES).map(rule), rules: rule(kind), self: { characterId: c.id, name: c.name, job: c.job, lv: c.lv, left: 3, resetAt: Date.now() + 86400e3, mage: isMage(c) },
+    teams: Object.values(raidTeams).filter(t => t.raid === kind && !t.battle).map(t => ({ code: t.code, name: charById(t.leader).name + ' 的隊伍', count: t.members.length, max: 12, full: t.members.length >= 12, locked: !!t.password })) };
+}
+function raidViewOf(c, kind) {
+  const t = raidTeamOf(c); if (!t) return { raid: kind || 'papulatus', team: null, battle: null, ...raidLobby(c, kind || 'papulatus') };
+  return { raid: t.raid, ...raidLobby(c, t.raid), battle: raidBattleOf(t), team: { code: t.code, locked: !!t.password, isLeader: t.leader === c.id, members: t.members.map(id => { const x = charById(id); const ok = x.lv >= 10;
     return { id, name: x.name, job: x.job, lv: x.lv, leader: id === t.leader, ready: !!t.ready[id], online: true, ok, issues: ok ? [] : ['等級不足 10'], self: id === c.id, mine: true, left: 3 }; }) } };
 }
 function sessionView(a, cid) {
@@ -317,7 +324,7 @@ function handle(a, body) {
       for (const x of Object.values(a.chars)) evs = evs.concat(simulate(x, now));
       for (const x of Object.values(a.chars)) if (x.pendingHits && x.pendingHits.length) { evs = evs.concat(x.pendingHits); x.pendingHits = []; }
       const res = { ...sessionView(a, c.id), summary: { events: evs }, tradeEligible: tradeEligible(a, c.id), enemies: enemiesOf(c), bossTimers: {} };
-      { const rt = raidTeamOf(c); if (rt && rt.battle) res.enemies = [{ id: RAID_BOSS[rt.raid].id, hp: rt.battle.hp, maxHp: rt.battle.maxHp, spawnId: 'raid' }]; if (body.raidOnly) res.raid = raidViewOf(c); }
+      { const rt = raidTeamOf(c); if (rt && rt.battle) res.enemies = [{ id: RAID_BOSS[rt.raid].id, hp: rt.battle.hp, maxHp: rt.battle.maxHp, spawnId: 'raid' }]; if (body.raidOnly) res.raid = raidViewOf(c, RAID_BOSS[body.raid] ? body.raid : undefined); }
       if (body.tradeOnly) res.trade = null;
       if (body.includeMarket) res.market = marketView(a, c);
       if (body.includeBossRespawns) res.bossRespawns = bossRespawnsOf(c);
@@ -351,6 +358,11 @@ function handle(a, body) {
       const ids = Array.isArray(body.memberIds) ? body.memberIds : [];
       if (ids.length !== t.members.length || t.members.some(x => !ids.includes(x))) fail('隊員有變動，請重新整理');
       if (t.members.some(x => x !== t.leader && !t.ready[x])) fail('還有隊員沒有準備');
+      if (t.members.length < 2) fail('至少要 2 人');
+      if (RAID_RULES[t.raid].requireMage && !t.members.some(id => isMage(charById(id)))) fail('至少要有 1 名法師系列職業');
+      const fee = Number(process.env.MOCK_RAID_FEE || 10000000);
+      for (const id of t.members) { const x = charById(id); if (x.money < fee) fail(`${x.name} 的楓幣不足`); }
+      for (const id of t.members) charById(id).money -= fee;
       const now = Date.now(), B = RAID_BOSS[t.raid];
       t.battle = { phase: 1, prepUntil: now + Number(process.env.MOCK_RAID_PREP_MS || 10000), deadline: now + 20 * 60e3, lastAt: now, hp: B.hp, maxHp: B.hp, surrender: [] };
       return { ...sessionView(a, c.id), raid: raidViewOf(c), summary: { events: [] } };

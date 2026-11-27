@@ -1,6 +1,6 @@
 """副本（v0.77）：用自己的角色組副本隊（建立 → 加入 → 準備 → 開始），戰況每秒更新（王的血量、階段、準備時間、異常狀態），投降／結束"""
 import asyncio, json, os, sys, time
-os.environ.update({'MOCK_RAID_PREP_MS': '4000', 'MOCK_RAID_DPS': '0.04'})
+os.environ.update({'MOCK_RAID_PREP_MS': '4000', 'MOCK_RAID_DPS': '0.04', 'MOCK_RAID_FEE': '100000'})
 from harness import Env, hub_json, http, HUB, MOCK
 
 ok = True
@@ -37,10 +37,23 @@ async def main():
         plan = hub_json('GET', '/api/data')['settings'].get('raid') or {}
         check(plan.get('kind') == 'zakum' and plan.get('leader') == 'c1' and sorted(plan.get('members', [])) == ['c3', 'c4'], f'存好計畫：{plan}')
 
+        print('1b. 重新整理：讀副本規則、每隻本週剩幾場')
+        await d.click('[data-rdact="refresh"]')
+        await wait(lambda: all((raid()['views'].get(c) or {}).get('view', {}).get('self') for c in ['c1', 'c3', 'c4']), 40)
+        await d.wait_for_timeout(1500)
+        txt = await d.inner_text('#rdSetup')
+        check('參加等級' in txt and '每人入場' in txt and '10 萬' in txt and '本週剩 3' in txt, f'顯示規則（等級、人數、入場費）和本週剩幾場')
+        await d.click('[data-rdkind="papulatus"]'); await d.wait_for_timeout(1500)
+        check('法師' in await d.inner_text('#rdSetup'), '拉圖斯：隊伍沒有法師時警告')
+        await d.click('[data-rdkind="zakum"]'); await d.wait_for_timeout(1000)
+        await d.check('#rdLock'); await d.wait_for_timeout(800)
+        await d.fill('#rdPw', 'abc123'); await d.dispatch_event('#rdPw', 'change'); await d.wait_for_timeout(800)
+        check((hub_json('GET', '/api/data')['settings'].get('raid') or {}).get('password') == 'abc123', '上鎖隊伍的密碼存起來')
+
         print('2. 建立隊伍 → 加入 → 準備')
         await d.click('[data-rdact="create"]')
         v = await wait(lambda: (raid()['views'].get('c1') or {}).get('view', {}).get('team'), 40)
-        check(v and v['isLeader'] and v['code'], f"建立了殘暴炎魔副本隊伍（代碼 {v and v['code']}）")
+        check(v and v['isLeader'] and v['code'] and v.get('locked'), f"建立了上鎖的殘暴炎魔副本隊伍（代碼 {v and v['code']}）")
         check(any('建立' in m for m in msgs), '建立前先確認')
         await d.wait_for_timeout(1500)
         await d.click('[data-rdact="join"]')
@@ -58,7 +71,7 @@ async def main():
         await d.wait_for_timeout(1500)
         msgs.clear()
         await d.click('[data-rdact="start"]')
-        check(await wait(lambda: any('開始' in m for m in msgs), 5), '開始前先確認（列出隊員）')
+        check(await wait(lambda: any('開始' in m and '入場費' in m and '合計 30 萬' in m for m in msgs), 5), f'開始前先確認（列出隊員、每人入場費、合計）')
         live = await wait(lambda: (raid()['live'].get('c1') or {}).get('battle'), 40)
         check(live and live['raid'] == 'zakum' and live['phase'] == 1, f'戰況：殘暴炎魔第 1 階段（{live}）')
         await d.wait_for_timeout(1500)
