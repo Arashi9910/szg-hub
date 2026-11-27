@@ -384,7 +384,51 @@ function agentMain(ctx) {
       if (c.skill != null) c.skill = real(c.skill);
       if (c.type === 'learnBatch') c.allocations = c.allocations.map(a => ({ ...a, skill: real(a.skill) }));
       if (c.type === 'skillPlan') c.plan = c.plan.map(r => ({ ...r, skill: real(r.skill) }));
+      if (c.config && c.config.skill != null) c.config = { ...c.config, skill: real(c.config.skill) }; // partyBuff、lowHpSkill
       return c;
+    }
+    // 掛機設定頁：補給要整份送（遊戲說明），中控只送它看得懂的欄位 → 跟遊戲裡這隻目前那份合併，沒送的欄位（extra、bombFloor…）保留
+    async function cfgPayload(cmd, charId) {
+      const c = cfgIds(cmd);
+      if (c.type !== 'supply') return c;
+      let cur = null;
+      try { const st = readState(); if (st && st.character && st.character.id === charId) cur = st.character.supply; } catch (_) {}
+      try { const j = await gameRetry({ type: 'sync', characterId: charId }); if (j && j.character && j.character.id === charId && j.character.supply) cur = j.character.supply; } catch (e) { if (e.gameUpdated) throw e; }
+      return { ...c, supply: { ...(cur && typeof cur === 'object' ? cur : {}), ...c.supply } };
+    }
+    // 回報給中控的「掛機設定」（遊戲裡目前那一套；角色抽屜的掛機設定頁用）＋背包裡的消耗品（藥水下拉選單、萬能療傷藥數量）
+    const CURE_ITEM = 'i2050004'; // 萬能療傷藥：supply.autoCure 勾選時中了異常狀態自動吃（怪物掉落）
+    function idleCfgOf(c) {
+      const inv = c.inventory || {}, sup = c.supply && typeof c.supply === 'object' ? c.supply : {};
+      const fits = (v, n) => { try { const t = JSON.stringify(v); return t != null && t.length <= n; } catch (_) { return false; } };
+      const bp = x => (x && typeof x === 'object' ? { enabled: !!x.enabled, item: x.item || null } : { enabled: false, item: null });
+      const th = x => (x && typeof x === 'object' ? { enabled: !!x.enabled, threshold: Number(x.threshold) || 0 } : null);
+      const ab = c.autoBuy && typeof c.autoBuy === 'object' ? c.autoBuy : null;
+      const refs = new Set([sup.hpItem, sup.mpItem, ...['buffPotion', 'buffPotion2', 'buffPotion3', 'extra'].map(k => sup[k] && sup[k].item), CURE_ITEM, ...((ab && ab.rules) || []).map(r => r && r.item)].filter(x => typeof x === 'string'));
+      const items = [];
+      for (const [key, qty] of Object.entries(inv)) {
+        if (!qty || refs.has(key)) continue;
+        const info = itemInfo(key); if (info.cat !== 'consume' || info.kind === '卷軸' || info.kind === '技能書') continue;
+        items.push({ id: key, name: info.name, qty: Number(qty) || 0 });
+      }
+      for (const key of refs) items.push({ id: key, name: itemInfo(key).name, qty: Number(inv[key]) || 0 });
+      items.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+      const supply = fits(sup, 3000) ? { ...sup } : { hpItem: sup.hpItem || null, mpItem: sup.mpItem || null, hpPct: sup.hpPct, mpPct: sup.mpPct, onEmpty: sup.onEmpty, autoCure: !!sup.autoCure };
+      for (const k of ['buffPotion', 'buffPotion2', 'buffPotion3']) supply[k] = bp(sup[k]);
+      const lh = c.lowHpSkill && typeof c.lowHpSkill === 'object' ? c.lowHpSkill : null;
+      return {
+        slot: Number(c.settingsSlot) || 1, autoPotion: !!c.autoPotion, potionThreshold: Number(c.potionThreshold) || 0, supply,
+        autoSkills: !!c.autoSkills, autoBuffs: Array.isArray(c.autoBuffs) ? c.autoBuffs.map(String).slice(0, 40) : [],
+        partyBuffs: [0, 1, 2].map(i => { const x = Array.isArray(c.partyBuffs) && c.partyBuffs[i]; return { enabled: !!(x && x.enabled), skill: x && x.skill != null ? String(x.skill) : null }; }),
+        partyHeal: th(c.partyHeal), selfHeal: th(c.selfHeal),
+        lowHpSkill: lh ? { enabled: !!lh.enabled, threshold: Number(lh.threshold) || 0, skill: lh.skill != null ? String(lh.skill) : null } : null,
+        continuousAttack: !!c.continuousAttack,
+        attackSlots: Array.isArray(c.attackSlots) && fits(c.attackSlots, 2000) ? c.attackSlots.slice(0, 8) : [],
+        conditionalSkills: Array.isArray(c.conditionalSkills) && fits(c.conditionalSkills, 1000) ? c.conditionalSkills.slice(0, 10) : [],
+        quickCast: Array.isArray(c.quickCast) ? c.quickCast.slice(0, 20).map(String) : [],
+        autoBuy: ab ? { enabled: !!ab.enabled, reserve: Number(ab.reserve) || 0, rules: (Array.isArray(ab.rules) ? ab.rules : []).slice(0, 20).filter(r => r && r.item).map(r => ({ item: String(r.item), below: Number(r.below) || 0, target: Number(r.target) || 0 })) } : null,
+        items: items.slice(0, 80),
+      };
     }
     // 遊戲 2026-11-27 起自動販售改成 rule 2：itemIds 是「保留」的清單，沒保留的可販售掉落全部賣掉。
     // 中控內部還是用「會賣哪些」（itemIds）＋另外算好的 keep；沒有 keep 的舊資料不送（送出去會變成「要賣的被保留、其他全賣」）
@@ -492,7 +536,7 @@ function agentMain(ctx) {
       const t1 = all.find(sk => sk.tier === 1), lv1 = t1 && catalog.jobs[t1.job] && catalog.jobs[t1.job].level != null ? catalog.jobs[t1.job].level : 10;
       const need = t => (t <= 1 ? 0 : 1 + (30 - lv1) * 3 + (t >= 3 ? 121 : 0) + (t >= 4 ? 151 : 0)); // 遊戲的「前面的技能要先點幾點」
       const skills = all.slice(0, 80).map(sk => ({ id: String(sk.id), name: sk.name || String(sk.id), tier: sk.tier, max: Number(sk.maxLevel) || (sk.levels || []).length || 0, lv: Number((c.skills || {})[sk.id]) || 0,
-        req: Object.fromEntries(Object.entries(sk.requirements || {}).map(([ms, n]) => [byMs[ms] || ms, Number(n) || 0])), type: sk.type || '', buff: !!sk.buffSupported && !sk.manualOnly }));
+        req: Object.fromEntries(Object.entries(sk.requirements || {}).map(([ms, n]) => [byMs[ms] || ms, Number(n) || 0])), type: sk.type || '', buff: !!sk.buffSupported && !sk.manualOnly, party: !!(sk.effect && sk.effect.party) }));
       return { ap: Number(c.ap) || 0, sp: Number(c.sp) || 0, base: pick(c.stats), total: pick(c.totalStats || c.stats), skills, need: { 2: need(2), 3: need(3), 4: need(4) },
         statPlan: Array.isArray(c.statPlan) ? c.statPlan.slice(0, 8) : [], skillPlan: Array.isArray(c.skillPlan) ? c.skillPlan.slice(0, 60) : [],
         auto: { autoSkills: !!c.autoSkills, autoStats: !!c.autoStats, autoPotion: !!c.autoPotion, autoStartOnMap: !!c.autoStartOnMap },
@@ -562,6 +606,7 @@ function agentMain(ctx) {
           mpItem: sup.mpItem ? itemInfo(sup.mpItem).name : null, mpQty: sup.mpItem ? (inv[sup.mpItem] || 0) : null,
           stats: c.stats || {},
           prog: (() => { try { return progOf(c); } catch (_) { return null; } })(),
+          idleCfg: (() => { try { return idleCfgOf(c); } catch (_) { return null; } })(),
           gearBagCount: (c.equipmentBag || []).length,
           itemStackCount: (c.inventoryStacks || []).length,
         },
@@ -778,7 +823,7 @@ function agentMain(ctx) {
     }
     async function runIdleJob(job) {
       const done = [], failed = [];
-      let switchTo = null;
+      let switchTo = null, cfgTouched = false;
       const oldChar = myChar();
       // 掛機指令先做，切換角色放最後（切換後頁面要重新整理）
       const targets = ((job.batches[0] && job.batches[0].targets) || []).slice().sort((a, b) => (a.action === 'switch') - (b.action === 'switch'));
@@ -805,7 +850,12 @@ function agentMain(ctx) {
           continue;
         }
         if (t.action === 'cfg') { // v0.72：角色抽屜的能力點、技能、掛機設定
-          try { setBadge(null, `${t.name}：${t.label || '設定'}…`); await gameRetry({ ...cfgIds(t.cmd), characterId: t.charId }); done.push(`${t.name} ${t.label || '設定完成'}`); }
+          try {
+            setBadge(null, `${t.name}：${t.label || '設定'}…`);
+            if (t.cmd.type === 'read') await gameRetry({ type: 'sync', characterId: t.charId }); // 從遊戲重新讀取：做完下面會重新同步並立刻回報
+            else await gameRetry({ ...(await cfgPayload(t.cmd, t.charId)), characterId: t.charId });
+            cfgTouched = true; done.push(`${t.name} ${t.label || '設定完成'}`);
+          }
           catch (e) { if (e.gameUpdated) throw e; failed.push(`${t.name} ${t.label || '設定'}（${e.message}）`); }
           continue;
         }
@@ -840,6 +890,8 @@ function agentMain(ctx) {
           done.push(`${t.name} ${IDLE_LABEL[t.action]}`);
         } catch (e) { failed.push(`${t.name}（${e.message}）`); }
       }
+      // 改了掛機設定：馬上向遊戲要一份最新的（補給這些欄位平常 45 秒才更新一次），下一輪立刻回報給中控
+      if (cfgTouched && !switchTo) { await refreshOwnState(true); lastHash = ''; }
       if (done.length) await report(job, { event: 'log', msg: '完成：' + done.join('、') });
       if (failed.length) await report(job, { event: 'error', msg: '失敗：' + failed.join('、') });
       else await report(job, { event: 'batchDone' });
