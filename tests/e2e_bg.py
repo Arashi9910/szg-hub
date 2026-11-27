@@ -222,6 +222,15 @@ async def main():
         check(p is not None, '點 c2 → A1 換成看得到的視窗（visible=c2）')
         procs = chrome_procs(pid)
         check(procs and not any('--headless' in l for l in procs), '看得到的視窗：不是無頭模式')
+        port = open(os.path.join(HUB_DIR, 'data', 'bg', pid, 'DevToolsActivePort')).read().split()[0]
+        import json as _j, urllib.request as _u
+        await until(lambda: all(l['char'] for l in prof(pid)['live']), 30)
+        await asyncio.sleep(3)
+        tl = [t for t in _j.loads(_u.urlopen(f'http://127.0.0.1:{port}/json/list').read()) if t['type'] == 'page']
+        check(len(tl) == 2 and not any(t['url'].startswith('about:blank') for t in tl), f"顯示的視窗只有兩個遊戲分頁，沒有空白頁（{[t['url'][-20:] for t in tl]}）")
+        await asyncio.sleep(8)
+        ch = sorted(l['char'] for l in prof(pid)['live'])
+        check(ch == ['c1', 'c2'] and not any('另一個分頁開著' in (l.get('badge') or '') for l in prof(pid)['live']), f'兩個分頁是兩隻不同的角色、都沒有暫停（{ch}）')
         t0 = time.time() * 1000
         d = await until(lambda: (lambda d: d if d['tabs'].get('c2', {}).get('at', 0) > t0 and d['tabs']['c2'].get('bg') else None)(hub_json('GET', '/api/data')), 40)
         check(d is not None, '顯示視窗時中控腳本照跑')
