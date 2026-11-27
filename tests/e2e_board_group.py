@@ -3,7 +3,7 @@ A／B 篩選；點兩下開角色抽屜；去處規則（共用規則、地圖�
 import os
 os.environ['MOCK_PARTY'] = 'c2,c3'  # 弓箭分身（A 組）＋本尊小號（B 組）同隊
 import asyncio, json, sys, time
-from harness import Env, hub_json, http, HUB, MOCK
+from harness import Env, hub_json, http, HUB, MOCK, game_sell
 
 ok = True
 def check(cond, msg):
@@ -125,8 +125,8 @@ async def main():
         end = time.time() + 20
         while time.time() < end and not ((mock_state()['accounts']['A1']['chars']['c1'].get('autoSell') or {}).get('maps') or {}).get('gms104000400'): await asyncio.sleep(1)
         c1 = mock_state()['accounts']['A1']['chars']['c1']
-        asell = ((c1.get('autoSell') or {}).get('maps') or {}).get('gms104000400') or {}
-        check(asell.get('enabled') and sorted(asell.get('itemIds') or []) == [4000016], f'遊戲的自動販售照去處規則：{asell}')
+        asell = game_sell(c1, 'gms104000400')
+        check(asell.get('enabled') and asell.get('itemIds') == [4000016], f'遊戲的自動販售照去處規則：{asell}')
 
         print('6. 重新排列、清單檢視')
         await d.click('[data-fzoom="layout"]'); await d.wait_for_timeout(800)

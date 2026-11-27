@@ -2,14 +2,14 @@
 在遊戲裡改的會被改回來；沿用遊戲設定的圖不動"""
 import asyncio, json, os, sys, time
 os.environ['SZG_ENFORCE_MS'] = '3000'
-from harness import Env, hub_json, http, HUB, MOCK
+from harness import Env, hub_json, http, HUB, MOCK, game_sell as gsell
 
 ok = True
 def check(cond, msg):
     global ok
     print(('  ✓ ' if cond else '  ✗ ') + msg); ok = ok and bool(cond)
 def mock_char(a, c): return json.loads(http('GET', MOCK + '/__mock/state')[1])['accounts'][a]['chars'][c]
-def game_sell(a, c, m): return ((mock_char(a, c).get('autoSell') or {}).get('maps') or {}).get(m) or {}
+def game_sell(a, c, m): return gsell(mock_char(a, c), m)
 def norm(x): return (bool(x.get('enabled')), sorted(int(i) for i in (x.get('itemIds') or [])))
 async def wait(fn, sec=40, step=1):
     end = time.time() + sec
@@ -33,6 +33,14 @@ async def main():
         check(w0[0] and w0[1], f'去處規則算出來要賣小怪的裝備（{w0}）')
         await asyncio.sleep(8)
         check(norm(game_sell('A1', 'c1', MAP)) != w0, '8 秒後遊戲裡還是原本的設定')
+
+        print('1b. 立即全部套用（照表操課沒開也可以，一次）')
+        r = hub_json('POST', '/api/dest/apply-now', {})
+        check(r['n'] == 2, f"送出 2 隻（{r}）")
+        check(await wait(lambda: norm(game_sell('A1', 'c1', MAP)) == w0 and norm(game_sell('A2', 'c3', MAP)) == w0), '兩隻的自動販售都改成規則的結果')
+        http('GET', MOCK + f'/__mock/autosell?acct=A1&char=c1&map={MAP}&enabled=0')
+        http('GET', MOCK + f'/__mock/autosell?acct=A2&char=c3&map={MAP}&enabled=0')
+        await asyncio.sleep(6)
 
         print('2. 從面板打開照表操課 → 自動對齊（兩隻都是，不用按套用）')
         ctx = await env.browser.new_context(viewport={'width': 1500, 'height': 950}); env.contexts.append(ctx)

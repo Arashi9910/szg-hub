@@ -33,6 +33,18 @@ def hub_json(method, path, body=None):
     return json.loads(t) if t else None
 
 
+def game_sell(char, map_id):
+    """遊戲（mock）裡這隻角色某張圖的自動販售，換成「會賣哪些」：{'enabled', 'itemIds'(排序)}。
+    遊戲 2026-11-27 起 rule 2：itemIds 是保留清單，可販售的掉落沒保留的就賣"""
+    x = ((char.get('autoSell') or {}).get('maps') or {}).get(map_id)
+    if not x: return {}
+    rows = (hub_json('GET', '/api/world') or {}).get('autoSellDrops', {}).get(map_id) or []
+    keep = set(int(i) for i in x.get('itemIds') or [])
+    sell = sorted(int(r[0]) for r in rows if r[4] and int(r[0]) not in keep)
+    on = bool(x.get('enabled')) and bool(sell)
+    return {'enabled': on, 'itemIds': sell if on else []}
+
+
 def wait_url(url, sec=15):
     end = time.time() + sec
     while time.time() < end:

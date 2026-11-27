@@ -1,6 +1,6 @@
 """派工與遊戲同步：遊戲裡換地圖／改自動販售 → 看板自動跟著改；看板上還沒套用的派工，遊戲沒動就保留；可以關掉"""
 import asyncio, json, sys, time
-from harness import Env, hub_json, http, http_raw, MOCK
+from harness import Env, hub_json, http, http_raw, MOCK, game_sell
 
 ok = True
 def check(cond, msg):
@@ -58,7 +58,8 @@ async def main():
 
         print('4. 在遊戲裡改自動販售 → 記成這張圖的自訂設定（去處規則）')
         dover = lambda: (hub_json('GET', '/api/data')['settings'].get('dest') or {}).get('over', {}).get('gms104000400')
-        game('A1', {'type': 'autoSell', 'characterId': 'c1', 'map': 'gms104000400', 'config': {'enabled': True, 'itemIds': [4000016, 2040805]}})
+        rows = hub_json('GET', '/api/world')['autoSellDrops']['gms104000400']
+        game('A1', {'type': 'autoSell', 'characterId': 'c1', 'map': 'gms104000400', 'config': {'rule': 2, 'enabled': True, 'itemIds': [int(r[0]) for r in rows if r[4] and int(r[0]) not in (4000016, 2040805)]}})
         ov = await until(d, lambda: dover())
         check(ov and ov.get('rest') == 'keep' and sorted(ov.get('items', {}).keys()) == ['2040805', '4000016'], f'自訂設定＝遊戲的設定（{ov}）')
         sell = hub_json('GET', '/api/data')['destSell'].get('gms104000400')

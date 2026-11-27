@@ -109,7 +109,7 @@ function makeChar(id, name, job, lv, map, extra = {}) {
     id, name, job, lv, xp: 0, nextXp: 1000 * lv * lv, money: 500000, map, auto: false, until: null, hp: 500, maxhp: 500, mp: 300, maxmp: 300, kills: 0,
     stats: { incSTR: 40, incDEX: 40, incINT: 4, incLUK: 4, str: 40, dex: 40, int: 4, luk: 4 }, gear: {},
     ap: 5, sp: 3, skills: { s1001004: 1 }, autoSkills: false, autoStats: false, autoPotion: true, autoStartOnMap: false, statPlan: [], skillPlan: [], autoBuffs: [], active: 's1001004', equipmentBag: [], warehouseGear: [], inventory: { i2000000: 200, i2000003: 100 },
-    inventoryStacks: [], warehouse: {}, warehouseMesos: 0, supply: { hpItem: 'i2000000', mpItem: 'i2000003' }, autoSell: { maps: {} }, log: [], ...extra,
+    inventoryStacks: [], warehouse: {}, warehouseMesos: 0, supply: { hpItem: 'i2000000', mpItem: 'i2000003' }, autoSell: { rule: 2, maps: {} }, log: [], ...extra,
   };
 }
 const accounts = {};
@@ -166,7 +166,8 @@ function simulate(c, now) {
       const key = keyById[d.itemId]; const name = nameOf(d.itemId);
       addLog(c, `撿取：${name} × 1`);
       const as = c.autoSell.maps[c.map];
-      if (as && as.enabled && as.itemIds.includes(d.itemId)) {
+      // 遊戲 2026-11-27 起：itemIds＝保留，沒保留的可販售掉落全部賣掉
+      if (as && as.enabled && !as.itemIds.includes(d.itemId) && (equipment[key] || items[key].sellPrice > 0)) {
         const price = equipment[key] ? 100 : items[key].sellPrice; c.money += price;
         addLog(c, `自動販售：${name} × 1，獲得 ${price.toLocaleString()} 楓幣`); continue;
       }
@@ -309,7 +310,10 @@ function handle(a, body) {
       break;
     case 'autoSell':
       if (body.map !== c.map) fail('只能設定角色目前所在地圖的自動販售');
-      c.autoSell.maps[body.map] = { enabled: !!(body.config && body.config.enabled), itemIds: ((body.config && body.config.itemIds) || []).map(Number) };
+      // 真實遊戲 2026-11-27：rule 2（itemIds＝保留清單）；舊格式不收
+      if (!body.config || body.config.rule !== 2) fail('自動販售設定已更新，請重新整理頁面');
+      c.autoSell.rule = 2;
+      c.autoSell.maps[body.map] = { enabled: !!body.config.enabled, itemIds: (body.config.itemIds || []).map(Number), ...(body.config.keepAboveBase ? { keepAboveBase: true } : {}) };
       break;
     // 掛機設定組合 1／2／3（真實遊戲：character.settingsSlot，沒設定過＝1）
     case 'settingsPreset': { const n = Number(body.slot); if (![1, 2, 3].includes(n)) fail('設定組合只有 1、2、3'); c.settingsSlot = n; (c.presetLog || (c.presetLog = [])).push({ n, map: c.map, auto: c.auto }); break; }
@@ -565,6 +569,7 @@ http.createServer((req, res) => {
   if (url.pathname === '/__mock/autosell') {
     const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
     if (!c) return send(res, 404, { error: 'no char' });
+    c.autoSell.rule = 2; // ids＝保留清單
     c.autoSell.maps[url.searchParams.get('map')] = { enabled: url.searchParams.get('enabled') === '1', itemIds: (url.searchParams.get('ids') || '').split(',').filter(Boolean).map(Number) };
     return send(res, 200, { ok: true });
   }

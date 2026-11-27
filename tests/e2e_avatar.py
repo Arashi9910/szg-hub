@@ -1,7 +1,7 @@
 """角色全身照上傳，總覽／派工工廠圖／清單／組隊卡片顯示全身照；組隊套用帶派工看板的自動販售範本"""
 import asyncio, json, os, sys, time
 os.environ['MOCK_APPEARANCE'] = '1'
-from harness import Env, hub_json, http, MOCK
+from harness import Env, hub_json, http, MOCK, game_sell
 
 ok = True
 def check(cond, msg):
@@ -53,8 +53,8 @@ async def main():
         jobs = await wait(lambda: (lambda js: js if js and all(j['status'] in ('done', 'failed') for j in js) else None)([j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'party']), 120)
         check(jobs and all(j['status'] == 'done' for j in jobs), '組隊工作完成' + ('' if jobs and all(j['status'] == 'done' for j in jobs) else '：' + '；'.join(f"{j['fromName']} {j['status']} {j['lastMsg']}" for j in (jobs or []))))
         for a, c in (('A1', 'c1'), ('A2', 'c3')):
-            mc = mock_char(a, c); ms = (mc.get('autoSell') or {}).get('maps', {}).get(MAP)
-            check(mc['map'] == MAP and ms and ms['enabled'] and sorted(ms['itemIds']) == sell['itemIds'], f'{c} 換到 {MAP} 並套用看板的自動販售（{ms}）')
+            mc = mock_char(a, c); ms = game_sell(mc, MAP)
+            check(mc['map'] == MAP and ms and ms['enabled'] and ms['itemIds'] == sorted(sell['itemIds']), f'{c} 換到 {MAP} 並套用看板的自動販售（{ms}）')
 
         print('3. 總覽、派工顯示全身照（2D）')
         await d.evaluate("localStorage.setItem('boardView', 'pipe')")

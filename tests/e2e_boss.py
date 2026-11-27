@@ -4,7 +4,7 @@ import asyncio, os, sys, time
 os.environ['MOCK_BOSS_DPS'] = '600'          # 紅寶王 3000 血，幾秒就打死
 os.environ['MOCK_BOSS_RESPAWN_MS'] = '3600000'
 os.environ['MOCK_MAP_STOPS_IDLE'] = '1'   # 真實遊戲換地圖會停止掛機
-from harness import Env, hub_json, http, MOCK
+from harness import Env, hub_json, http, MOCK, game_sell
 
 ok = True
 def check(cond, msg):
@@ -52,14 +52,14 @@ async def main():
         hub_json('POST', '/api/boss/run-now')
         jobs = [j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'boss']
         check(len(jobs) == 1 and jobs[0]['batches'][0]['boss']['mob'] == 'mBoss1', '建立 1 個打紅寶王的工作')
-        check(jobs and jobs[0]['batches'][0]['boss'].get('sell') == {'enabled': True, 'itemIds': [1082149]}, f"到王的地圖套用去處規則算好的自動販售（{jobs and jobs[0]['batches'][0]['boss'].get('sell')}）")
+        check(jobs and {k: v for k, v in (jobs[0]['batches'][0]['boss'].get('sell') or {}).items() if k != 'keep'} == {'enabled': True, 'itemIds': [1082149]} and 1082149 not in jobs[0]['batches'][0]['boss']['sell'].get('keep', [1082149]), f"到王的地圖套用去處規則算好的自動販售（{jobs and jobs[0]['batches'][0]['boss'].get('sell')}）")
         done = await wait(lambda: next((j for j in hub_json('GET', '/api/data')['jobs'] if j['kind'] == 'boss' and j['status'] in ('done', 'failed')), None), 90)
         check(done and done['status'] == 'done', '工作完成' + ('' if done and done['status'] == 'done' else f"：{done and done['lastMsg']}"))
         _, b = boss_char('c3')
         check(any('打死了' in l['msg'] for l in b['log']), '紀錄有「打死了」')
         c = mock_char('A2', 'c3')
         check(c['map'] == home, f'回到原本的地圖（{c["map"]}）')
-        check(c['autoSell']['maps'].get('gms104000400') == {'enabled': True, 'itemIds': [1082149]}, f"到王的地圖套用了掉落篩選（{c['autoSell']['maps'].get('gms104000400')}）")
+        check(game_sell(c, 'gms104000400') == {'enabled': True, 'itemIds': [1082149]}, f"到王的地圖套用了掉落篩選（{game_sell(c, 'gms104000400')}）")
         check(any('自動販售 1 項' in (l['msg'] if isinstance(l, dict) else str(l)) for l in done['log']), '工作紀錄寫「自動販售 1 項」')
         check(c['auto'], '回去後有重新開始掛機（真實遊戲換地圖會停止掛機）')
         pl = [(x['n'], x['map']) for x in c.get('presetLog', [])]

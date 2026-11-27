@@ -49,11 +49,12 @@ o = json.loads(r.stdout)
 print('1. 共用規則（預設：裝備、其他道具賣，卷軸、技能書留著）')
 d = o['def']['dest']
 check(d == {'1082149': 'shop', '2040805': 'bag', '4000016': 'shop', '2290001': 'bag', '4031000': 'bag'}, f'每樣的去處：{d}')
-check(o['defSell'] == {'enabled': True, 'itemIds': [1082149, 4000016]}, f'送給遊戲的自動販售：{o["defSell"]}')
+check(o['defSell']['enabled'] and o['defSell']['itemIds'] == [1082149, 4000016], f'送給遊戲的自動販售：{o["defSell"]}')
+check(sorted(o['defSell']['keep']) == [2040805, 2290001], f'遊戲新版（打勾＝保留）要送的保留清單：可販售的掉落扣掉要賣的（{o["defSell"]["keep"]}）')
 check(o['def']['cats']['2290001'] == 'book', '技能書分成自己一類')
 
 print('2. 野王地圖：王會掉的東西一律留著（或照規則）')
-check(o['boss'] == {'enabled': True, 'itemIds': [1082149]}, f'王會掉的紅寶殼留著：{o["boss"]}')
+check(o['boss']['enabled'] and o['boss']['itemIds'] == [1082149] and 4000016 in o['boss']['keep'], f'王會掉的紅寶殼留著：{o["boss"]}')
 check(sorted(o['bossRule']['itemIds']) == [1082149, 4000016], f'改成照規則就一起賣：{o["bossRule"]}')
 
 print('3. 沒開、沿用遊戲設定 → 不動遊戲')
