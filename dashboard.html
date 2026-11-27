@@ -318,6 +318,10 @@
   .rd-bar span { position: relative; font-size: 11px; padding-left: 6px; line-height: 16px; white-space: nowrap; }
   .rd-en { display: grid; grid-template-columns: 120px 1fr; gap: 8px; align-items: center; margin: 6px 0; } .rd-en .rd-bar { height: 22px; } .rd-en .rd-bar span { line-height: 22px; font-size: 12px; }
   .rd-mem td { vertical-align: middle; }
+  .rd-stat { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 4px 0 8px; } .rd-stat > div { min-width: 120px; } .rd-stat b { font-size: 15px; } .rd-stat .bad b, .rd-stat b.bad { color: var(--bad, #e74c3c); }
+  .rd-orbs { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; } .rd-orbs .rd-bar { min-width: 86px; width: 86px; height: 14px; } .rd-orbs .rd-bar i { background: #6c4bb5; } .rd-orbs .rd-bar span { font-size: 10px; line-height: 14px; }
+  .rd-orbbox { border: 1px solid var(--line, #444); border-radius: 6px; padding: 6px 8px; margin: 6px 0; } .rd-orbbox.on { border-color: #b5651d; background: rgba(181,101,29,.08); }
+  .rd-rep td.num, .rd-mem td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .tav .grp.gB { color: #f0b86a; }
   .town-pool .tparty { padding-top: 13px; }
   #charDrawer .seg { flex-wrap: wrap; }
@@ -7041,13 +7045,32 @@ function toastMsg(m) { let el = $('#lbToast'); if (!el) { el = document.createEl
 // ---------- ⚔ 副本（v0.77）：settings.raid = {kind, leader, members[]}；/api/raid 的 views（隊伍）、live（即時戰況）----------
 const RAID_NAME = { papulatus: '拉圖斯', zakum: '殘暴炎魔' };
 const AIL_NAME = { seal: '封印', darkness: '黑暗', stun: '暈眩', curse: '詛咒', poison: '中毒', weakness: '虛弱', slow: '緩慢' };
-let RAID = null, raidLoading = false;
+let RAID = null, raidLoading = false, RS = null; // RS：這場的時間序列（/api/raid 的 series，每秒只拿新的點接上去）
+const RAID_RESULT = { clear: ['通關', 'good'], fail: ['失敗', 'bad'], timeout: ['時間到', 'bad'] };
 function raidPlan() { const p = S.raid || {}; return { kind: RAID_NAME[p.kind] ? p.kind : 'papulatus', leader: p.leader || '', members: (p.members || []).filter(x => x && x !== p.leader).slice(0, 11), lock: !!p.lock, password: String(p.password || '').slice(0, 12) }; }
 // 遊戲回的副本規則（等級、人數、法師、費用、時間、每週場數）：任一隻角色讀過就有
 function raidRules(kind) { for (const v of Object.values((RAID && RAID.views) || {})) { const r = v.view && (v.view.raids || []).find(x => x && x.id === kind); if (r) return r; } return null; }
 const raidSelf = id => { const v = RAID && RAID.views[id]; return v && v.view && v.view.self; };
 const raidAll = p => [p.leader, ...p.members].filter(Boolean);
-async function loadRaid() { if (raidLoading) return; raidLoading = true; try { RAID = await (await fetch('/api/raid')).json(); } finally { raidLoading = false; } }
+async function loadRaid() {
+  if (raidLoading) return; raidLoading = true;
+  try { const last = RS && RS.points.length ? RS.points[RS.points.length - 1][0] : 0; RAID = await (await fetch('/api/raid' + (last ? '?since=' + last : ''))).json(); raidMergeSeries(RAID.series); } finally { raidLoading = false; }
+}
+function raidMergeSeries(s) {
+  if (!s) { RS = null; return; }
+  if (!RS || RS.code !== s.code || !s.since) { RS = { ...s, points: (s.points || []).slice() }; return; }
+  const last = RS.points.length ? RS.points[RS.points.length - 1][0] : 0;
+  RS = { ...s, points: RS.points.concat((s.points || []).filter(p => p[0] > last)) };
+  if (RS.points.length > 1500) RS.points.splice(0, RS.points.length - 1500);
+}
+// 近 30 秒：總輸出＝damageBy 總和的增加量、淨輸出＝王實際掉的血、回血＝兩者的差（實機拉圖斯約每秒 6 萬）
+function raidRates(win = 30000) {
+  const pts = (RS && RS.points) || []; if (pts.length < 2) return null;
+  const end = pts[pts.length - 1], seg = pts.filter(p => p[0] >= end[0] - win), a = seg[0], dt = (end[0] - a[0]) / 1000;
+  if (!a || dt < 5) return null;
+  const gross = (end[2] - a[2]) / dt, net = (a[1] - end[1]) / dt;
+  return { dt, gross: gross >= 0 ? gross : null, net, regen: gross >= 0 ? Math.max(0, gross - net) : null, hp: end[1] };
+}
 // 隊伍表用「最新的」那份：隊長的資料可能是建立時的舊資料，隊員加入／準備後他們自己回報的比較新（v0.77.2）
 function raidLeaderView() {
   const p = raidPlan(); if (!RAID) return null; const lead = RAID.views[p.leader];
@@ -7084,7 +7107,10 @@ function drawRaid() {
     if (R) { const low = all.filter(id => (DATA.chars[id] && DATA.chars[id].char.lv) < R.minLevel); if (low.length) warn.push(`等級不到 ${R.minLevel}：${low.map(charNameOf).join('、')}`); }
     const zero = all.filter(id => (raidSelf(id) || {}).left === 0); if (zero.length) warn.push(`本週場數用完：${zero.map(charNameOf).join('、')}`);
     if (!typing) $('#rdSetup').insertAdjacentHTML('beforeend', warn.length ? `<div class="sm warn">⚠ ${warn.map(esc).join('；')}</div>` : ''); }
-  const live = Object.entries(RAID.live || {}), battleLive = (RAID.live[p.leader] && RAID.live[p.leader].battle) ? RAID.live[p.leader] : (live.find(([, v]) => v.battle) || [])[1];
+  const live = Object.entries(RAID.live || {}), L0 = RAID.live[p.leader];
+  // 隊長有在回報就看隊長的（隊員的回報可能晚幾秒才知道打完了）；已經有這場的結算＝打完了
+  let battleLive = L0 && now - L0.at < 6000 ? (L0.battle ? L0 : null) : (live.find(([, v]) => v.battle) || [])[1];
+  { const rep = RAID.report && RAID.report.report, bb = battleLive && battleLive.battle; if (rep && bb && rep.code && rep.code === bb.code && rep.at >= (bb.prepUntil || 0)) battleLive = null; }
   const fighting = !!battleLive;
   $('#rdBtns').innerHTML = !p.leader ? '<span class="dim sm">先選隊長</span>' : fighting
     ? `<button class="btn" data-rdact="surrender">🏳 全部投降</button><button class="btn" data-rdact="leaveRaid">離開副本（全部）</button>`
@@ -7100,7 +7126,7 @@ function drawRaid() {
   { const others = ((lv && lv.teams) || []).filter(t => !team || t.code !== team.code);
     if (others.length) $('#rdTeam').insertAdjacentHTML('beforeend', `<details class="sm" style="margin-top:6px"><summary class="dim">遊戲裡其他招募中的隊伍（${others.length}）</summary>${others.map(t => `<div>${t.locked ? '🔒 ' : ''}${esc(t.name || t.code)} <span class="dim">(${t.count}/${t.max})${t.full ? ' 滿了' : ''}</span></div>`).join('')}</details>`); }
   // 戰況
-  if (!battleLive) { $('#rdBattle').innerHTML = '<div class="dim">還沒開打。開始後這裡每秒更新王的血量、階段、隊員狀態。</div>'; return; }
+  if (!battleLive) { $('#rdBattle').innerHTML = raidReportHtml() || '<div class="dim">還沒開打。開始後這裡每秒更新王的血量、階段、隊員狀態。</div>'; return; }
   const b = battleLive.battle, flags = [];
   if (b.prepUntil > now) flags.push(`<span class="tag">準備時間 ${secLeft(b.prepUntil, now)} 秒（只能放輔助技能）</span>`);
   if (b.bloodAt && b.bloodAt > now - 1000) flags.push('<span class="tag bad">血魔歸一預備：全隊 HP／MP 即將變成 1</span>');
@@ -7109,14 +7135,59 @@ function drawRaid() {
   if (b.minions) flags.push(`<span class="tag warn">熔岩像 ${b.minions} 隻：本體傷害減半</span>`);
   if (b.immuneUntil > now) flags.push(`<span class="tag bad">物理／魔法免疫 ${secLeft(b.immuneUntil, now)} 秒</span>`);
   if (b.guardUntil > now) flags.push(`<span class="tag">手臂物理傷害減半 ${secLeft(b.guardUntil, now)} 秒</span>`);
-  const mobName = id => (WORLD && WORLD.mobIdx && WORLD.mobIdx[id] && WORLD.mobIdx[id].name) || id;
-  const enemies = (battleLive.enemies || []).slice().sort((x, y) => (y.maxHp || 0) - (x.maxHp || 0));
+  const mobName = id => (WORLD && WORLD.mobIdx && WORLD.mobIdx[id] && WORLD.mobIdx[id].name) || ({ gms8500001: '拉圖斯', gms8500003: '黑球' })[id] || id;
+  // 王＝maxHp 最大的那隻（回報者會送 damageBy）；黑球＝其他（實機 maxHp 20000）
+  const enemies = (battleLive.enemies || []).slice().sort((x, y) => (y.maxHp || 0) - (x.maxHp || 0)), boss = enemies[0], adds = enemies.slice(1);
+  const repLive = Object.values(RAID.live || {}).find(v => v.battle && v.battle.code === b.code && (v.enemies || []).some(e => e.damageBy)) || battleLive;
+  const dmgBy = ((repLive.enemies || []).slice().sort((x, y) => (y.maxHp || 0) - (x.maxHp || 0))[0] || {}).damageBy || {};
+  const dmgTotal = Object.values(dmgBy).reduce((t, v) => t + (Number(v) || 0), 0);
   const memIds = [...new Set([...all, ...live.filter(([, v]) => v.battle && v.battle.code === b.code).map(([id]) => id)])];
-  $('#rdBattle').innerHTML = `<div class="bar"><b>${esc(RAID_NAME[b.raid] || b.raid || '副本')}</b><span class="tag">第 ${b.phase || '?'} 階段</span><span>剩餘 <b>${mmss(secLeft(b.deadline, now))}</b></span>${(b.surrender || []).length ? `<span class="warn sm">投降 ${b.surrender.length} 人</span>` : ''}</div>
+  const extra = Object.keys(dmgBy).filter(id => !memIds.includes(id));
+  // 王的速度估計
+  const R = RS && RS.code === b.code ? raidRates() : null, remain = secLeft(b.deadline, now), fighting2 = b.prepUntil <= now;
+  let statHtml = '';
+  if (boss) {
+    const eta = R && R.net > 0 ? (R.hp || boss.hp) / R.net : null, ok = eta != null && eta <= remain;
+    statHtml = `<div class="rd-stat" id="rdStat">
+      <div>總輸出／秒<br><b>${R && R.gross != null ? short(R.gross) : '—'}</b></div>
+      <div title="近 30 秒 damageBy 總和的增加量 − 王實際掉的血">回血速度（估）<br><b>${R && R.regen != null ? short(R.regen) + '／秒' : '—'}</b></div>
+      <div title="王實際掉血的速度（已扣掉回血）">淨輸出／秒<br><b class="${R && R.net <= 0 ? 'bad' : ''}">${R ? short(R.net) : '—'}</b></div>
+      <div class="${R && fighting2 && !ok ? 'bad' : ''}" id="rdEta">照這速度還要<br><b>${!R ? '—' : eta == null ? '打不完（王沒在掉血）' : mmss(eta)}</b>${R && fighting2 ? (ok ? ' <span class="good sm">時間內打得完</span>' : ` <span class="bad sm">剩 ${mmss(remain)} 打不完</span>`) : ''}</div>
+    </div>${R ? `<div class="dim sm">以近 ${Math.round(R.dt)} 秒估算；黑球（無敵）期間王不掉血但照樣回血，也算在裡面。${R.net > 0 && !ok ? `要在時間內打完，淨輸出至少要 ${short((R.hp || boss.hp) / Math.max(1, remain))}／秒。` : ''}</div>` : '<div class="dim sm">累積幾秒資料後估算回血、淨輸出和還要多久。</div>'}`;
+  }
+  // 黑球
+  let orbHtml = '';
+  if (b.raid === 'papulatus') {
+    const waves = (RS && RS.code === b.code && RS.orbWaves) || [], lastW = waves[waves.length - 1], n = b.orbs || adds.length;
+    const nextTxt = b.invulnerable || n ? '' : lastW ? (() => { const a1 = lastW + 100e3 - now, a2 = lastW + 120e3 - now; return a2 < 0 ? '下一波隨時會出現（上次出現已超過 120 秒）' : `下一波約 ${a1 > 0 ? mmss(a1 / 1000) + '～' : '0:00～'}${mmss(a2 / 1000)} 後`; })()
+      : '還沒出現過（實機第一波約在開打後 130 秒）';
+    orbHtml = `<div class="rd-orbbox ${n ? 'on' : ''}" id="rdOrbs"><div class="bar"><b>黑球</b>${n ? `<span class="tag warn">剩 ${n} 顆</span><span class="bad sm">沒清完會自己消失，接著全隊封印約 30 秒（不能放技能、祭司不能補）</span>` : '<span class="dim sm">目前沒有</span>'}
+      ${lastW ? `<span class="dim sm">上次出現：${mmss((now - lastW) / 1000)} 前（第 ${waves.length} 波）</span>` : ''}${nextTxt ? `<span class="sm">${nextTxt}</span>` : ''}</div>
+      ${adds.length ? `<div class="rd-orbs">${adds.map(e => hpBar(e.hp, e.maxHp)).join('')}</div>` : ''}${(RS && RS.code === b.code && (RS.sealAt || []).length) ? `<div class="sm warn">這場全隊封印過 ${RS.sealAt.length} 次（上次 ${mmss((now - RS.sealAt[RS.sealAt.length - 1]) / 1000)} 前）</div>` : ''}</div>`;
+  }
+  const ailOf = L => { const me = (L && L.me) || {}, el = (now - (L ? L.at : now)) / 1000;
+    return [...Object.entries(me.diseases || {}).map(([k, v]) => [k, v && typeof v === 'object' ? (Number(v.left) || 0) - el : (Number(v) - now) / 1000]).filter(([, l]) => l > 0).map(([k, l]) => `${AIL_NAME[k] || k} ${Math.ceil(l)}秒`),
+      ...(me.lockUntil > now ? [`鎖水 ${secLeft(me.lockUntil, now)}秒`] : [])]; };
+  const dmgCell = id => { const d = Number(dmgBy[id]) || 0; if (!dmgTotal) return '<td class="num dim">—</td><td class="num dim">—</td>';
+    return `<td class="num ${d ? '' : 'bad'}">${d ? short(d) : '0'}</td><td class="num ${d ? '' : 'bad'}">${(d / dmgTotal * 100).toFixed(1)}%</td>`; };
+  $('#rdBattle').innerHTML = `<div class="bar"><b>${esc(RAID_NAME[b.raid] || b.raid || '副本')}</b><span class="tag">第 ${b.phase || '?'} 階段</span><span>剩餘 <b>${mmss(remain)}</b></span>${(b.surrender || []).length ? `<span class="warn sm">投降 ${b.surrender.length} 人</span>` : ''}</div>
     <div class="bar">${flags.join('') || '<span class="dim sm">沒有特殊狀態</span>'}</div>
-    ${enemies.map(e => `<div class="rd-en"><b>${esc(mobName(e.id))}</b>${hpBar(e.hp, e.maxHp, 'boss')}</div>`).join('') || '<div class="dim sm">還沒拿到王的血量</div>'}
-    <table class="tbl sm rd-mem"><tr><th>角色</th><th>HP</th><th>MP</th><th>異常狀態</th></tr>${memIds.map(id => { const L = RAID.live[id], me = L && L.me || {}; const ail = [...Object.entries(me.diseases || {}).filter(([, u]) => u > now).map(([k, u]) => `${AIL_NAME[k] || k} ${secLeft(u, now)}秒`), ...(me.lockUntil > now ? [`鎖水 ${secLeft(me.lockUntil, now)}秒`] : [])];
-      return `<tr><td>${esc(charNameOf(id))}${(b.surrender || []).includes(id) ? ' <span class="warn">投降</span>' : ''}${!L ? ' <span class="dim">（沒有回報）</span>' : ''}</td><td>${L ? (me.hp <= 0 ? '<span class="bad">倒下</span>' : hpBar(me.hp, me.maxhp, 'hp')) : ''}</td><td>${L ? hpBar(me.mp, me.maxmp, 'mp') : ''}</td><td>${ail.length ? `<span class="bad">${ail.join('、')}</span>` : '<span class="dim">—</span>'}</td></tr>`; }).join('')}</table>`;
+    ${boss ? `<div class="rd-en"><b>${esc(mobName(boss.id))}</b>${hpBar(boss.hp, boss.maxHp, 'boss')}</div>` : '<div class="dim sm">還沒拿到王的血量</div>'}
+    ${statHtml}${orbHtml}
+    <table class="tbl sm rd-mem"><tr><th>角色</th><th>HP</th><th>MP</th><th>異常狀態</th><th>對王累計傷害</th><th>占比</th></tr>${memIds.map(id => { const L = RAID.live[id], me = L && L.me || {}, ail = ailOf(L);
+      return `<tr><td>${esc(charNameOf(id))}${(b.surrender || []).includes(id) ? ' <span class="warn">投降</span>' : ''}${!L ? ' <span class="dim">（沒有回報）</span>' : ''}</td><td>${L ? (me.hp <= 0 ? '<span class="bad">倒下</span>' : hpBar(me.hp, me.maxhp, 'hp')) : ''}</td><td>${L ? hpBar(me.mp, me.maxmp, 'mp') : ''}</td><td>${ail.length ? `<span class="bad">${ail.join('、')}</span>` : '<span class="dim">—</span>'}</td>${dmgCell(id)}</tr>`; }).join('')}
+      ${extra.map(id => `<tr class="dim"><td>${esc(charNameOf(id))} <span class="sm">（不在計畫裡）</span></td><td></td><td></td><td></td>${dmgCell(id)}</tr>`).join('')}</table>
+    ${dmgTotal ? `<div class="dim sm">對王累計傷害合計 ${short(dmgTotal)}（遊戲的 damageBy；不含黑球）</div>` : ''}`;
+}
+// 戰鬥結束後：遊戲的結算（character.raidReport）
+function raidReportHtml() {
+  const R = RAID && RAID.report && RAID.report.report; if (!R) return '';
+  const [rn, rc] = RAID_RESULT[R.result] || [R.result || '?', ''], tot = R.total || R.rows.reduce((t, r) => t + (r.damage || 0), 0);
+  const rows = R.rows.slice().sort((x, y) => (y.damage || 0) - (x.damage || 0));
+  const dur = RS && RS.code === R.code && RS.points.length ? (RS.points[RS.points.length - 1][0] - RS.startAt) / 1000 : null;
+  return `<div id="rdReport"><div class="bar"><b>上一場結算</b><span class="tag ${rc}">${esc(rn)}</span><span class="dim sm">${R.at ? new Date(R.at).toLocaleString() : ''}${dur ? `・約打了 ${mmss(dur)}` : ''}</span><span>總傷害 <b>${short(tot)}</b></span></div>
+    <table class="tbl sm rd-rep"><tr><th>角色</th><th>傷害</th><th>占比</th><th>死亡</th></tr>${rows.map(r => `<tr><td>${esc(r.name)}</td><td class="num ${r.damage ? '' : 'bad'}">${r.damage ? short(r.damage) : '0'}</td><td class="num ${r.damage ? '' : 'bad'}">${tot ? (r.damage / tot * 100).toFixed(1) : '0.0'}%</td><td class="num ${r.deaths ? 'warn' : ''}">${r.deaths || 0}</td></tr>`).join('')}</table>
+    <div class="dim sm">還沒開打下一場。開始後這裡換成即時戰況。</div></div>`;
 }
 setInterval(() => { if (!document.hidden && document.querySelector('nav button.on').dataset.tab === 'raid') renderRaid(); }, 1000);
 async function raidSavePlan(patch) { await saveSettings({ raid: { ...raidPlan(), ...patch } }); drawRaid(); }

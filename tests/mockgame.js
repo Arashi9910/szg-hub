@@ -260,17 +260,67 @@ const strip = c => { const { _simAt, _boss, _stall, pendingHits, ...rest } = c; 
 // 回應帶 raid＝{team, battle, raid}；主控台 state.raidTeam、state.raidBattle；王的血量在 enemies）
 const raidTeams = {}; let raidSeq = 0;
 const raidTeamOf = c => Object.values(raidTeams).find(t => t.members.includes(c.id));
-const RAID_BOSS = { papulatus: { id: 'mPapulatus', hp: 2000000 }, zakum: { id: 'mZakum', hp: 3000000 } };
+const RAID_BOSS = { papulatus: { id: 'gms8500001', hp: 2000000 }, zakum: { id: 'mZakum', hp: 3000000 } };
+// 實機（2026-11-28 第一場拉圖斯）：王持續回血、約每 100～120 秒出 15 顆黑球（enemies 裡 maxHp 20000，在場時 invulnerable、orbs＝剩幾顆），
+// 黑球沒清完會自己消失 → 全隊 diseases.seal（raid:true）約 30 秒；diseases 會留過期的紀錄；enemies[i].damageBy＝{characterId: 累計傷害}；
+// 結束後 character.raidReport＝{result:'clear'|'fail'|'timeout', at, total, rows:[{name, damage, deaths}], code}
+// 測試可調（環境變數或 /__mock/raid?dps=&regen=&orbs=now&end=fail）：預設回血小一點，測試才打得完
+const raidKnobs = {};
+const RK = (k, env, def) => raidKnobs[k] != null ? raidKnobs[k] : Number(process.env[env] != null && process.env[env] !== '' ? process.env[env] : def);
+const RAID_ORB_HP = 20000, RAID_ORB_N = 15;
+const raidZero = () => (process.env.MOCK_RAID_ZERO || '').split(',').filter(Boolean); // 這幾隻傷害 0（實機 4 隻 0 傷害）
+const sealedNow = (x, now) => !!(x && x.diseases && x.diseases.seal && x.diseases.seal.until > now);
+function raidAilAll(t, kind, ms, now) { for (const id of t.members) { const x = charById(id); if (x) x.diseases = { ...(x.diseases || {}), [kind]: { until: now + ms, raid: true } }; } }
+function raidEnd(t, result, now) {
+  const b = t.battle, dmgBy = { ...b.damageBy }; for (const o of b.orbDmg ? Object.entries(b.orbDmg) : []) dmgBy[o[0]] = (dmgBy[o[0]] || 0) + o[1];
+  const rows = t.members.map(id => ({ name: (charById(id) || {}).name || id, damage: Math.round(dmgBy[id] || 0), deaths: (b.deaths && b.deaths[id]) || 0 }));
+  const report = { result, at: now, total: rows.reduce((s, r) => s + r.damage, 0), rows, code: t.code };
+  for (const id of t.members) { const x = charById(id); if (x) x.raidReport = report; }
+  t.result = result; t.battle = null;
+}
 function raidTick(t) {
   const b = t.battle; if (!b) return;
-  const now = Date.now(), dt = Math.max(0, now - Math.max(b.lastAt, b.prepUntil));
+  const now = Date.now();
+  if (raidKnobs.end) { const r = raidKnobs.end; delete raidKnobs.end; return raidEnd(t, r, now); }
+  if (now >= b.deadline) return raidEnd(t, 'timeout', now);
+  const from = Math.max(b.lastAt, b.prepUntil), dt = Math.max(0, now - from) / 1000;
   b.lastAt = now;
-  if (now > b.prepUntil && !b.invulnerable) b.hp = Math.max(0, b.hp - Math.round(dt / 1000 * b.maxHp * Number(process.env.MOCK_RAID_DPS || 0.05)));
-  if (b.phase === 1 && b.hp <= b.maxHp / 2) { b.phase = 2; b.bloodAt = now + 3000; for (const id of t.members) { const x = charById(id); if (x) x.diseases = { seal: now + 4000 }; } }
-  if (b.hp <= 0) { t.result = 'clear'; t.battle = null; for (const id of t.members) { const x = charById(id); if (x) delete x.diseases; } }
+  if (now <= b.prepUntil) return;
+  const zero = raidZero(), able = t.members.filter(id => !zero.includes(id)), w = id => (id === t.leader ? 2 : 1);
+  const atk = able.filter(id => !sealedNow(charById(id), now)), W = able.reduce((s, id) => s + w(id), 0) || 1, A = atk.reduce((s, id) => s + w(id), 0);
+  // 黑球（只有拉圖斯）
+  const orbMs = RK('orbMs', 'MOCK_RAID_ORB_MS', 110000);
+  if (t.raid === 'papulatus' && orbMs > 0) {
+    if (!b.orbList && (now >= b.nextOrbAt || raidKnobs.orbsNow)) { delete raidKnobs.orbsNow;
+      b.orbList = Array.from({ length: RAID_ORB_N }, (_, i) => ({ hp: RAID_ORB_HP, spawnId: 'orb' + (++b.orbSeq) + '-' + i, damageBy: {} }));
+      b.orbUntil = now + RK('orbLife', 'MOCK_RAID_ORB_LIFE_MS', 20000); b.nextOrbAt = now + orbMs; }
+    if (b.orbList) {
+      let pool = dt * RK('orbKill', 'MOCK_RAID_ORB_KILL', 0.5) * RAID_ORB_HP * (A / W);
+      for (const o of b.orbList) { if (pool <= 0) break; const d = Math.min(o.hp, pool); o.hp -= d; pool -= d;
+        for (const id of atk) { const s = d * w(id) / (A || 1); o.damageBy[id] = Math.round((o.damageBy[id] || 0) + s); b.orbDmg[id] = (b.orbDmg[id] || 0) + s; } }
+      b.orbList = b.orbList.filter(o => o.hp > 0);
+      if (!b.orbList.length) b.orbList = null; // 清完了
+      else if (now >= b.orbUntil) { b.orbList = null; raidAilAll(t, 'seal', RK('sealMs', 'MOCK_RAID_SEAL_MS', 30000), now); } // 沒清完：自己消失、全隊封印
+    }
+  }
+  b.invulnerable = !!b.orbList; b.orbs = b.orbList ? b.orbList.length : 0;
+  // 王：沒有無敵時才吃傷害（封印中的角色不能放技能＝不出傷害）；回血一直都有
+  if (!b.invulnerable && A > 0) {
+    const dmg = Math.min(b.hp, dt * b.maxHp * RK('dps', 'MOCK_RAID_DPS', 0.05) * (A / W));
+    for (const id of atk) b.damageBy[id] = (b.damageBy[id] || 0) + dmg * w(id) / A;
+    b.hp = Math.max(0, b.hp - dmg);
+  }
+  if (b.hp > 0) b.hp = Math.min(b.maxHp, b.hp + dt * b.maxHp * RK('regen', 'MOCK_RAID_REGEN', 0.003));
+  if (b.phase === 1 && b.hp <= b.maxHp / 2) { b.phase = 2; b.bloodAt = now + 3000; raidAilAll(t, 'seal', 4000, now); }
+  if (b.hp <= 0) raidEnd(t, 'clear', now);
+}
+function raidEnemiesOf(t) {
+  const b = t.battle, round = o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v)]));
+  return [{ id: RAID_BOSS[t.raid].id, hp: Math.round(b.hp), maxHp: b.maxHp, spawnId: 'raid', damageBy: round(b.damageBy) },
+    ...(b.orbList || []).map(o => ({ id: 'gms8500003', hp: Math.round(o.hp), maxHp: RAID_ORB_HP, spawnId: o.spawnId, damageBy: round(o.damageBy) }))];
 }
 function raidBattleOf(t) { const b = t && t.battle; return b ? { code: t.code, raid: t.raid, phase: b.phase, prepUntil: b.prepUntil, deadline: b.deadline, surrender: b.surrender, bloodAt: b.bloodAt || 0, invulnerable: !!b.invulnerable, orbs: b.orbs || 0 } : null; }
-const RAID_RULES = { papulatus: { name: '拉圖斯', requireMage: true }, zakum: { name: '殘暴炎魔', requireMage: false } };
+const RAID_RULES = { papulatus: { name: '拉圖斯', requireMage: process.env.MOCK_RAID_NO_MAGE !== '1' }, zakum: { name: '殘暴炎魔', requireMage: false } };
 const isMage = x => /mage|wizard|cleric|priest|magician/i.test(x.job || '');
 function raidLobby(c, kind) {
   const rule = id => ({ id, name: RAID_RULES[id].name, left: 3, requireMage: RAID_RULES[id].requireMage, open: true, minLevel: 10, minMembers: 2, maxMembers: 12, feeMesos: Number(process.env.MOCK_RAID_FEE || 10000000), feePoints: 20, weeklyRuns: 7, minutes: 20 });
@@ -324,7 +374,7 @@ function handle(a, body) {
       for (const x of Object.values(a.chars)) evs = evs.concat(simulate(x, now));
       for (const x of Object.values(a.chars)) if (x.pendingHits && x.pendingHits.length) { evs = evs.concat(x.pendingHits); x.pendingHits = []; }
       const res = { ...sessionView(a, c.id), summary: { events: evs }, tradeEligible: tradeEligible(a, c.id), enemies: enemiesOf(c), bossTimers: {} };
-      { const rt = raidTeamOf(c); if (rt && rt.battle) res.enemies = [{ id: RAID_BOSS[rt.raid].id, hp: rt.battle.hp, maxHp: rt.battle.maxHp, spawnId: 'raid' }]; if (body.raidOnly) res.raid = raidViewOf(c, RAID_BOSS[body.raid] ? body.raid : undefined); }
+      { const rt = raidTeamOf(c); if (rt && rt.battle) res.enemies = raidEnemiesOf(rt); if (body.raidOnly) res.raid = raidViewOf(c, RAID_BOSS[body.raid] ? body.raid : undefined); }
       if (body.tradeOnly) res.trade = null;
       if (body.includeMarket) res.market = marketView(a, c);
       if (body.includeBossRespawns) res.bossRespawns = bossRespawnsOf(c);
@@ -364,7 +414,9 @@ function handle(a, body) {
       for (const id of t.members) { const x = charById(id); if (x.money < fee) fail(`${x.name} 的楓幣不足`); }
       for (const id of t.members) charById(id).money -= fee;
       const now = Date.now(), B = RAID_BOSS[t.raid];
-      t.battle = { phase: 1, prepUntil: now + Number(process.env.MOCK_RAID_PREP_MS || 10000), deadline: now + 20 * 60e3, lastAt: now, hp: B.hp, maxHp: B.hp, surrender: [] };
+      const prepUntil = now + Number(process.env.MOCK_RAID_PREP_MS || 10000);
+      t.battle = { phase: 1, prepUntil, deadline: now + Number(process.env.MOCK_RAID_MINUTES || 20) * 60e3, lastAt: now, hp: B.hp, maxHp: B.hp, surrender: [], damageBy: {}, orbDmg: {}, deaths: {}, orbList: null, orbSeq: 0, nextOrbAt: prepUntil + RK('orbMs', 'MOCK_RAID_ORB_MS', 110000) };
+      for (const id of t.members) { const x = charById(id); if (x) x.diseases = { ...(x.diseases || {}), stun: { until: now - 120000, raid: true } }; } // 實機：diseases 留著過期的紀錄
       return { ...sessionView(a, c.id), raid: raidViewOf(c), summary: { events: [] } };
     }
     case 'raidLeave': {
@@ -372,7 +424,7 @@ function handle(a, body) {
       if (t.leader === c.id) delete raidTeams[t.code]; else t.members = t.members.filter(x => x !== c.id);
       return { ...sessionView(a, c.id), raid: raidViewOf(c), summary: { events: [] } };
     }
-    case 'surrenderRaid': { const t = raidTeamOf(c); if (!t || !t.battle) fail('不在副本戰鬥中'); if (!t.battle.surrender.includes(c.id)) t.battle.surrender.push(c.id); if (t.battle.surrender.length === t.members.length) { t.result = 'surrender'; t.battle = null; } return { ...sessionView(a, c.id), summary: { events: [] } }; }
+    case 'surrenderRaid': { const t = raidTeamOf(c); if (!t || !t.battle) fail('不在副本戰鬥中'); if (!t.battle.surrender.includes(c.id)) t.battle.surrender.push(c.id); if (t.battle.surrender.length === t.members.length) raidEnd(t, 'fail', Date.now()); return { ...sessionView(a, c.id), summary: { events: [] } }; }
     case 'leaveRaid': { const t = raidTeamOf(c); if (!t) fail('不在副本裡'); t.members = t.members.filter(x => x !== c.id); if (!t.members.length || t.leader === c.id) delete raidTeams[t.code]; return { ...sessionView(a, c.id), summary: { events: [] } }; }
     case 'autoSell':
       if (body.map !== c.map) fail('只能設定角色目前所在地圖的自動販售');
@@ -696,6 +748,13 @@ http.createServer((req, res) => {
     c.deaths = (c.deaths || 0) + 1; c.deathAt = now;
     if (url.searchParams.get('gamerevive') === '1') { c.autoReviveUsed = (c.autoReviveUsed || 0) + 1; addLog(c, '自動復活'); return send(res, 200, { ok: true }); }
     c.hp = 0; c.auto = false; return send(res, 200, { ok: true });
+  }
+  // 測試控制：/__mock/raid?dps=0.01&regen=0.02（每秒佔王血量的比例）&orbs=now（馬上出黑球）&orbKill=0（黑球打不動）&end=fail|timeout|clear；不帶參數只回目前狀態
+  if (url.pathname === '/__mock/raid') {
+    for (const k of ['dps', 'regen', 'orbKill', 'orbLife', 'orbMs', 'sealMs']) { const v = url.searchParams.get(k); if (v !== null) { if (v === '') delete raidKnobs[k]; else raidKnobs[k] = Number(v); } }
+    if (url.searchParams.get('orbs') === 'now') raidKnobs.orbsNow = true;
+    if (url.searchParams.get('end')) raidKnobs.end = url.searchParams.get('end');
+    return send(res, 200, { knobs: raidKnobs, teams: Object.values(raidTeams).map(t => ({ code: t.code, raid: t.raid, result: t.result || null, battle: t.battle ? { hp: Math.round(t.battle.hp), orbs: t.battle.orbs || 0, damageBy: t.battle.damageBy } : null })) });
   }
   if (url.pathname === '/__mock/luck') { scrollQueue = (url.searchParams.get('seq') || '').split(',').filter(x => x !== '').map(Number); return send(res, 200, { ok: true, n: scrollQueue.length }); }
   if (url.pathname === '/api/game' && req.method === 'POST') {

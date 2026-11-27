@@ -422,23 +422,61 @@ function agentMain(ctx) {
         team: team ? { code: team.code, name: team.name ? String(team.name).slice(0, 30) : '', locked: !!team.locked, isLeader: !!team.isLeader, members: (team.members || []).slice(0, 12).map(raidMem) } : null, battle: !!(v && v.battle) || !!r.raidBattle } }).catch(() => {});
     }
     // 即時：在副本隊伍或戰鬥中時回報（每 1 秒）。中控指定的「回報者」（隊長）戰鬥中自己多同步一次拿王的血量；其他人讀頁面上的資料，不另外打遊戲
+    // 實機（2026-11-28 拉圖斯）：enemies[i].damageBy＝{characterId: 累計傷害}；黑球也在 enemies（maxHp 20000）；character.diseases 留著過期的紀錄（看 until）；
+    // 結束後 character.raidReport＝{result, at, total, rows:[{name, damage, deaths}], code}
     let raidLiveBusy = false, raidWas = false, raidLastPush = 0, raidReporter = false, raidViewAt = 0;
+    let raidSrvOff = 0, raidSrvSeen = 0, raidBattleCode = '', raidEndAt = 0, raidRepSent = '', raidRepSyncAt = 0;
+    const raidNum = x => (Number.isFinite(Number(x)) ? Number(x) : 0);
+    // 遊戲伺服器時間：頁面每次同步完寫進 state.serverTime，看到新值時記下跟本機的差
+    function raidSrvNow(st) { const t = raidNum(st && st.serverTime); if (t && t !== raidSrvSeen) { raidSrvSeen = t; raidSrvOff = t - Date.now(); } return Date.now() + raidSrvOff; }
+    // 只送還沒結束的異常（until > 伺服器時間），附剩幾秒；舊格式 {seal: until} 也收
+    function raidAils(d, srvNow) {
+      const out = {};
+      for (const [k, v] of Object.entries(d && typeof d === 'object' ? d : {}).slice(0, 20)) {
+        const until = raidNum(v && typeof v === 'object' ? v.until : v); if (!(until > srvNow) || !/^[\w-]{1,30}$/.test(k)) continue;
+        out[k] = { until, left: Math.ceil((until - srvNow) / 1000), ...(v && v.raid ? { raid: true } : {}) };
+      }
+      return out;
+    }
+    const raidDmgBy = o => Object.fromEntries(Object.entries(o && typeof o === 'object' ? o : {}).slice(0, 30).filter(([k, v]) => /^[\w-]{1,60}$/.test(k) && Number.isFinite(Number(v))).map(([k, v]) => [k, Math.round(Number(v))]));
+    function raidReportOf(rep) {
+      if (!rep || typeof rep !== 'object') return null;
+      const at = raidNum(rep.at);
+      return { result: String(rep.result || '').slice(0, 20), at: at && at < 1e12 ? at * 1000 : at, total: raidNum(rep.total), code: rep.code ? String(rep.code).slice(0, 40) : '',
+        rows: (Array.isArray(rep.rows) ? rep.rows : []).slice(0, 12).map(r => r && { name: String(r.name || '').slice(0, 30), damage: raidNum(r.damage), deaths: raidNum(r.deaths), ...(r.characterId || r.id ? { id: String(r.characterId || r.id).slice(0, 60) } : {}) }).filter(Boolean) };
+    }
+    // 結束後回報一次 raidReport（同一份只送一次；太舊的不送）
+    function raidPushReport(charId, rep, srvNow) {
+      const r = raidReportOf(rep); if (!r || !r.at) return false;
+      const key = (r.code || '') + '|' + r.at; if (key === raidRepSent) return true;
+      if (srvNow - r.at > 30 * 60e3) return false;
+      raidRepSent = key; hub('POST', '/api/raid/report', { charId, report: r }).catch(() => { raidRepSent = ''; });
+      return true;
+    }
     async function raidLiveTick() {
       if (raidLiveBusy || passive()) return;
       let st = readState(); const c = st && st.character; if (!c) return;
-      const inRaid = !!(st.raidBattle || st.raidTeam);
+      const inRaid = !!(st.raidBattle || st.raidTeam), now = Date.now();
+      if (st.raidBattle) { raidBattleCode = st.raidBattle.code || 'x'; raidEndAt = 0; } else if (raidBattleCode) { raidBattleCode = ''; raidEndAt = now; }
+      const ending = raidEndAt && now - raidEndAt < 60000;
+      if (c.raidReport && raidPushReport(c.id, c.raidReport, raidSrvNow(st))) raidEndAt = 0;
+      else if (ending && raidReporter && now - raidRepSyncAt > 5000) { // 剛打完、頁面上還沒有報告：回報者自己讀一次
+        raidRepSyncAt = now; game({ type: 'sync', characterId: c.id }).then(j => { if (j && j.character && j.character.raidReport && raidPushReport(c.id, j.character.raidReport, raidNum(j.serverTime) || raidSrvNow(st))) raidEndAt = 0; }).catch(() => {});
+      }
       if (!inRaid && !raidWas) return;
-      const now = Date.now();
       if (!st.raidBattle && inRaid && now - raidLastPush < 5000) return; // 還沒開打：5 秒一次就好
       raidLiveBusy = true;
       try {
         let enemies = st.enemies;
-        if (st.raidBattle && raidReporter) { const j = await game({ type: 'sync', characterId: c.id }).catch(() => null); if (j) { if (j.raidBattle !== undefined) st = { ...st, raidBattle: j.raidBattle, raidTeam: j.raidTeam }; if (j.enemies) enemies = j.enemies; if (j.character) st = { ...st, character: { ...c, ...j.character } }; } }
-        const ch = st.character, b = st.raidBattle;
+        if (st.raidBattle && raidReporter) { const j = await game({ type: 'sync', characterId: c.id }).catch(() => null); if (j) { if (j.raidBattle !== undefined) st = { ...st, raidBattle: j.raidBattle, raidTeam: j.raidTeam }; if (j.enemies) enemies = j.enemies; if (j.character) st = { ...st, character: { ...c, ...j.character } }; if (j.serverTime) st = { ...st, serverTime: j.serverTime }; } }
+        const ch = st.character, b = st.raidBattle, srvNow = raidSrvNow(st);
+        // 回報者送全部 enemies（王＋黑球，王排第一個）和每隻的 damageBy；其他人只送血量
+        const en = b ? (Array.isArray(enemies) ? enemies : []).filter(e => e && e.id).slice().sort((x, y) => raidNum(y.maxHp) - raidNum(x.maxHp)).slice(0, 24)
+          .map(e => ({ id: e.id, hp: e.hp, maxHp: e.maxHp, ...(e.spawnId ? { spawnId: String(e.spawnId).slice(0, 40) } : {}), ...(raidReporter && e.damageBy ? { damageBy: raidDmgBy(e.damageBy) } : {}) })) : [];
         const r = await hub('POST', '/api/raid/live', { charId: c.id, inRaid: !!(st.raidBattle || st.raidTeam), team: st.raidTeam || null,
-          battle: b ? { code: b.code, raid: b.raid, phase: b.phase, prepUntil: b.prepUntil, deadline: b.deadline, surrender: b.surrender || [], bloodAt: b.bloodAt, invulnerable: !!b.invulnerable, orbs: b.orbs, windupAt: b.windupAt, immuneUntil: b.immuneUntil, arms: b.arms, minions: b.minions, guardUntil: b.guardUntil } : null,
-          enemies: b ? (Array.isArray(enemies) ? enemies : []).slice(0, 12).map(e => e && { id: e.id, hp: e.hp, maxHp: e.maxHp }).filter(Boolean) : [],
-          me: { hp: ch.hp, maxhp: ch.maxhp || ch.maxHp, mp: ch.mp, maxmp: ch.maxmp || ch.maxMp, diseases: ch.diseases || null, lockUntil: (st.raid && st.raid.lockUntil) || ch.lockUntil || 0, map: ch.map } }).catch(() => null);
+          battle: b ? { code: b.code, raid: b.raid, phase: b.phase, prepUntil: b.prepUntil, deadline: b.deadline, surrender: b.surrender || [], bloodAt: b.bloodAt, invulnerable: !!b.invulnerable, orbs: b.orbs, windupAt: b.windupAt, immuneUntil: b.immuneUntil, arms: b.arms, minions: b.minions, guardUntil: b.guardUntil, startAt: b.startAt } : null,
+          enemies: en, srvNow,
+          me: { hp: ch.hp, maxhp: ch.maxhp || ch.maxHp, mp: ch.mp, maxmp: ch.maxmp || ch.maxMp, diseases: raidAils(ch.diseases, srvNow), lockUntil: (st.raid && st.raid.lockUntil) || ch.lockUntil || 0, map: ch.map } }).catch(() => null);
         raidReporter = !!(r && r.reporter);
         raidLastPush = now; raidWas = inRaid;
         // 還沒開打時，回報者每 5 秒讀一次隊伍（誰加入了、誰準備好了），中控的隊伍表才會跟遊戲一樣

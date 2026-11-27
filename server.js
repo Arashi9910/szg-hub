@@ -668,6 +668,38 @@ const CFG_STATS = ['str', 'dex', 'int', 'luk'], CFG_SETTINGS = ['autoSkills', 'a
 const int = (v, lo, hi) => { const n = Math.floor(Number(v)); return Number.isFinite(n) && n >= lo && n <= hi ? n : null; };
 const skillId = v => (typeof v === 'string' || typeof v === 'number') && /^[\w-]{1,40}$/.test(String(v)) ? String(v) : null;
 const raidViews = {}, raidLive = {}; // 副本：角色 → 最近一次的隊伍資料／即時戰況（只放記憶體）
+// 副本戰況的時間序列（只放記憶體、只留目前這一場）：回報者每秒一筆 [時間, 王血量, 王的 damageBy 總和, 黑球數]，最多 25 分鐘；
+// 黑球出現的時間（估下一次）；最後一份結算（character.raidReport）
+const RAID_SERIES_MAX = 25 * 60;
+let raidSeries = null, raidLastReport = null;
+function raidSeriesAdd(e) {
+  const b = e.battle, en = Array.isArray(e.enemies) ? e.enemies : []; if (!b || !b.code || !en.length) return;
+  const boss = en.reduce((m, x) => (x && Number(x.maxHp) > Number((m || {}).maxHp || 0) ? x : m), null); if (!boss) return;
+  const now = Date.now(), dmg = Object.values(boss.damageBy || {}).reduce((t, v) => t + (Number(v) || 0), 0);
+  const orbs = Number.isFinite(Number(b.orbs)) && Number(b.orbs) > 0 ? Number(b.orbs) : en.filter(x => x && x !== boss && Number(x.maxHp) > 0 && Number(x.maxHp) < Number(boss.maxHp) / 50).length;
+  if (!raidSeries || raidSeries.code !== b.code) raidSeries = { code: b.code, raid: b.raid, boss: boss.id, maxHp: Number(boss.maxHp) || 0, startAt: now, points: [], orbWaves: [], sealAt: [] };
+  const S = raidSeries, last = S.points[S.points.length - 1], inv = !!b.invulnerable || orbs > 0;
+  if (inv && !S.inv) S.orbWaves.push(now); // 黑球（無敵）開始
+  S.inv = inv; S.maxHp = Number(boss.maxHp) || S.maxHp;
+  const pt = [now, Math.round(Number(boss.hp) || 0), Math.round(dmg), orbs];
+  if (last && now - last[0] < 900) S.points[S.points.length - 1] = pt; else S.points.push(pt); // 一秒一筆
+  if (S.points.length > RAID_SERIES_MAX) S.points.splice(0, S.points.length - RAID_SERIES_MAX);
+  if (S.orbWaves.length > 30) S.orbWaves.splice(0, S.orbWaves.length - 30);
+}
+// 全隊封印（黑球沒清完）：回報裡有一半以上的隊員同時被封印就記一次
+function raidSealCheck(code) {
+  const S = raidSeries; if (!S || S.code !== code) return;
+  const now = Date.now(), mem = Object.values(raidLive).filter(v => v.battle && v.battle.code === code && now - v.at < 5000);
+  const sealed = mem.filter(v => v.me && v.me.diseases && v.me.diseases.seal).length, on = mem.length >= 2 && sealed * 2 >= mem.length;
+  if (on && !S.sealOn) { S.sealAt.push(now); if (S.sealAt.length > 30) S.sealAt.shift(); }
+  S.sealOn = on;
+}
+const raidNumOr0 = v => (Number.isFinite(Number(v)) ? Number(v) : 0);
+function cleanRaidReport(r) {
+  if (!r || typeof r !== 'object') return null;
+  return { result: ['clear', 'fail', 'timeout'].includes(r.result) ? r.result : String(r.result || '').slice(0, 20), at: raidNumOr0(r.at), total: raidNumOr0(r.total), code: String(r.code || '').slice(0, 40),
+    rows: (Array.isArray(r.rows) ? r.rows : []).slice(0, 12).filter(x => x && typeof x === 'object').map(x => ({ name: String(x.name || '').slice(0, 30), damage: raidNumOr0(x.damage), deaths: raidNumOr0(x.deaths), ...(x.id ? { id: String(x.id).slice(0, 60) } : {}) })) };
+}
 // ---- 副本（v0.77）：指令白名單 ----
 const RAID_KINDS = ['papulatus', 'zakum'];
 function cleanRaidCmd(c) {
@@ -1630,7 +1662,10 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith('/api/raid')) {
       if (req.method === 'GET' && url.pathname === '/api/raid') {
         const now = Date.now(), fresh = (o, ms) => Object.fromEntries(Object.entries(o).filter(([, v]) => now - v.at < ms));
-        return send(res, 200, { now, plan: db.settings.raid || {}, views: fresh(raidViews, 30 * 60e3), live: fresh(raidLive, 15000) });
+        // 時間序列：?since=時間 只回那之後的點（面板每秒讀，自己接起來）
+        const since = Number(url.searchParams.get('since')) || 0, S = raidSeries;
+        const series = S ? { code: S.code, raid: S.raid, boss: S.boss, maxHp: S.maxHp, startAt: S.startAt, n: S.points.length, since, points: since ? S.points.filter(p => p[0] > since) : S.points, orbWaves: S.orbWaves, sealAt: S.sealAt } : null;
+        return send(res, 200, { now, plan: db.settings.raid || {}, views: fresh(raidViews, 30 * 60e3), live: fresh(raidLive, 15000), series, report: raidLastReport });
       }
       if (req.method === 'POST' && url.pathname === '/api/raid/view') {
         const e = JSON.parse((await readBody(req)) || '{}'); if (!e.charId) return send(res, 400, { error: 'charId' });
@@ -1639,11 +1674,19 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.method === 'POST' && url.pathname === '/api/raid/live') {
         const e = JSON.parse((await readBody(req)) || '{}'); if (!e.charId) return send(res, 400, { error: 'charId' });
-        if (e.inRaid) raidLive[e.charId] = { at: Date.now(), team: e.team, battle: e.battle, enemies: e.enemies || [], me: e.me || {} }; else delete raidLive[e.charId];
+        if (e.inRaid) raidLive[e.charId] = { at: Date.now(), team: e.team, battle: e.battle, enemies: (Array.isArray(e.enemies) ? e.enemies : []).slice(0, 24), me: e.me || {} }; else delete raidLive[e.charId];
         // 回報者：計畫裡的隊長；隊長沒在回報就由第一個在副本裡的隊員負責（戰鬥中多同步一次拿王的血量）
         const plan = db.settings.raid || {}, inLive = id => raidLive[id] && Date.now() - raidLive[id].at < 5000;
         const rep = inLive(plan.leader) ? plan.leader : (plan.members || []).find(inLive) || e.charId;
+        if (e.inRaid && e.battle && rep === e.charId) raidSeriesAdd(e);
+        if (e.inRaid && e.battle) raidSealCheck(e.battle.code);
         return send(res, 200, { ok: true, reporter: rep === e.charId });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/raid/report') {
+        const e = JSON.parse((await readBody(req)) || '{}'); const r = cleanRaidReport(e.report); if (!e.charId || !r) return send(res, 400, { error: 'report' });
+        // 同一場（代碼＋時間）每隻都會送一次，留最新的那份
+        if (!raidLastReport || r.at >= raidLastReport.report.at) raidLastReport = { at: Date.now(), charId: e.charId, report: r };
+        return send(res, 200, { ok: true });
       }
       if (req.method === 'POST' && url.pathname === '/api/raid/act') {
         const e = JSON.parse((await readBody(req)) || '{}');
