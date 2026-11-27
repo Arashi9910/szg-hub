@@ -335,17 +335,67 @@ const strip = c => { const { _simAt, _boss, _stall, pendingHits, ...rest } = c; 
 // 回應帶 raid＝{team, battle, raid}；主控台 state.raidTeam、state.raidBattle；王的血量在 enemies）
 const raidTeams = {}; let raidSeq = 0;
 const raidTeamOf = c => Object.values(raidTeams).find(t => t.members.includes(c.id));
-const RAID_BOSS = { papulatus: { id: 'mPapulatus', hp: 2000000 }, zakum: { id: 'mZakum', hp: 3000000 } };
+const RAID_BOSS = { papulatus: { id: 'gms8500001', hp: 2000000 }, zakum: { id: 'mZakum', hp: 3000000 } };
+// 實機（2026-11-28 第一場拉圖斯）：王持續回血、約每 100～120 秒出 15 顆黑球（enemies 裡 maxHp 20000，在場時 invulnerable、orbs＝剩幾顆），
+// 黑球沒清完會自己消失 → 全隊 diseases.seal（raid:true）約 30 秒；diseases 會留過期的紀錄；enemies[i].damageBy＝{characterId: 累計傷害}；
+// 結束後 character.raidReport＝{result:'clear'|'fail'|'timeout', at, total, rows:[{name, damage, deaths}], code}
+// 測試可調（環境變數或 /__mock/raid?dps=&regen=&orbs=now&end=fail）：預設回血小一點，測試才打得完
+const raidKnobs = {};
+const RK = (k, env, def) => raidKnobs[k] != null ? raidKnobs[k] : Number(process.env[env] != null && process.env[env] !== '' ? process.env[env] : def);
+const RAID_ORB_HP = 20000, RAID_ORB_N = 15;
+const raidZero = () => (process.env.MOCK_RAID_ZERO || '').split(',').filter(Boolean); // 這幾隻傷害 0（實機 4 隻 0 傷害）
+const sealedNow = (x, now) => !!(x && x.diseases && x.diseases.seal && x.diseases.seal.until > now);
+function raidAilAll(t, kind, ms, now) { for (const id of t.members) { const x = charById(id); if (x) x.diseases = { ...(x.diseases || {}), [kind]: { until: now + ms, raid: true } }; } }
+function raidEnd(t, result, now) {
+  const b = t.battle, dmgBy = { ...b.damageBy }; for (const o of b.orbDmg ? Object.entries(b.orbDmg) : []) dmgBy[o[0]] = (dmgBy[o[0]] || 0) + o[1];
+  const rows = t.members.map(id => ({ name: (charById(id) || {}).name || id, damage: Math.round(dmgBy[id] || 0), deaths: (b.deaths && b.deaths[id]) || 0 }));
+  const report = { result, at: now, total: rows.reduce((s, r) => s + r.damage, 0), rows, code: t.code };
+  for (const id of t.members) { const x = charById(id); if (x) x.raidReport = report; }
+  t.result = result; t.battle = null;
+}
 function raidTick(t) {
   const b = t.battle; if (!b) return;
-  const now = Date.now(), dt = Math.max(0, now - Math.max(b.lastAt, b.prepUntil));
+  const now = Date.now();
+  if (raidKnobs.end) { const r = raidKnobs.end; delete raidKnobs.end; return raidEnd(t, r, now); }
+  if (now >= b.deadline) return raidEnd(t, 'timeout', now);
+  const from = Math.max(b.lastAt, b.prepUntil), dt = Math.max(0, now - from) / 1000;
   b.lastAt = now;
-  if (now > b.prepUntil && !b.invulnerable) b.hp = Math.max(0, b.hp - Math.round(dt / 1000 * b.maxHp * Number(process.env.MOCK_RAID_DPS || 0.05)));
-  if (b.phase === 1 && b.hp <= b.maxHp / 2) { b.phase = 2; b.bloodAt = now + 3000; for (const id of t.members) { const x = charById(id); if (x) x.diseases = { seal: now + 4000 }; } }
-  if (b.hp <= 0) { t.result = 'clear'; t.battle = null; for (const id of t.members) { const x = charById(id); if (x) delete x.diseases; } }
+  if (now <= b.prepUntil) return;
+  const zero = raidZero(), able = t.members.filter(id => !zero.includes(id)), w = id => (id === t.leader ? 2 : 1);
+  const atk = able.filter(id => !sealedNow(charById(id), now)), W = able.reduce((s, id) => s + w(id), 0) || 1, A = atk.reduce((s, id) => s + w(id), 0);
+  // 黑球（只有拉圖斯）
+  const orbMs = RK('orbMs', 'MOCK_RAID_ORB_MS', 110000);
+  if (t.raid === 'papulatus' && orbMs > 0) {
+    if (!b.orbList && (now >= b.nextOrbAt || raidKnobs.orbsNow)) { delete raidKnobs.orbsNow;
+      b.orbList = Array.from({ length: RAID_ORB_N }, (_, i) => ({ hp: RAID_ORB_HP, spawnId: 'orb' + (++b.orbSeq) + '-' + i, damageBy: {} }));
+      b.orbUntil = now + RK('orbLife', 'MOCK_RAID_ORB_LIFE_MS', 20000); b.nextOrbAt = now + orbMs; }
+    if (b.orbList) {
+      let pool = dt * RK('orbKill', 'MOCK_RAID_ORB_KILL', 0.5) * RAID_ORB_HP * (A / W);
+      for (const o of b.orbList) { if (pool <= 0) break; const d = Math.min(o.hp, pool); o.hp -= d; pool -= d;
+        for (const id of atk) { const s = d * w(id) / (A || 1); o.damageBy[id] = Math.round((o.damageBy[id] || 0) + s); b.orbDmg[id] = (b.orbDmg[id] || 0) + s; } }
+      b.orbList = b.orbList.filter(o => o.hp > 0);
+      if (!b.orbList.length) b.orbList = null; // 清完了
+      else if (now >= b.orbUntil) { b.orbList = null; raidAilAll(t, 'seal', RK('sealMs', 'MOCK_RAID_SEAL_MS', 30000), now); } // 沒清完：自己消失、全隊封印
+    }
+  }
+  b.invulnerable = !!b.orbList; b.orbs = b.orbList ? b.orbList.length : 0;
+  // 王：沒有無敵時才吃傷害（封印中的角色不能放技能＝不出傷害）；回血一直都有
+  if (!b.invulnerable && A > 0) {
+    const dmg = Math.min(b.hp, dt * b.maxHp * RK('dps', 'MOCK_RAID_DPS', 0.05) * (A / W));
+    for (const id of atk) b.damageBy[id] = (b.damageBy[id] || 0) + dmg * w(id) / A;
+    b.hp = Math.max(0, b.hp - dmg);
+  }
+  if (b.hp > 0) b.hp = Math.min(b.maxHp, b.hp + dt * b.maxHp * RK('regen', 'MOCK_RAID_REGEN', 0.003));
+  if (b.phase === 1 && b.hp <= b.maxHp / 2) { b.phase = 2; b.bloodAt = now + 3000; raidAilAll(t, 'seal', 4000, now); }
+  if (b.hp <= 0) raidEnd(t, 'clear', now);
+}
+function raidEnemiesOf(t) {
+  const b = t.battle, round = o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v)]));
+  return [{ id: RAID_BOSS[t.raid].id, hp: Math.round(b.hp), maxHp: b.maxHp, spawnId: 'raid', damageBy: round(b.damageBy) },
+    ...(b.orbList || []).map(o => ({ id: 'gms8500003', hp: Math.round(o.hp), maxHp: RAID_ORB_HP, spawnId: o.spawnId, damageBy: round(o.damageBy) }))];
 }
 function raidBattleOf(t) { const b = t && t.battle; return b ? { code: t.code, raid: t.raid, phase: b.phase, prepUntil: b.prepUntil, deadline: b.deadline, surrender: b.surrender, bloodAt: b.bloodAt || 0, invulnerable: !!b.invulnerable, orbs: b.orbs || 0 } : null; }
-const RAID_RULES = { papulatus: { name: '拉圖斯', requireMage: true }, zakum: { name: '殘暴炎魔', requireMage: false } };
+const RAID_RULES = { papulatus: { name: '拉圖斯', requireMage: process.env.MOCK_RAID_NO_MAGE !== '1' }, zakum: { name: '殘暴炎魔', requireMage: false } };
 const isMage = x => /mage|wizard|cleric|priest|magician/i.test(x.job || '');
 function raidLobby(c, kind) {
   const rule = id => ({ id, name: RAID_RULES[id].name, left: 3, requireMage: RAID_RULES[id].requireMage, open: true, minLevel: 10, minMembers: 2, maxMembers: 12, feeMesos: Number(process.env.MOCK_RAID_FEE || 10000000), feePoints: 20, weeklyRuns: 7, minutes: 20 });
@@ -399,7 +449,7 @@ function handle(a, body) {
       for (const x of Object.values(a.chars)) evs = evs.concat(simulate(x, now));
       for (const x of Object.values(a.chars)) if (x.pendingHits && x.pendingHits.length) { evs = evs.concat(x.pendingHits); x.pendingHits = []; }
       const res = { ...sessionView(a, c.id), summary: { events: evs }, tradeEligible: tradeEligible(a, c.id), enemies: enemiesOf(c), bossTimers: {} };
-      { const rt = raidTeamOf(c); if (rt && rt.battle) res.enemies = [{ id: RAID_BOSS[rt.raid].id, hp: rt.battle.hp, maxHp: rt.battle.maxHp, spawnId: 'raid' }]; if (body.raidOnly) res.raid = raidViewOf(c, RAID_BOSS[body.raid] ? body.raid : undefined); }
+      { const rt = raidTeamOf(c); if (rt && rt.battle) res.enemies = raidEnemiesOf(rt); if (body.raidOnly) res.raid = raidViewOf(c, RAID_BOSS[body.raid] ? body.raid : undefined); }
       if (body.tradeOnly) res.trade = null;
       if (body.includeMarket) res.market = marketView(a, c);
       if (body.includeBossRespawns) res.bossRespawns = bossRespawnsOf(c);
@@ -439,7 +489,9 @@ function handle(a, body) {
       for (const id of t.members) { const x = charById(id); if (x.money < fee) fail(`${x.name} 的楓幣不足`); }
       for (const id of t.members) charById(id).money -= fee;
       const now = Date.now(), B = RAID_BOSS[t.raid];
-      t.battle = { phase: 1, prepUntil: now + Number(process.env.MOCK_RAID_PREP_MS || 10000), deadline: now + 20 * 60e3, lastAt: now, hp: B.hp, maxHp: B.hp, surrender: [] };
+      const prepUntil = now + Number(process.env.MOCK_RAID_PREP_MS || 10000);
+      t.battle = { phase: 1, prepUntil, deadline: now + Number(process.env.MOCK_RAID_MINUTES || 20) * 60e3, lastAt: now, hp: B.hp, maxHp: B.hp, surrender: [], damageBy: {}, orbDmg: {}, deaths: {}, orbList: null, orbSeq: 0, nextOrbAt: prepUntil + RK('orbMs', 'MOCK_RAID_ORB_MS', 110000) };
+      for (const id of t.members) { const x = charById(id); if (x) x.diseases = { ...(x.diseases || {}), stun: { until: now - 120000, raid: true } }; } // 實機：diseases 留著過期的紀錄
       return { ...sessionView(a, c.id), raid: raidViewOf(c), summary: { events: [] } };
     }
     case 'raidLeave': {
@@ -447,7 +499,7 @@ function handle(a, body) {
       if (t.leader === c.id) delete raidTeams[t.code]; else t.members = t.members.filter(x => x !== c.id);
       return { ...sessionView(a, c.id), raid: raidViewOf(c), summary: { events: [] } };
     }
-    case 'surrenderRaid': { const t = raidTeamOf(c); if (!t || !t.battle) fail('不在副本戰鬥中'); if (!t.battle.surrender.includes(c.id)) t.battle.surrender.push(c.id); if (t.battle.surrender.length === t.members.length) { t.result = 'surrender'; t.battle = null; } return { ...sessionView(a, c.id), summary: { events: [] } }; }
+    case 'surrenderRaid': { const t = raidTeamOf(c); if (!t || !t.battle) fail('不在副本戰鬥中'); if (!t.battle.surrender.includes(c.id)) t.battle.surrender.push(c.id); if (t.battle.surrender.length === t.members.length) raidEnd(t, 'fail', Date.now()); return { ...sessionView(a, c.id), summary: { events: [] } }; }
     case 'leaveRaid': { const t = raidTeamOf(c); if (!t) fail('不在副本裡'); t.members = t.members.filter(x => x !== c.id); if (!t.members.length || t.leader === c.id) delete raidTeams[t.code]; return { ...sessionView(a, c.id), summary: { events: [] } }; }
     case 'autoSell':
       if (body.map !== c.map) fail('只能設定角色目前所在地圖的自動販售');
@@ -457,7 +509,7 @@ function handle(a, body) {
       c.autoSell.maps[body.map] = { enabled: !!body.config.enabled, itemIds: (body.config.itemIds || []).map(Number), ...(body.config.keepAboveBase ? { keepAboveBase: true } : {}) };
       break;
     // 掛機設定組合 1／2／3（真實遊戲：character.settingsSlot，沒設定過＝1）
-    case 'settingsPreset': { const n = Number(body.slot); if (![1, 2, 3].includes(n)) fail('設定組合只有 1、2、3'); c.settingsSlot = n; (c.presetLog || (c.presetLog = [])).push({ n, map: c.map, auto: c.auto }); break; }
+    case 'settingsPreset': { const n = Number(body.slot); if (![1, 2, 3].includes(n)) fail('設定組合只有 1、2、3'); idlePresetSwitch(c, n); c.settingsSlot = n; (c.presetLog || (c.presetLog = [])).push({ n, map: c.map, auto: c.auto }); break; }
     // 死亡／原地復活（真實遊戲：死亡＝hp <= 0，{type:'revive'}；這裡復活後停止掛機，讓中控要再開始）
     case 'revive': if (c.hp > 0) fail('角色沒有死亡'); c.hp = c.maxhp; c.revives = (c.revives || 0) + 1; addLog(c, '原地復活'); break;
     case 'partyCreate': {
@@ -639,11 +691,72 @@ function handle(a, body) {
       rebuildStacks(c);
       return { ...sessionView(a, c.id), summary: { events: [], guildWarehouse: guildView() } };
     }
-    default: fail('模擬遊戲沒有實作：' + body.type);
+    default: if (idleCfgHandle(c, body)) break; fail('模擬遊戲沒有實作：' + body.type);
   }
   rebuildStacks(c);
   return { ...sessionView(a, c.id), summary: { events: [] } };
 }
+
+// ---------------- 掛機設定（角色抽屜「掛機設定」頁）----------------
+// 照 HANDOFF「2026-11-28 角色掛機設定的真實格式」：supply、partyBuffs、partyHeal／selfHeal、autoBuy…；
+// 三套設定組合各自獨立，sync 只帶目前那套；第一次切到沒用過的那套是空白的
+Object.assign(items, {
+  i2000002: { id: 2000002, name: '白色藥水', type: '消耗', sellPrice: 160 },
+  i2002002: { id: 2002002, name: '戰士藥水', type: '消耗', sellPrice: 250 },
+  i2050004: { id: 2050004, name: '萬能療傷藥', type: '消耗', sellPrice: 200 },
+});
+for (const k of ['i2000002', 'i2002002', 'i2050004']) keyById[items[k].id] = k;
+// 隊友 Buff 技能（遊戲：effect.party、type support）
+MOCK_SKILLS.push({ id: 's1001005', msId: 1001005, name: '群體激勵', job: 'swordman', tier: 1, maxLevel: 10, type: 'support', buffSupported: true, effect: { party: true }, levels: [{}] });
+const IDLE_PRESET_KEYS = ['autoPotion', 'potionThreshold', 'supply', 'autoBuffs', 'partyBuffs', 'partyHeal', 'selfHeal', 'lowHpSkill', 'continuousAttack', 'attackSlots', 'conditionalSkills', 'quickCast', 'autoBuy'];
+const idleBlankSupply = () => ({ buffPotion: { enabled: false, item: null }, buffPotion2: { enabled: false, item: null }, buffPotion3: { enabled: false, item: null }, autoCure: false, onEmpty: 'stop', hpItem: null, mpItem: null, hpPct: 50, mpPct: 30, extra: null });
+function idleBlank() {
+  return { autoPotion: false, potionThreshold: 0.5, supply: idleBlankSupply(), autoBuffs: [], partyBuffs: [{ enabled: false, skill: null }, { enabled: false, skill: null }, { enabled: false, skill: null }],
+    partyHeal: { enabled: false, threshold: 50 }, selfHeal: { enabled: false, threshold: 50 }, lowHpSkill: { enabled: false, threshold: 30, skill: null }, continuousAttack: false, attackSlots: [null], conditionalSkills: [], quickCast: [],
+    autoBuy: { enabled: false, reserve: 0, rules: [] } };
+}
+const idlePresets = {}; // 角色 id → { 1: {...}, 2: {...}, 3: {...} }（不在目前那套的內容；sync 看不到）
+const idleClone = v => JSON.parse(JSON.stringify(v));
+function idleCfgInit(c) {
+  const b = idleBlank();
+  for (const k of IDLE_PRESET_KEYS) if (!(k in c)) c[k] = b[k];
+  c.supply = { ...idleBlankSupply(), hpPct: 60, mpPct: 20, ...c.supply };
+}
+function idlePresetSwitch(c, n) {
+  const cur = Number(c.settingsSlot) || 1; if (cur === n) return;
+  const p = idlePresets[c.id] || (idlePresets[c.id] = {});
+  p[cur] = idleClone(Object.fromEntries(IDLE_PRESET_KEYS.map(k => [k, c[k]])));
+  Object.assign(c, idleClone(p[n] || idleBlank()));
+}
+function idleItemOk(v) { if (v == null) return null; if (typeof v !== 'string' || !items[v]) fail('沒有這個道具：' + v); return v; }
+function idlePct(v, lo = 1, hi = 100) { const n = Number(v); if (!Number.isInteger(n) || n < lo || n > hi) fail(`門檻要在 ${lo}～${hi}`); return n; }
+function idleCfgHandle(c, body) {
+  switch (body.type) {
+    case 'supply': {
+      const s = body.supply; if (!s || typeof s !== 'object') fail('補給設定不正確');
+      for (const k of ['hpItem', 'mpItem']) idleItemOk(s[k]);
+      for (const k of ['buffPotion', 'buffPotion2', 'buffPotion3']) if (s[k]) idleItemOk(s[k].item);
+      idlePct(s.hpPct); idlePct(s.mpPct);
+      c.supply = idleClone(s); if (body.enable) c.autoPotion = true; return true;
+    }
+    case 'partyBuff': {
+      const i = Number(body.slot), cf = body.config || {}; if (![0, 1, 2].includes(i)) fail('隊友 Buff 只有 3 格');
+      if (cf.skill != null) { const sk = MOCK_SKILLS.find(x => x.id === cf.skill); if (!sk || !(sk.effect && sk.effect.party)) fail('這個技能不能給隊友'); if (!c.skills[cf.skill]) fail('還沒學這個技能'); }
+      c.partyBuffs[i] = { enabled: !!cf.enabled, skill: cf.skill == null ? null : cf.skill }; return true;
+    }
+    case 'partyHeal': case 'selfHeal': { const cf = body.config || {}; c[body.type] = { enabled: !!cf.enabled, threshold: idlePct(cf.threshold) }; return true; }
+    case 'lowHpSkill': { const cf = body.config || {}; if (cf.skill != null && !c.skills[cf.skill]) fail('還沒學這個技能'); c.lowHpSkill = { enabled: !!cf.enabled, threshold: idlePct(cf.threshold, 1, 99), skill: cf.skill == null ? null : cf.skill }; return true; }
+    case 'conditionalSkill': { const i = Number(body.slot); if (!Number.isInteger(i) || i < 0) fail('格子不正確'); if (body.skill != null && !c.skills[body.skill]) fail('還沒學這個技能'); c.conditionalSkills[i] = body.skill == null ? null : { skill: body.skill }; return true; }
+    case 'autoBuy': {
+      const cf = body.config || {}, rules = Array.isArray(cf.rules) ? cf.rules : [];
+      for (const r of rules) { idleItemOk(r.item); if (!(r.target > r.below)) fail('買到的數量要比門檻多'); }
+      c.autoBuy = { enabled: !!cf.enabled, reserve: Number(cf.reserve) || 0, rules: rules.map(r => ({ item: r.item, below: Number(r.below), target: Number(r.target) })) }; return true;
+    }
+    default: return false;
+  }
+}
+for (const a of Object.values(accounts)) for (const c of Object.values(a.chars)) idleCfgInit(c);
+{ const c1 = accounts.A1.chars.c1; c1.skills.s1001005 = 1; c1.inventory.i2000002 = 50; c1.inventory.i2002002 = 10; rebuildStacks(c1); }
 
 const MOCK_AVA_GIF = 'R0lGODlhKAAoAIEAAAAAAPrSqjx43CgoPCH5BAEAAAAALAAAAAAoACgAQAiuAAEIHEiwoMGDCBMeDMCwocOHDBVKLAjx4cSLAgVo3MixI0aJAgaIHBlypEgBHydWdJhS4cqXLQ92nMkxpkyaNG0eNCkSAM8BOiVaDIrwJUSiAo1WRApAKUumOHNCjepxKtWNTAFcrZn1p0+eWQV69Rq27EeYZp0GCKs2ItK2Dd/CXStXLVunZpuuNLsVq9WtWftqDCyYcF/DgP9eDTsWLGOwZLtCdizZ5FfLEwMCADs=';
 // ---------------- 頁面 ----------------
@@ -730,6 +843,22 @@ http.createServer((req, res) => {
   if (url.pathname === '/api/catalog') return send(res, 200, catalog);
   // 測試控制：查看／重設狀態
   if (url.pathname === '/__mock/state') return send(res, 200, { accounts, guild });
+  // 測試控制：/__mock/guild?key=i2000000&qty=50 設定公倉某樣道具的數量（0＝拿掉）；&mesos=…&cash=… 設定公倉楓幣／點數
+  if (url.pathname === '/__mock/guild') {
+    const k = url.searchParams.get('key');
+    if (k) { const q = Number(url.searchParams.get('qty') || 0); if (q > 0) guild.items[k] = q; else delete guild.items[k]; }
+    if (url.searchParams.has('mesos')) guild.mesos = Number(url.searchParams.get('mesos')) || 0;
+    if (url.searchParams.has('cash')) guild.cashPoints = Number(url.searchParams.get('cash')) || 0;
+    return send(res, 200, { ok: true, guild: guildView() });
+  }
+  // 測試控制：/__mock/setitem?acct=A1&char=c1&key=i2000000&qty=3 把角色背包某樣道具設成指定數量（模擬用掉藥水）
+  if (url.pathname === '/__mock/setitem') {
+    const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
+    if (!c) return send(res, 404, { error: 'no char' });
+    const k = url.searchParams.get('key'), q = Number(url.searchParams.get('qty') || 0);
+    if (q > 0) c.inventory[k] = q; else delete c.inventory[k];
+    rebuildStacks(c); return send(res, 200, { ok: true });
+  }
   // 測試控制：/__mock/session?acct=A1&char=c1&money=120000&activeMs=7200000&earned=9000000 設定本次掛機報告與累計賺得
   if (url.pathname === '/__mock/session') {
     const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
@@ -803,6 +932,13 @@ http.createServer((req, res) => {
     c.deaths = (c.deaths || 0) + 1; c.deathAt = now;
     if (url.searchParams.get('gamerevive') === '1') { c.autoReviveUsed = (c.autoReviveUsed || 0) + 1; addLog(c, '自動復活'); return send(res, 200, { ok: true }); }
     c.hp = 0; c.auto = false; return send(res, 200, { ok: true });
+  }
+  // 測試控制：/__mock/raid?dps=0.01&regen=0.02（每秒佔王血量的比例）&orbs=now（馬上出黑球）&orbKill=0（黑球打不動）&end=fail|timeout|clear；不帶參數只回目前狀態
+  if (url.pathname === '/__mock/raid') {
+    for (const k of ['dps', 'regen', 'orbKill', 'orbLife', 'orbMs', 'sealMs']) { const v = url.searchParams.get(k); if (v !== null) { if (v === '') delete raidKnobs[k]; else raidKnobs[k] = Number(v); } }
+    if (url.searchParams.get('orbs') === 'now') raidKnobs.orbsNow = true;
+    if (url.searchParams.get('end')) raidKnobs.end = url.searchParams.get('end');
+    return send(res, 200, { knobs: raidKnobs, teams: Object.values(raidTeams).map(t => ({ code: t.code, raid: t.raid, result: t.result || null, battle: t.battle ? { hp: Math.round(t.battle.hp), orbs: t.battle.orbs || 0, damageBy: t.battle.damageBy } : null })) });
   }
   if (url.pathname === '/__mock/luck') { scrollQueue = (url.searchParams.get('seq') || '').split(',').filter(x => x !== '').map(Number); return send(res, 200, { ok: true, n: scrollQueue.length }); }
   if (url.pathname === '/api/game' && req.method === 'POST') {
