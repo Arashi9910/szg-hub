@@ -386,7 +386,8 @@ ${fixed}
         if (!p.alive) return;
         const mod = viewMod.mod;
         const full = needFull || Date.now() - lastFull > FULL_SYNC_MS;
-        const payload = { type: 'sync', characterId: cur || undefined };
+        // includeSocial:false：真實頁面沒開聊天時也不拿聊天資料（實測一次少 18 KB，2026-11-28）
+        const payload = { type: 'sync', characterId: cur || undefined, includeSocial: false };
         if (mod) { payload.acceptViewDelta = 1; payload.viewAlbum = 1; if (prev && !full) { try { payload.viewCache = mod.viewCacheHint(prev); } catch (_) {} } }
         if (full) payload.fullSync = true;
         let r, j = null;

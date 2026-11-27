@@ -9,6 +9,7 @@
     "dest.js",
     "agent.js",
     "bg.js",
+    "direct.js",
     "dashboard.html",
     "m.html",
     "szg-hub.user.js",
