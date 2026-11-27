@@ -9,7 +9,6 @@
 import asyncio, json, os, shutil, subprocess, sys, time, urllib.request
 from playwright.async_api import async_playwright
 
-os.environ.setdefault('SZG_LOBBY_URL', 'http://127.0.0.1:9')
 os.environ.setdefault('SZG_LAUNCHER', 'test')  # 測試直接管中控程序（不要 Mac／Linux 的看門程序）  # 測試絕對不能連到真的組隊大廳
 REPO = os.environ.get('SZG_REPO', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # 預設：tests 的上一層
 HUB_DIR = '/tmp/hub'
