@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-28（v0.80.0）
+最後更新：2026-11-28（v0.80.1）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -340,6 +340,10 @@
   - 戰前設定指令：supply {supply:{hpItem,mpItem,hpPct,mpPct,onEmpty,extra:{stat,item,pct}|null,bombFloor,buffPotion{enabled,item},buffPotion2,buffPotion3,…}, enable:true}（要整份送，先讀 c.supply 再改）；attackSlot {slot, skill, targets:[怪 id], map, continuous(slot0)}（每張圖各自一組）；conditionalSkill {slot, skill}（技能有 castCondition）；partyBuff {slot 0..2, config:{enabled, skill}}（effect.party、type support）；partyHeal／selfHeal {config:{enabled, threshold 1..100}}（群體治癒門檻＝祭司補血％）；lowHpSkill {config:{enabled, threshold 1..99, skill}}；quickCast、castSkill、useItem {item}。
 
 - v0.77.0（副本第 1 階段：組隊＋即時戰況；**戰前設定還沒做**）：settings.raid {kind papulatus|zakum, leader, members[≤5]}。server cleanRaidCmd 白名單（sync{raid}／raidCreate{raid,password}／raidJoin{code,password}／raidReady{ready}／raidStart{memberIds}／raidKick／raidLeave／surrenderRaid／leaveRaid），走 idle action 'raid'（minAgent 0.77.0）。agent raidGame()：payload 加 raidOnly、includeSocial/Leisure false、requestId，503／忙碌同 requestId 重送 3 次；做完 POST /api/raid/view {charId, view:{raid, team:{code,isLeader,members[id,name,job,lv,leader,ready,online,ok,issues,left]}, notice, held, battle}}。即時：agent 每秒 raidLiveTick（passive 不做）：readState() 有 raidTeam／raidBattle 才回報 POST /api/raid/live {inRaid, team, battle:{code,raid,phase,prepUntil,deadline,surrender,bloodAt,invulnerable,orbs,windupAt,immuneUntil,arms,minions,guardUntil}, enemies[id,hp,maxHp], me{hp,maxhp,mp,maxmp,diseases,lockUntil,map}}；沒開打 5 秒一次；server 回 reporter（計畫隊長在回報就是隊長，不然第一個隊員）→ 回報者戰鬥中自己多 sync 一次拿 enemies。server 只放記憶體 raidViews／raidLive（live 15 秒過期）。面板「副本」分頁 renderRaid 每秒讀 /api/raid。mock：raidTeams、raidTick（準備時間後王掉血、半血第 2 階段＋全隊封印 4 秒、0 血結束），sessionView 帶 raidTeam／raidBattle，sync 帶 enemies（王）、raidOnly 帶 raid。測試 e2e_raid.py。**沒在真實遊戲試過**：真實的 sessionStorage 裡 state 有沒有 raidTeam／raidBattle、王的血量是不是在 enemies，要等使用者第一次實際打。下一步：戰前設定（supply、attackSlot（副本地圖）、conditionalSkill、partyBuff、partyHeal／selfHeal、lowHpSkill）
+- v0.80.1（2026-11-28；2 個 szg-dev 子任務並行）：
+  - 戰前檢查攻擊格：遊戲 game.js openAttackSlot 查證，技能 1＝character.active，attackSlots[1..] 的 {skill,targets,map} 選填，targets 只在那張 map 有效。raidPrepRow 改成有 active 就 ok，txt「1. 技能、2. …」。
+  - 攻擊紀錄：agent raidHitsIngest 從隊長 summary.events 收 attack/burn/poison（跟 dpsIngest 一樣去重），每 3 秒 POST /api/raid/hits（一次最多 600）；server raidHitsAdd/Sum/Diag，GET /api/raid 帶 hits，戰後紀錄每隻多出手／未命中率／主要技能＋0 傷害診斷。未命中＝該段 damage 0（照遊戲畫面判斷）。
+  - **待真實副本確認**：隊長的 summary.events 是否含其他帳號角色的事件（若否，別帳號會被誤判沒出手）；事件的怪物 id 是否對得上 enemies；未命中判斷。
 - v0.80.0（2026-11-28；副本 4 項，4 個 szg-dev 子任務並行，先在 server.js／dashboard.html 預留「副本 A～D」區塊（server 函式＋API 各一組、面板 raidPrepDraw/raidSupplyDraw/raidAutoDraw/raidHistDraw 由 raidExtDraw 每秒呼叫），合併只在 raidSavePlan 和 mockgame /__mock/raid 各衝突一行）：
   - 共用修正：面板 `raidSavePlan` 保留 settings.raid 其他欄位；server `/api/settings` 存 raid 改成合併（以前存隊長／隊員會把 prep、supply、auto 蓋掉）。
   - **A 戰前檢查**：GET/POST /api/raid/prep（settings.raid.prep 門檻，預設藍藥 ≥100、HP 藥 ≥100、萬能療傷藥 i2050004 ≥5、MP 40%、HP 50%、autoCure、autoPotion）。每隻檢查 idleCfg：藥水數量／%、autoCure、自動喝水、partyBuff、補師 partyHeal（職業 id 正規式）、attackSlots（在副本裡比對 me.map）；讀不到寫「讀不到」。一鍵套用送整份 cfg supply（＋原本關的補 setting autoPotion false）；autoBuy 不在可套用項目。未實機：attackSlots 每格欄位、補師判斷。
