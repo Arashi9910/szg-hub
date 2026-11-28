@@ -834,6 +834,72 @@ function raidSealCheck(code) {
 const raidNumOr0 = v => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 // ==== 副本 A 戰前檢查＋一鍵套用（伺服器函式）：A 子任務的程式放在這行下面 ====
+// 戰前檢查：副本計畫（settings.raid 的 leader＋members）每隻的補給、萬能療傷藥、自動解除異常、自動喝水、隊友 Buff、補血、攻擊格，
+// 照 settings.raid.prep 的門檻標 bad（紅）／warn（黃）。資料來源是 agent 回報的 char.idleCfg、char.prog（看不到的寫「讀不到」，不判斷）
+// 第一場實機拉圖斯失敗的原因（HANDOFF「2026-11-28 第一場實機拉圖斯」）：藍藥＋mpPct 20% MP 不夠、沒人帶萬能療傷藥、autoCure 沒勾、4 隻傷害 0
+const RAID_PREP_DEF = { mpMin: 100, hpMin: 100, cureMin: 5, mpPct: 40, hpPct: 50, autoCure: true, autoPotion: true };
+const RAID_PREP_CURE = 'i2050004', RAID_PREP_HEALER = /cleric|priest|bishop/i;
+function cleanRaidPrep(p) {
+  const o = { ...RAID_PREP_DEF }, src = p && typeof p === 'object' ? p : {};
+  for (const [k, lo, hi] of [['mpMin', 0, 30000], ['hpMin', 0, 30000], ['cureMin', 0, 30000], ['mpPct', 1, 100], ['hpPct', 1, 100]]) if (k in src) { const v = int(src[k], lo, hi); if (v != null) o[k] = v; }
+  for (const k of ['autoCure', 'autoPotion']) if (k in src) o[k] = !!src[k];
+  return o;
+}
+const raidPrepOf = () => cleanRaidPrep((db.settings.raid || {}).prep);
+function raidPrepTab(id) {
+  const s = db.chars[id];
+  const code = (s && s.playerCode) || (Object.values(db.chars).find(x => x.playerCode && (x.accountChars || []).some(c => c.id === id)) || {}).playerCode;
+  const t = tabOf(code, id); return !t ? '' : t.bg ? 'bg' : 'tab';
+}
+function raidPrepRow(id, P, now) {
+  const s = db.chars[id], c = s && s.char, ic = c && c.idleCfg, pr = c && c.prog, issues = [];
+  const add = (lv, k, txt) => issues.push({ lv, k, txt });
+  const row = { id, name: charName(id), lv: c ? c.lv : null, job: c ? c.job : '', jobName: c ? c.jobName || c.job : '', at: s ? s.receivedAt || 0 : 0, tab: raidPrepTab(id), ic: !!ic, issues };
+  if (!row.tab) add('bad', 'tab', '沒有遊戲分頁或直連（指令送不到、資料不會更新）');
+  if (!c) { add('warn', 'data', '中控還沒有這隻的資料'); return row; }
+  if (row.at && now - row.at > 5 * 60e3) add('warn', 'stale', `資料是 ${Math.round((now - row.at) / 60e3)} 分鐘前的`);
+  row.autoPotion = pr && pr.auto ? !!pr.auto.autoPotion : null;
+  if (row.autoPotion === false && P.autoPotion) add('bad', 'autoPotion', '自動喝水沒開');
+  if (!ic) { add('warn', 'ic', '讀不到掛機設定（遊戲分頁要換上新版中控腳本）'); return row; }
+  const sp = ic.supply || {}, qty = k => { const x = (ic.items || []).find(i => i.id === k); return x ? Number(x.qty) || 0 : 0; };
+  const nm = k => { const x = (ic.items || []).find(i => i.id === k); return (x && x.name) || k; };
+  row.slot = ic.slot || 1;
+  // 一鍵套用要整份送的補給（agent 送之前還會再跟遊戲裡目前那份合併）
+  row.supply = { hpItem: sp.hpItem || null, mpItem: sp.mpItem || null, hpPct: Number(sp.hpPct) || null, mpPct: Number(sp.mpPct) || null, onEmpty: sp.onEmpty === 'continue' ? 'continue' : 'stop', autoCure: !!sp.autoCure,
+    ...Object.fromEntries(['buffPotion', 'buffPotion2', 'buffPotion3'].map(k => [k, { enabled: !!(sp[k] && sp[k].enabled), item: (sp[k] && sp[k].item) || null }])) };
+  for (const [k, item, pct, min, mPct, label] of [['mp', sp.mpItem, sp.mpPct, P.mpMin, P.mpPct, 'MP'], ['hp', sp.hpItem, sp.hpPct, P.hpMin, P.hpPct, 'HP']]) {
+    const q = item ? qty(item) : 0; row[k] = { item: item || null, name: item ? nm(item) : '', qty: q, pct: Number(pct) || 0 };
+    if (!item) add('bad', k + 'Item', `沒設 ${label} 藥水`);
+    else if (!q) add('bad', k + 'Qty', `${label} 藥水（${nm(item)}）背包沒有`);
+    else if (q < min) add('warn', k + 'Qty', `${label} 藥水 ${nm(item)} 只有 ${q} 個（建議 ≥ ${min}）`);
+    if (item && Number(pct) < mPct) add('warn', k + 'Pct', `${label} ${Number(pct) || 0}% 才喝（建議 ≥ ${mPct}%）`);
+  }
+  row.cure = qty(RAID_PREP_CURE); row.autoCure = !!sp.autoCure;
+  if (P.autoCure && !row.autoCure) add('bad', 'autoCure', '自動解除異常沒勾（中封印不會吃萬能療傷藥）');
+  if (!row.cure) add('bad', 'cure', '沒有萬能療傷藥');
+  else if (row.cure < P.cureMin) add('warn', 'cure', `萬能療傷藥只有 ${row.cure} 個（建議 ≥ ${P.cureMin}）`);
+  const skName = k => (((pr && pr.skills) || []).find(x => x.id === k) || {}).name || k;
+  row.partyBuffs = (ic.partyBuffs || []).filter(x => x && x.enabled && x.skill).map(x => skName(x.skill));
+  row.healer = RAID_PREP_HEALER.test(String(c.job || ''));
+  row.partyHeal = ic.partyHeal || null; row.selfHeal = ic.selfHeal || null;
+  if (row.healer && !(row.partyHeal && row.partyHeal.enabled)) add('warn', 'heal', '補師沒開隊友補血（群體治癒）');
+  row.autoBuy = !!(ic.autoBuy && ic.autoBuy.enabled);
+  // 攻擊格（attackSlots，每張地圖各自一組）：sync 裡只有目前地圖那組；在副本裡才知道副本地圖
+  const slots = (Array.isArray(ic.attackSlots) ? ic.attackSlots : []).filter(x => x && typeof x === 'object');
+  const L = raidLive[id], inMap = L && now - L.at < 15000 && L.battle && L.me && L.me.map ? String(L.me.map) : '';
+  const maps = [...new Set(slots.map(x => x.map).filter(x => x != null && x !== '').map(String))];
+  if (!slots.length) { row.attack = { state: 'none', txt: '攻擊格沒設定' + (pr && pr.active ? `（主動技能 ${skName(pr.active)}）` : '') }; add('warn', 'attack', '攻擊格沒設定（攻擊格跟地圖有關；實機有 4 隻傷害 0）'); }
+  else {
+    row.attack = { state: 'ok', txt: `${slots.length} 格：${slots.map(x => x.skill ? skName(String(x.skill)) : '？').join('、')}`, maps };
+    if (inMap && maps.length && !maps.includes(inMap)) { row.attack.state = 'map'; add('warn', 'attack', `攻擊格是別張地圖的（副本地圖 ${inMap} 沒設定）`); }
+  }
+  return row;
+}
+function raidPrepRows() {
+  const p = db.settings.raid || {}, P = raidPrepOf(), now = Date.now();
+  const ids = [p.leader, ...(p.members || []).filter(x => x && x !== p.leader)].filter(Boolean).slice(0, 12);
+  return { now, prep: P, def: RAID_PREP_DEF, leader: p.leader || '', rows: ids.map(id => raidPrepRow(id, P, now)) };
+}
 
 // ==== 副本 A 戰前檢查＋一鍵套用（伺服器函式）結束 ====
 
@@ -1908,6 +1974,14 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { ok: true });
       }
       // ==== 副本 A 戰前檢查＋一鍵套用（API）：A 子任務的程式放在這行下面 ====
+      // GET：計畫裡每隻的戰前檢查；POST {prep}：改門檻（合併存在 settings.raid.prep）。一鍵套用走既有的 /api/idle（action cfg）
+      if (req.method === 'GET' && url.pathname === '/api/raid/prep') return send(res, 200, raidPrepRows());
+      if (req.method === 'POST' && url.pathname === '/api/raid/prep') {
+        const e = JSON.parse((await readBody(req)) || '{}'), cur = db.settings.raid || {};
+        db.settings.raid = { ...cur, prep: cleanRaidPrep({ ...raidPrepOf(), ...(e.prep && typeof e.prep === 'object' ? e.prep : {}) }) };
+        save();
+        return send(res, 200, { ok: true, prep: db.settings.raid.prep });
+      }
       
       // ==== 副本 A 戰前檢查＋一鍵套用（API）結束 ====
       

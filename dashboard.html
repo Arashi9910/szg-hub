@@ -7490,12 +7490,116 @@ function raidReportHtml() {
     <div class="dim sm">還沒開打下一場。開始後這裡換成即時戰況。</div></div>`;
 }
 setInterval(() => { if (!document.hidden && document.querySelector('nav button.on').dataset.tab === 'raid') renderRaid(); }, 1000);
-async function raidSavePlan(patch) { await saveSettings({ raid: { ...raidPlan(), ...patch } }); drawRaid(); }
+async function raidSavePlan(patch) { await saveSettings({ raid: { ...(S.raid || {}), ...raidPlan(), ...patch } }); drawRaid(); } // 保留 settings.raid 的其他欄位（例如戰前檢查門檻 prep）
 // 副本的 A～D 區塊：每個區塊自己畫，壞掉不影響其他區塊
 function raidExtDraw() { for (const f of [raidPrepDraw, raidSupplyDraw, raidAutoDraw, raidHistDraw]) { try { f(); } catch (e) { console.warn('[副本區塊]', f.name, e); } } }
 
 // ==== 副本 A 戰前檢查＋一鍵套用（面板）：程式放在這行下面；raidPrepDraw() 每秒跟著 drawRaid 呼叫 ====
-function raidPrepDraw() {}
+// 資料：GET /api/raid/prep（伺服器照 settings.raid.prep 的門檻算好每隻的問題）；門檻 POST /api/raid/prep；
+// 一鍵套用：勾角色（點整列）＋勾項目 → 列出會改哪幾隻的什麼 → 確認後送既有的 cfg supply／setting（/api/idle）。不碰會花楓幣的設定（自動買水）
+let RPREP = null, rpAt = 0, rpBusy = false;
+const RP_ITEMS = [['autoCure', '自動解除異常：開'], ['mpPct', 'MP 喝水門檻：改成建議值'], ['hpPct', 'HP 喝水門檻：改成建議值'], ['autoPotion', '自動喝水：開']];
+const RP_TH = [['mpMin', 'MP 藥水至少', '個', 0, 30000], ['mpPct', 'MP 低於', '% 就喝', 1, 100], ['hpMin', 'HP 藥水至少', '個', 0, 30000], ['hpPct', 'HP 低於', '% 就喝', 1, 100], ['cureMin', '萬能療傷藥至少', '個', 0, 30000]];
+const rpUi = () => ui.rp || (ui.rp = { sel: [], items: { autoCure: true, mpPct: true, hpPct: false, autoPotion: true }, msg: '' });
+async function rpLoad(force) {
+  if (rpBusy || (!force && RPREP && Date.now() - rpAt < 2000)) return; rpBusy = true;
+  try { RPREP = await (await fetch('/api/raid/prep')).json(); rpAt = Date.now(); } finally { rpBusy = false; }
+}
+function rpStyle() {
+  if (document.getElementById('rpStyle')) return;
+  document.head.insertAdjacentHTML('beforeend', `<style id="rpStyle">#rdPrep .rp-wrap { overflow-x: auto; } #rdPrep .rp-row { cursor: pointer; user-select: none; } #rdPrep .rp-row:hover td { background: rgba(90,169,230,.06); }
+    #rdPrep .rp-row.on td { background: rgba(90,169,230,.14); } #rdPrep .rp-row input { pointer-events: none; } #rdPrep .rp-row.lv-bad td:first-child { box-shadow: inset 3px 0 var(--bad); } #rdPrep .rp-row.lv-warn td:first-child { box-shadow: inset 3px 0 var(--warn); }
+    #rdPrep .rp-th input[type=number] { width: 72px; } #rdPrep .rp-iss { max-width: 320px; } #rdPrep .rp-apply { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); }</style>`);
+}
+function raidPrepDraw() {
+  rpStyle();
+  rpLoad().then(rpDraw).catch(e => { const b = $('#rdPrep'); if (b) b.innerHTML = `<div class="dim sm">讀不到戰前檢查：${esc(e.message)}</div>`; });
+}
+// 這隻要送的指令（只改勾選的項目、而且是跟建議值不一樣的）；回 { cmds, chg[] } 或 { skip: 原因 }
+function rpPlanOf(r, items, P) {
+  if (!r.tab) return { skip: '沒有遊戲分頁或直連' };
+  if (!r.ic || !r.supply) return { skip: '讀不到掛機設定' };
+  const sp = { ...r.supply, hpPct: cdPct(r.supply.hpPct, 50), mpPct: cdPct(r.supply.mpPct, 30) }, chg = [], cmds = [];
+  if (items.autoCure && !sp.autoCure) { sp.autoCure = true; chg.push('自動解除異常 關→開'); }
+  if (items.mpPct && sp.mpItem && sp.mpPct < P.mpPct) { chg.push(`MP 喝水 ${sp.mpPct}%→${P.mpPct}%`); sp.mpPct = P.mpPct; }
+  if (items.hpPct && sp.hpItem && sp.hpPct < P.hpPct) { chg.push(`HP 喝水 ${sp.hpPct}%→${P.hpPct}%`); sp.hpPct = P.hpPct; }
+  if (chg.length) cmds.push({ cmd: { type: 'supply', supply: sp, enable: true }, label: `戰前檢查：${chg.join('、')}` });
+  // 遊戲的補給指令會順便打開自動喝水（enable:true）：沒勾「自動喝水：開」而原本是關的，就再關回去（跟角色抽屜一樣）
+  if (items.autoPotion && r.autoPotion === false) { chg.push('自動喝水 關→開'); cmds.push({ cmd: { type: 'setting', key: 'autoPotion', value: true }, label: '戰前檢查：開啟自動喝水' }); }
+  else if (cmds.length && r.autoPotion === false) cmds.push({ cmd: { type: 'setting', key: 'autoPotion', value: false }, label: '自動喝水維持關閉' });
+  return { cmds, chg };
+}
+function rpDraw() {
+  const box = $('#rdPrep'); if (!box || !RPREP) return;
+  const ae = document.activeElement; if (ae && ae.closest && ae.closest('#rdPrep') && ae.tagName === 'INPUT' && ae.type !== 'checkbox') return; // 打字中不重畫
+  const u = rpUi(), P = RPREP.prep || {}, rows = RPREP.rows || [];
+  u.sel = u.sel.filter(id => rows.some(r => r.id === id));
+  if (!rows.length) { box.innerHTML = '<div class="dim">先在上面選隊長和隊員，這裡會列出每隻的藥水、萬能療傷藥、自動解除異常、補血、攻擊格。</div>'; return; }
+  const has = (r, k) => r.issues.find(x => x.k === k || x.k.startsWith(k));
+  const cls = (r, ...ks) => { const xs = ks.map(k => has(r, k)).filter(Boolean); return xs.some(x => x.lv === 'bad') ? 'bad' : xs.length ? 'warn' : ''; };
+  const nd = '<span class="dim">讀不到</span>', onoff = v => v == null ? nd : v ? '<span class="good">開</span>' : '關';
+  const pot = (r, k) => { const x = r[k]; if (!r.ic || !x) return nd; return x.item ? `${esc(x.name)} <b>${x.qty}</b><br><span class="sm">${x.pct}% 喝</span>` : '不喝'; };
+  const heal = r => { if (!r.ic) return nd; const f = (x, n) => x && x.enabled ? `${n} ${x.threshold}%` : ''; const t = [f(r.partyHeal, '隊友'), f(r.selfHeal, '自己')].filter(Boolean).join('、'); return t || (r.healer ? '沒開' : '<span class="dim">—</span>'); };
+  const bad = rows.filter(r => r.issues.some(x => x.lv === 'bad')).length, warn = rows.filter(r => !r.issues.some(x => x.lv === 'bad') && r.issues.length).length;
+  const plans = rows.filter(r => u.sel.includes(r.id)).map(r => [r, rpPlanOf(r, u.items, P)]), nCmd = plans.reduce((t, [, p]) => t + ((p.cmds && p.cmds.length) || 0), 0);
+  box.innerHTML = `<div class="bar rp-th"><span class="sm"><b>門檻</b></span>${RP_TH.map(([k, a, b, lo, hi]) => `<label class="sm">${a} <input type="number" min="${lo}" max="${hi}" data-rpth="${k}" value="${esc(P[k])}"> ${b}</label>`).join('')}
+      <label class="sm"><input type="checkbox" data-rpthb="autoCure" ${P.autoCure ? 'checked' : ''}> 要開自動解除異常</label><label class="sm"><input type="checkbox" data-rpthb="autoPotion" ${P.autoPotion ? 'checked' : ''}> 要開自動喝水</label>
+      <button class="btn sm" data-rpdef="1" title="藍藥 ≥ 100、萬能療傷藥 ≥ 5、MP 40%…">恢復預設</button></div>
+    <div class="sm" id="rpSum">${bad ? `<span class="bad">${bad} 隻有紅色問題</span>　` : ''}${warn ? `<span class="warn">${warn} 隻有黃色提醒</span>　` : ''}${!bad && !warn ? '<span class="good">全部都符合門檻</span>' : ''}<span class="dim">（實機第一場拉圖斯：藍藥＋MP 20% 魔力不夠、沒人帶萬能療傷藥、自動解除異常沒勾，黑球後全隊封印就倒）</span></div>
+    <div class="rp-wrap"><table class="tbl sm rp-tbl"><tr><th></th><th>角色</th><th>連線</th><th>設定</th><th>MP 藥水</th><th>HP 藥水</th><th>萬能療傷藥</th><th>解除異常</th><th>自動喝水</th><th>隊友 Buff</th><th>補血</th><th>攻擊格</th><th>問題</th></tr>
+    ${rows.map(r => { const on = u.sel.includes(r.id), lv = r.issues.some(x => x.lv === 'bad') ? 'bad' : r.issues.length ? 'warn' : '';
+      return `<tr class="rp-row ${on ? 'on' : ''} ${lv ? 'lv-' + lv : ''}" data-rpsel="${esc(r.id)}"><td><input type="checkbox" tabindex="-1" ${on ? 'checked' : ''}></td>
+        <td>${r.id === RPREP.leader ? '👑 ' : ''}<b>${esc(r.name)}</b><br><span class="dim">Lv${r.lv != null ? r.lv : '?'} ${esc(r.jobName || '')}</span></td>
+        <td class="${cls(r, 'tab')}">${r.tab === 'tab' ? '分頁' : r.tab === 'bg' ? '背景／直連' : '沒有'}</td>
+        <td>${r.ic ? `第 ${r.slot} 套` : nd}</td>
+        <td class="${cls(r, 'mp')}">${pot(r, 'mp')}</td><td class="${cls(r, 'hp')}">${pot(r, 'hp')}</td>
+        <td class="${cls(r, 'cure')}">${r.ic ? `<b>${r.cure}</b> 個` : nd}</td>
+        <td class="${cls(r, 'autoCure')}">${r.ic ? onoff(r.autoCure) : nd}</td>
+        <td class="${cls(r, 'autoPotion')}">${onoff(r.autoPotion)}</td>
+        <td>${!r.ic ? nd : r.partyBuffs.length ? r.partyBuffs.map(esc).join('、') : '<span class="dim">沒有</span>'}</td>
+        <td class="${cls(r, 'heal')}">${heal(r)}</td>
+        <td class="${cls(r, 'attack')}">${!r.ic || !r.attack ? nd : esc(r.attack.txt)}</td>
+        <td class="rp-iss">${r.issues.map(x => `<div class="${x.lv}">${x.lv === 'bad' ? '✗' : '⚠'} ${esc(x.txt)}</div>`).join('') || '<span class="good">✓</span>'}${r.autoBuy ? '<div class="dim">自動買水開著（會花楓幣）</div>' : ''}</td></tr>`; }).join('')}</table></div>
+    <div class="rp-apply"><div class="bar"><b>一鍵套用</b><span class="dim sm">點整列選角色，勾要改的項目；只改勾選的、跟建議值不一樣的地方，送出前會再列一次</span></div>
+      <div class="bar">${RP_ITEMS.map(([k, n]) => `<label class="sm"><input type="checkbox" data-rpitem="${k}" ${u.items[k] ? 'checked' : ''}> ${n}${k === 'mpPct' ? `（${P.mpPct}%）` : k === 'hpPct' ? `（${P.hpPct}%）` : ''}</label>`).join('')}
+        <span class="dim sm">自動買水會花楓幣，不在這裡開；要的話到角色抽屜「掛機設定」自己設</span></div>
+      <div class="bar"><button class="btn sm" data-rpall="1">全選</button><button class="btn sm" data-rpbad="1">選有問題的</button><button class="btn sm" data-rpnone="1">全不選</button>
+        <span class="dim sm">已選 ${u.sel.length} 隻${u.sel.length ? `，要改 ${plans.filter(([, p]) => p.cmds && p.cmds.length).length} 隻` : ''}</span>
+        <button class="btn sm primary" data-rpgo="1" ${nCmd ? '' : 'disabled'}>套用到遊戲</button><span class="sm" id="rpMsg">${esc(u.msg || '')}</span></div></div>`;
+}
+document.addEventListener('click', async e => {
+  const t = e.target.closest && e.target.closest('#rdPrep [data-rpsel],#rdPrep [data-rpall],#rdPrep [data-rpbad],#rdPrep [data-rpnone],#rdPrep [data-rpgo],#rdPrep [data-rpdef]'); if (!t || !RPREP) return;
+  const u = rpUi(), dd = t.dataset, rows = RPREP.rows || [], P = RPREP.prep || {};
+  if (dd.rpsel) { const k = dd.rpsel; u.sel = u.sel.includes(k) ? u.sel.filter(x => x !== k) : [...u.sel, k]; rpDraw(); return; }
+  if (dd.rpall) { u.sel = rows.map(r => r.id); rpDraw(); return; }
+  if (dd.rpbad) { u.sel = rows.filter(r => r.issues.length).map(r => r.id); rpDraw(); return; }
+  if (dd.rpnone) { u.sel = []; rpDraw(); return; }
+  if (dd.rpdef) { await rpSaveTh(RPREP.def || {}); return; }
+  if (dd.rpgo) {
+    const targets = [], lines = [], skips = [];
+    for (const r of rows.filter(r => u.sel.includes(r.id))) {
+      const p = rpPlanOf(r, u.items, P);
+      if (p.skip) { skips.push(`${r.name}（${p.skip}）`); continue; }
+      if (!p.cmds.length) continue;
+      lines.push(`・${r.name}（第 ${r.slot} 套）：${p.chg.join('、')}`);
+      for (const c of p.cmds) targets.push({ charId: r.id, action: 'cfg', cmd: c.cmd, label: c.label });
+    }
+    if (!targets.length) { alert('勾選的角色都已經符合，沒有要改的' + (skips.length ? `\n\n略過：${skips.join('、')}` : '')); return; }
+    if (!confirm(`戰前一鍵套用，會改 ${lines.length} 隻：\n${lines.join('\n')}${skips.length ? `\n\n略過：${skips.join('、')}` : ''}\n\n（不會開自動買水，不會花楓幣）確定套用到遊戲？`)) return;
+    try { await api('/api/idle', { targets }); u.msg = `已送出 ${lines.length} 隻（${targets.length} 項），幾秒內會更新`; u.sel = []; await poll(true); await rpLoad(true); rpDraw(); }
+    catch (err) { alert('失敗：' + err.message); }
+  }
+});
+async function rpSaveTh(patch) {
+  try { const j = await api('/api/raid/prep', { prep: patch }); S.raid = { ...(S.raid || {}), prep: j.prep }; await rpLoad(true); rpDraw(); }
+  catch (err) { alert('門檻存不起來：' + err.message); }
+}
+document.addEventListener('change', e => {
+  const t = e.target; if (!t.closest || !t.closest('#rdPrep')) return;
+  if (t.dataset.rpitem) { rpUi().items[t.dataset.rpitem] = t.checked; rpDraw(); return; }
+  if (t.dataset.rpthb) { rpSaveTh({ [t.dataset.rpthb]: t.checked }); return; }
+  if (t.dataset.rpth) { const n = Math.round(Number(t.value)); if (!Number.isFinite(n)) return; t.blur(); rpSaveTh({ [t.dataset.rpth]: n }); }
+});
 
 // ==== 副本 A 戰前檢查＋一鍵套用（面板）結束 ====
 
