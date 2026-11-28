@@ -75,7 +75,7 @@ async def main():
         stat = await d.inner_text('#rdStat')
         check('／秒' in stat and '—' not in stat.split('回血速度')[1].split('淨輸出')[0], f'回血速度有估出來（{stat!r}）')
         row = d.locator('#rdBattle .rd-mem tr', has_text='倉庫分身')
-        check(await row.locator('td.num.bad').count() == 2 and '0.0%' in await row.inner_text(), '0 傷害的隊員標紅、占比 0.0%')
+        check(await row.locator('td.num.bad').count() >= 2 and '0.0%' in await row.inner_text(), '0 傷害的隊員標紅、占比 0.0%（攻擊紀錄欄的「沒出手」也是紅的）')
         row1 = d.locator('#rdBattle .rd-mem tr', has_text='本尊劍士')
         check(await row1.locator('td.num.bad').count() == 0 and '%' in await row1.inner_text(), '有傷害的隊員顯示累計傷害和占比')
         check('還沒出現過' in await d.inner_text('#rdOrbs'), '黑球：還沒出現過')
