@@ -57,10 +57,17 @@ async def main():
         print('3. 個別勾藍色藥水：每隻留 150 個，多的才存')
         hub_json('POST', '/api/settings', {'guildDep': {'names': ['i:i2000003'], 'cats': [], 'conds': [], 'keep': 0, 'supplyKeep': 150}})
         hub_json('POST', '/api/guild/auto-run', {})
-        want = {k: min(v, 150) for k, v in b0.items()}
-        got = await wait(lambda: (lambda b: b if b == want else None)(blue()), 60)
-        check(got == want, f'每隻剩 min(原本,150)（{b0} → {blue()}，要 {want}）')
-        if got != want: print('   公倉紀錄：', [l['msg'][:160] for l in (hub_json('GET', '/api/guild').get('log') or [])[-4:]])
+        def dep_items():
+            out = {}
+            for j in hub_json('GET', '/api/data')['jobs']:
+                if j['kind'] != 'guildDeposit': continue
+                for b in j['batches']:
+                    for it in b.get('items') or []:
+                        if it['key'] == 'i2000003': out[j.get('fromCharId')] = out.get(j.get('fromCharId'), 0) + it['qty']
+            return out
+        got = await wait(lambda: dep_items() or None, 40)
+        want = {k: v - 150 for k, v in b0.items() if v > 150}
+        check(got == want, f'存入工作：藍色藥水只存超過 150 的部分（{got}，要 {want}）')
         hub_json('POST', '/api/settings', {'guildAuto': {'mode': 'off', 'everyMin': 30}})
     print('\n全部通過' if ok else '\n有失敗'); sys.exit(0 if ok else 1)
 
