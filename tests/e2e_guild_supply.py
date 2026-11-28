@@ -36,7 +36,8 @@ async def main():
         p = await ctx.new_page(); errs = []; p.on('pageerror', lambda e: errs.append(str(e)))
         await p.goto(HUB + '/'); await p.wait_for_timeout(1500)
         await p.click('nav button[data-tab=guild]'); await p.wait_for_timeout(2500)
-        await p.evaluate("document.querySelector('#gdPickBox').open = true"); await p.wait_for_timeout(1500)
+        await p.click('#gRulesOpen'); await p.wait_for_timeout(800)
+        await p.click('#gdPickBox summary'); await p.wait_for_timeout(1000)
         row = p.locator('#gdList tr', has_text='藍色藥水')
         check(await row.count() == 1, '個別挑選有藍色藥水')
         txt = await row.inner_text() if await row.count() else ''
@@ -48,6 +49,7 @@ async def main():
 
         print('2. 整類「消耗」自動存入：不存喝水用的藍色藥水')
         b0 = blue()
+        hub_json('POST', '/api/guild/refresh', {}); await asyncio.sleep(6)
         hub_json('POST', '/api/settings', {'guildAuto': {'mode': 'deposit', 'everyMin': 30}})
         hub_json('POST', '/api/guild/auto-run', {}); await asyncio.sleep(15)
         check(blue() == b0, f'藍色藥水沒被存（{b0} → {blue()}）')
@@ -58,6 +60,7 @@ async def main():
         want = {k: min(v, 150) for k, v in b0.items()}
         got = await wait(lambda: (lambda b: b if b == want else None)(blue()), 60)
         check(got == want, f'每隻剩 min(原本,150)（{b0} → {blue()}，要 {want}）')
+        if got != want: print('   公倉紀錄：', [l['msg'][:160] for l in (hub_json('GET', '/api/guild').get('log') or [])[-4:]])
         hub_json('POST', '/api/settings', {'guildAuto': {'mode': 'off', 'everyMin': 30}})
     print('\n全部通過' if ok else '\n有失敗'); sys.exit(0 if ok else 1)
 
