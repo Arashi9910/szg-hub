@@ -1,6 +1,6 @@
 # 上漲谷中控：開發交接筆記（私人，不同步到公開版）
 
-最後更新：2026-11-28（v0.81.0）
+最後更新：2026-11-28（v0.82.0）
 
 ## 環境與流程
 - 私人 repo：本 repo（含 Tailscale／遠端設定）。公開 repo：`Arashi9910/szg-hub-public`。
@@ -340,6 +340,12 @@
   - 戰前設定指令：supply {supply:{hpItem,mpItem,hpPct,mpPct,onEmpty,extra:{stat,item,pct}|null,bombFloor,buffPotion{enabled,item},buffPotion2,buffPotion3,…}, enable:true}（要整份送，先讀 c.supply 再改）；attackSlot {slot, skill, targets:[怪 id], map, continuous(slot0)}（每張圖各自一組）；conditionalSkill {slot, skill}（技能有 castCondition）；partyBuff {slot 0..2, config:{enabled, skill}}（effect.party、type support）；partyHeal／selfHeal {config:{enabled, threshold 1..100}}（群體治癒門檻＝祭司補血％）；lowHpSkill {config:{enabled, threshold 1..99, skill}}；quickCast、castSkill、useItem {item}。
 
 - v0.77.0（副本第 1 階段：組隊＋即時戰況；**戰前設定還沒做**）：settings.raid {kind papulatus|zakum, leader, members[≤5]}。server cleanRaidCmd 白名單（sync{raid}／raidCreate{raid,password}／raidJoin{code,password}／raidReady{ready}／raidStart{memberIds}／raidKick／raidLeave／surrenderRaid／leaveRaid），走 idle action 'raid'（minAgent 0.77.0）。agent raidGame()：payload 加 raidOnly、includeSocial/Leisure false、requestId，503／忙碌同 requestId 重送 3 次；做完 POST /api/raid/view {charId, view:{raid, team:{code,isLeader,members[id,name,job,lv,leader,ready,online,ok,issues,left]}, notice, held, battle}}。即時：agent 每秒 raidLiveTick（passive 不做）：readState() 有 raidTeam／raidBattle 才回報 POST /api/raid/live {inRaid, team, battle:{code,raid,phase,prepUntil,deadline,surrender,bloodAt,invulnerable,orbs,windupAt,immuneUntil,arms,minions,guardUntil}, enemies[id,hp,maxHp], me{hp,maxhp,mp,maxmp,diseases,lockUntil,map}}；沒開打 5 秒一次；server 回 reporter（計畫隊長在回報就是隊長，不然第一個隊員）→ 回報者戰鬥中自己多 sync 一次拿 enemies。server 只放記憶體 raidViews／raidLive（live 15 秒過期）。面板「副本」分頁 renderRaid 每秒讀 /api/raid。mock：raidTeams、raidTick（準備時間後王掉血、半血第 2 階段＋全隊封印 4 秒、0 血結束），sessionView 帶 raidTeam／raidBattle，sync 帶 enemies（王）、raidOnly 帶 raid。測試 e2e_raid.py。**沒在真實遊戲試過**：真實的 sessionStorage 裡 state 有沒有 raidTeam／raidBattle、王的血量是不是在 enemies，要等使用者第一次實際打。下一步：戰前設定（supply、attackSlot（副本地圖）、conditionalSkill、partyBuff、partyHeal／selfHeal、lowHpSkill）
+- v0.82.0（2026-11-28；2 個 szg-dev 子任務並行：A agent/server/mock、B dashboard）：十字獵人
+  - 遊戲格式（/api/catalog、sync、game.js crossHunterPane 查證）：catalog.quests 裡 group==='cross' 48 張 {id:'cross_<mob>',name,mob,count:9999,level(20～120),reward:{item:'i4310029',qty:1}}；怪物地圖＝catalog.maps.filter(m=>m.mobIds.includes(q.mob))，常有 _noboss 版。character.quests={qid:{count,claimed}}（接了才有）；硬幣 inventory.i4310029；character.crossExchange＝已兌換階段；catalog.crossExchange 4 階（不自動做）。指令 {type:'questAccept',quest}／{type:'questClaim',quest}（c.lv<q.level 不能接）。
+  - agent：uploadWorld 加 crossQuests/crossExchange（版本前綴 w8）；char.cross={quests(cross_*),coins,exchanged}，readState 合併頁面和 45 秒直接同步兩份（count 取大、claimed 任一）；cfg questAccept/questClaim。
+  - server：cleanIdleCfg＋NEW_CFG_082 → minAgent 0.82.0；settings.cross={enabled,ids,order,mapPref,skip}；GET /api/cross、POST /api/cross/cfg|accept|claim；crossTick（SZG_CROSS_TICK_MS，預設 30 秒）：領獎→選目標→map 工作（sell＝destSellOf(map,'board')）→開始掛機（5 分鐘一次）→自動接新的；錯誤原文記 errors／db.crossLog，30 分鐘內不重送。衝突：副本中／副本隊伍／野王工作／party 工作／其他工作／死亡／沒分頁 → blocked；crossOwns 的角色 bossAvail、bossReturnCheck、partyFollowTick 都讓開。
+  - 面板：#cross 分頁（renderCross，3 秒輪詢 /api/cross），整列勾選＝cfg.ids，任務總表地圖下拉＝mapPref、略過＝skip。
+  - 測試：e2e_cross（API＋mock，MOCK_CROSS_COUNT 預設 20、/__mock/quest 旋鈕）、e2e_cross_ui（route 假資料）、e2e_cross_live（面板接真 API：一鍵接取→移到 _noboss→打獵中）。測試裡把 /tmp/hub 版本補到 0.82.0。
 - v0.81.0（2026-11-28；2 個 szg-dev 子任務並行：A server/agent/mock、B dashboard）：
   - 攻擊格指令（遊戲 game.js openAttackSlot）：{type:'attackSlot', slot:0|1|2, skill, targets, map, characterId, continuous(只 slot 0)}。slot 0 的技能＝character.active（不能 null，'basic'＝普通攻擊）；**三格的 {skill,targets,map} 都存在 attackSlots[i]**（真實資料：attackSlots[0] 也有，例如 [{skill,map,targets},null]；也可能 [] 或 [null]）。skill null＝清掉該格。只能設定角色目前所在地圖（map===character.map），targets 只在那張地圖有效。
   - server cleanIdleCfg case attackSlot＋NEW_CFG_081 → minAgent 0.81.0；agent attackSlotPayload 先 sync 讀目前地圖，map 不同 → noRetry「角色已不在那張地圖」。mock idleCfgHandle 照真實遊戲（技能沒學、targets 不在 mobIds、map 不對 → fail）。
