@@ -651,6 +651,7 @@
     <button data-tab="board">派工</button>
     <button data-tab="party">組隊</button>
     <button data-tab="raid">副本</button>
+    <button data-tab="cross">十字獵人</button>
     <button data-tab="maps">野王</button>
     <button data-tab="market">市場</button>
     <button data-tab="quiz">知識王</button>
@@ -860,6 +861,14 @@
     <div class="card" id="rdSupplyCard"><h3>副本前補給</h3><div id="rdSupply"></div></div>
     <div class="card" id="rdAutoCard"><h3>戰中自動應對</h3><div id="rdAuto"></div></div>
     <div class="card" id="rdHistCard"><h3>戰後紀錄</h3><div id="rdHist"></div></div>
+  </section>
+  <!-- 十字獵人 -->
+  <section id="cross">
+    <div class="card"><div class="bar"><h3 style="margin:0">✚ 十字獵人</h3><span class="dim sm">懸賞任務：每張擊敗指定怪物 9999 隻，完成得十字硬幣 1 個。<b>接受後才開始計算</b>；離線與參戰隊友擊殺也計入；每個角色每張限領一次。十字硬幣兌換裝備請到遊戲裡自己換（中控不自動兌換）。</span></div>
+      <div id="crBar"></div><div id="crMsg" class="sm"></div></div>
+    <div class="card"><h3>角色 <span class="dim sm">點整列加入／移出自動狩獵</span></h3><div id="crChars"></div></div>
+    <div class="card"><h3>任務總表</h3><div id="crQuests"></div></div>
+    <div class="card"><h3>最近紀錄</h3><div id="crLog"></div></div>
   </section>
   <section id="party">
     <div class="card">
@@ -7046,6 +7055,7 @@ function renderAll() {
   if (active === 'board') { renderBoard(); renderBoardSync(); }
   if (active === 'party') renderParty();
   if (active === 'raid') renderRaid();
+  if (active === 'cross') renderCross();
   if (active === 'forge') renderForge();
   if (active === 'board') facGuildTick();
   if (active === 'guild') renderGuild();
@@ -7903,6 +7913,133 @@ document.addEventListener('change', e => {
 });
 
 // ==== 副本 D 戰後紀錄與分析（面板）結束 ====
+
+// ==== 十字獵人（面板）：GET /api/cross 每 3 秒；設定 POST /api/cross/cfg（部分欄位，伺服器合併）；一鍵接取 /api/cross/accept；領獎 /api/cross/claim ====
+let CROSS = null, crLoading = false;
+const CR_STATE = { hunting: ['打獵中', 'good'], moving: ['移動中', ''], claiming: ['領獎中', 'good'], done: ['全部完成', 'good'], idle: ['待命', 'dim'], blocked: ['被擋住', 'bad'] };
+const crCfg = () => (CROSS && CROSS.cfg) || { enabled: false, ids: [], order: 'low', mapPref: {}, skip: [] };
+const crNeed = q => Number(q && q.count) || 9999;
+// 這隻每張任務的狀態：none 沒接／low 等級不到／run 進行中／ready 打完可領／claimed 已領
+function crQState(c, q) {
+  const x = (c.quests || {})[q.id];
+  if (x && x.claimed) return 'claimed';
+  if (x) return (Number(x.count) || 0) >= crNeed(q) ? 'ready' : 'run';
+  return (Number(c.lv) || 0) < (Number(q.level) || 0) ? 'low' : 'none';
+}
+function crStats(c) {
+  const skip = new Set(crCfg().skip || []), r = { acc: 0, can: 0, done: 0, ready: 0 };
+  for (const q of (CROSS && CROSS.quests) || []) {
+    const st = crQState(c, q);
+    if (st === 'claimed') r.done++; else if (st === 'run' || st === 'ready') { r.acc++; if (st === 'ready') r.ready++; } else if (st === 'none' && !skip.has(q.id)) r.can++;
+  }
+  return r;
+}
+async function crossLoad() {
+  if (crLoading) return; crLoading = true;
+  try { const r = await fetch('/api/cross'); if (!r.ok) throw new Error('HTTP ' + r.status); CROSS = await r.json(); } finally { crLoading = false; }
+}
+function renderCross() {
+  if (document.querySelector('nav button.on').dataset.tab !== 'cross') return;
+  crossLoad().then(drawCross).catch(e => { $('#crMsg').textContent = '讀不到十字獵人資料：' + e.message; });
+}
+// 每個區塊：內容一樣就不重畫；使用者正在操作裡面的下拉或打字時也不重畫（勾選框改了會馬上存，照常重畫）
+function crSet(sel, html) {
+  const box = $(sel); if (!box || box._html === html) return;
+  const ae = document.activeElement;
+  if (ae && box.contains(ae) && (ae.tagName === 'SELECT' || (ae.tagName === 'INPUT' && ae.type !== 'checkbox'))) return;
+  box._html = html; box.innerHTML = html;
+}
+const crBarHtml = (v, max) => { const pct = max > 0 ? Math.max(0, Math.min(100, v / max * 100)) : 0; return `<div class="rd-bar cr-bar"><i style="width:${pct.toFixed(1)}%"></i><span>${v.toLocaleString()} / ${max.toLocaleString()}（${pct.toFixed(1)}%）</span></div>`; };
+function drawCross() {
+  if (!CROSS) return;
+  if (!$('#crStyle')) document.head.insertAdjacentHTML('beforeend', `<style id="crStyle">#cross .cr-wrap { overflow-x: auto; } #cross .cr-row { cursor: pointer; user-select: none; } #cross .cr-row:hover td { background: rgba(90,169,230,.06); }
+    #cross .cr-row.on td { background: rgba(90,169,230,.14); } #cross .cr-row input { pointer-events: none; } #cross .cr-bar { min-width: 200px; } #cross .cr-q td, #cross .cr-q th { white-space: nowrap; }
+    #cross .cr-q td.cr-cell { text-align: center; font-size: 11px; min-width: 46px; } #cross .cr-q tr.skip td:not(.cr-skipc) { opacity: .45; } #cross .cr-grp { margin: 10px 0 4px; font-weight: bold; }</style>`);
+  const cfg = crCfg(), ids = cfg.ids || [], quests = CROSS.quests || [], chars = (CROSS.chars || []).slice().sort((a, b) => (b.lv || 0) - (a.lv || 0));
+  const qById = Object.fromEntries(quests.map(q => [q.id, q])), skip = new Set(cfg.skip || []);
+  const sel = chars.filter(c => ids.includes(c.id)), stSel = sel.map(c => [c, crStats(c)]);
+  const nCan = stSel.reduce((t, [, s]) => t + s.can, 0), nReady = stSel.reduce((t, [, s]) => t + s.ready, 0);
+  // 狀態列
+  crSet('#crBar', `<div class="bar"><label title="開著時中控會讓勾選的角色到任務怪物的地圖狩獵，打完自動領獎換下一張"><input type="checkbox" class="sw" id="crEnabled" ${cfg.enabled ? 'checked' : ''}> 自動狩獵</label>
+      <span class="sm">順序</span><span class="seg"><button data-crorder="low" class="${cfg.order !== 'high' ? 'on' : ''}">等級低的先</button><button data-crorder="high" class="${cfg.order === 'high' ? 'on' : ''}">等級高的先</button></span>
+      <button class="btn ${nCan ? 'primary' : ''}" id="crAccept" ${sel.length ? '' : 'disabled'} title="勾選的角色接取所有符合等級、還沒接的任務（略過的不接）">✚ 一鍵接取${nCan ? `（${nCan} 張）` : ''}</button>
+      <button class="btn ${nReady ? 'primary' : ''}" id="crClaim" ${sel.length ? '' : 'disabled'} title="勾選的角色領取已經打完的任務獎勵（十字硬幣）">領取可領的獎勵${nReady ? `（${nReady} 張）` : ''}</button>
+      <span class="dim sm">已選 ${sel.length} 隻</span></div>`);
+  // 角色清單
+  const mapNameOf = id => { for (const q of quests) { const m = (q.maps || []).find(m => m.id === id); if (m) return m.name; } return id || ''; };
+  const stateHtml = c => {
+    const [n, cls] = CR_STATE[c.state] || [c.state || '—', 'dim'], tg = c.target, q = tg && qById[tg.quest];
+    let h = `<span class="${cls}">${esc(n)}</span>`;
+    if (c.state === 'hunting' && q) { const x = (c.quests || {})[q.id] || {}; h += ` <b>${esc(q.name)}</b> <span class="dim">${esc(q.mobName || '')}</span>${crBarHtml(Number(x.count) || 0, crNeed(q))}`; }
+    else if (c.state === 'moving' && tg) h += ` → ${esc(mapNameOf(tg.map))}${q ? ` <span class="dim">（${esc(q.name)}）</span>` : ''}`;
+    else if (c.state === 'claiming' && q) h += ` ${esc(q.name)}`;
+    if (c.why) h += ` <span class="${c.state === 'blocked' ? 'bad' : 'dim'} sm">${esc(c.why)}</span>`;
+    return h;
+  };
+  crSet('#crChars', !chars.length ? '<div class="dim">還沒有角色資料：打開遊戲分頁後會自動出現。</div>'
+    : `<div class="bar"><button class="btn sm" data-crall="1">全選</button><button class="btn sm" data-crnone="1">全不選</button><span class="dim sm">點整列加入／移出（勾選的角色才會自動狩獵、一鍵接取、領獎）</span></div>
+    <div class="cr-wrap"><table class="tbl sm"><tr><th></th><th>角色</th><th>Lv</th><th>目前地圖</th><th>狀態</th><th title="已接（還沒領）／還可以接／已完成（已領）">已接／可接／已完成</th><th>十字硬幣</th></tr>
+    ${chars.map(c => { const on = ids.includes(c.id), s = crStats(c);
+      return `<tr class="cr-row ${on ? 'on' : ''}" data-crsel="${esc(c.id)}"><td><input type="checkbox" tabindex="-1" ${on ? 'checked' : ''}></td>
+        <td><b>${esc(c.name)}</b>${rdCdBtn(c.id)}</td><td>${c.lv != null ? c.lv : '?'}</td><td>${esc(c.mapName || c.map || '—')}</td><td>${stateHtml(c)}</td>
+        <td class="num">${s.acc}／${s.can}／${s.done}${s.ready ? ` <span class="warn">（${s.ready} 張可領）</span>` : ''}</td><td class="num">${c.coins != null ? c.coins : '—'}${c.exchanged ? ` <span class="dim" title="已兌換過">（已換 ${esc(c.exchanged)}）</span>` : ''}</td></tr>`; }).join('')}</table></div>`);
+  // 任務總表：依等級分組；角色為欄（只列勾選的角色）
+  const groups = [...new Set(quests.map(q => Number(q.level) || 0))].sort((a, b) => a - b);
+  const cell = (c, q) => { const st = crQState(c, q), x = (c.quests || {})[q.id] || {};
+    if (st === 'claimed') return '<td class="cr-cell good" title="已領獎">✓ 完成</td>';
+    if (st === 'ready') return '<td class="cr-cell warn" title="打完了，還沒領">可領</td>';
+    if (st === 'run') return `<td class="cr-cell" title="${(Number(x.count) || 0).toLocaleString()} / ${crNeed(q).toLocaleString()}">${short(Number(x.count) || 0)}</td>`;
+    if (st === 'low') return `<td class="cr-cell dim" title="等級不到 ${q.level}">Lv不足</td>`;
+    return '<td class="cr-cell dim" title="還沒接">沒接</td>'; };
+  crSet('#crQuests', !quests.length ? '<div class="dim">還沒有任務資料：要有一個遊戲分頁讀過十字獵人。</div>'
+    : `<div class="dim sm">地圖：選了會記住，自動狩獵就到那張圖打（★預設＝中控挑的圖；「無BOSS」＝那張圖沒有野王）。勾「略過」的任務不接也不打。${sel.length ? '' : '勾選上面的角色後，右邊會列出每隻的進度。'}</div>
+    ${groups.map(lv => `<div class="cr-grp">Lv.${lv} 以上</div><div class="cr-wrap"><table class="tbl sm cr-q"><tr><th>任務</th><th>怪物</th><th>地圖</th><th>略過</th>${sel.map(c => `<th title="${esc(c.name)} Lv${c.lv}">${esc(c.name)}</th>`).join('')}</tr>
+      ${quests.filter(q => (Number(q.level) || 0) === lv).map(q => { const mp = (cfg.mapPref || {})[q.id] || q.defaultMap, sk = skip.has(q.id);
+        return `<tr class="${sk ? 'skip' : ''}" data-crq="${esc(q.id)}"><td>${esc(q.name)}</td><td>${esc(q.mobName || q.mob || '')} <span class="dim">×${crNeed(q).toLocaleString()}</span></td>
+          <td><select data-crmap="${esc(q.id)}">${(q.maps || []).map(m => `<option value="${esc(m.id)}" ${m.id === mp ? 'selected' : ''}>${esc(m.name)}${m.noboss ? '（無BOSS）' : ''}${m.id === q.defaultMap ? '　★預設' : ''}</option>`).join('') || '<option value="">（沒有地圖）</option>'}</select></td>
+          <td class="cr-skipc"><input type="checkbox" data-crskip="${esc(q.id)}" ${sk ? 'checked' : ''}></td>${sel.map(c => cell(c, q)).join('')}</tr>`; }).join('')}</table></div>`).join('')}`);
+  // 最近紀錄
+  const log = (CROSS.log || []).slice().sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 50);
+  crSet('#crLog', !log.length ? '<div class="dim">還沒有紀錄。</div>'
+    : `<table class="tbl sm">${log.map(l => `<tr><td class="dim">${l.at ? new Date(l.at).toLocaleString() : ''}</td><td>${esc(l.name || charNameOf(l.charId) || '')}</td><td>${esc(l.msg || '')}</td></tr>`).join('')}</table>`);
+}
+async function crSaveCfg(patch) {
+  if (CROSS) CROSS.cfg = { ...crCfg(), ...patch }; drawCross(); // 先畫上去，存完再讀一次
+  try { await api('/api/cross/cfg', patch); await crossLoad(); drawCross(); }
+  catch (err) { $('#crMsg').textContent = '設定存不起來：' + err.message; }
+}
+document.addEventListener('click', async e => {
+  const t = e.target.closest && e.target.closest('#cross [data-crsel],#cross [data-crall],#cross [data-crnone],#cross [data-crorder],#crAccept,#crClaim'); if (!t || !CROSS) return;
+  const dd = t.dataset, cfg = crCfg(), ids = cfg.ids || [], chars = CROSS.chars || [];
+  if (dd.crsel) { const k = dd.crsel; crSaveCfg({ ids: ids.includes(k) ? ids.filter(x => x !== k) : [...ids, k] }); return; }
+  if (dd.crall) { crSaveCfg({ ids: chars.map(c => c.id) }); return; }
+  if (dd.crnone) { crSaveCfg({ ids: [] }); return; }
+  if (dd.crorder) { if (cfg.order !== dd.crorder) crSaveCfg({ order: dd.crorder }); return; }
+  const sel = chars.filter(c => ids.includes(c.id));
+  if (t.id === 'crAccept') {
+    const rows = sel.map(c => [c, crStats(c)]), lines = rows.filter(([, s]) => s.can).map(([c, s]) => `・${c.name}（Lv${c.lv}）：${s.can} 張`), none = rows.filter(([, s]) => !s.can).map(([c]) => c.name);
+    if (!lines.length) { alert('勾選的角色沒有可以接的任務（都接過、等級不到或略過了）'); return; }
+    if (!confirm(`一鍵接取十字獵人任務：\n${lines.join('\n')}${none.length ? `\n\n沒有可接的：${none.join('、')}` : ''}\n\n接受後才開始計算擊殺數。確定接取？`)) return;
+    const body = { ids: rows.filter(([, s]) => s.can).map(([c]) => c.id) };
+    if ((cfg.skip || []).length) body.quests = (CROSS.quests || []).map(q => q.id).filter(id => !cfg.skip.includes(id));
+    try { const j = await api('/api/cross/accept', body); $('#crMsg').textContent = `已送出接取（${j.n != null ? j.n : lines.length} 項工作），幾秒內會更新`; await crossLoad(); drawCross(); poll(true).catch(() => {}); }
+    catch (err) { alert('接取失敗：' + err.message); }
+    return;
+  }
+  if (t.id === 'crClaim') {
+    try { const j = await api('/api/cross/claim', { ids: sel.map(c => c.id) }); $('#crMsg').textContent = j.n ? `已送出領獎（${j.n} 項工作）` : '沒有可領的獎勵'; await crossLoad(); drawCross(); poll(true).catch(() => {}); }
+    catch (err) { alert('領獎失敗：' + err.message); }
+  }
+});
+document.addEventListener('change', e => {
+  const t = e.target; if (!t.closest || !t.closest('#cross') || !CROSS) return;
+  const cfg = crCfg();
+  if (t.id === 'crEnabled') { crSaveCfg({ enabled: t.checked }); return; }
+  if (t.dataset.crmap) { const v = t.value; t.blur(); crSaveCfg({ mapPref: { ...(cfg.mapPref || {}), [t.dataset.crmap]: v } }); return; }
+  if (t.dataset.crskip) { const k = t.dataset.crskip, s = (cfg.skip || []).filter(x => x !== k); if (t.checked) s.push(k); crSaveCfg({ skip: s }); }
+});
+setInterval(() => { if (!document.hidden && document.querySelector('nav button.on').dataset.tab === 'cross') renderCross(); }, 3000);
+// ==== 十字獵人（面板）結束 ====
 
 document.addEventListener('change', e => {
   const t = e.target; if (!t.closest || !t.closest('#raid')) return;
