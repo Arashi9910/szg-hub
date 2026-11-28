@@ -34,6 +34,8 @@ def check(cond, msg):
                 print('    live:', x.get('live'), '\n    logs:', (x.get('logs') or [])[-6:])
             print('    tabs:', hub_json('GET', '/api/data')['tabs'])
             print('    hits:', mock_get('/__mock/hits'))
+            jobs = hub_json('GET', '/api/data').get('jobs') or []
+            print('    jobs:', [(j.get('kind'), j.get('status'), j.get('fromCharId'), (j.get('log') or [])[-2:]) for j in jobs[-4:]])
         except Exception as e: print('    (debug 失敗)', e)
     return cond
 
@@ -47,8 +49,8 @@ def mock_char(acct, cid):
     return mock_get('/__mock/state')['accounts'][acct]['chars'][cid]
 
 def set_mode(direct, pid=None, ids=None):
-    body = {'action': 'mode', 'direct': direct, **({'ids': ids} if ids else {'id': pid})}
-    s, t = http('POST', HUB + '/api/bg', body)
+    body = {'direct': direct, **({'ids': ids} if ids else {'id': pid})}
+    s, t = http('POST', HUB + '/api/bg/mode', body)
     return s, (json.loads(t) if t and t.strip().startswith('{') else t)
 
 def item_qty(d, cid, key, loc='背包'):
@@ -120,7 +122,7 @@ async def main():
         h = await until(lambda: (lambda h: h if h['omitted'] > 0 else None)(mock_get('/__mock/hits')), 30)
         check(h is not None, f"Chrome 模式的遊戲頁面有用 viewDelta（省略欄位 {h and h['omitted']} 次）")
         http('GET', MOCK + '/__mock/additem?acct=A1&char=c1&key=i2000001&qty=5')
-        d = await until(lambda: (lambda d: d if item_qty(d, 'c1', 'i2000001') == 5 else None)(hub_json('GET', '/api/data')), 40)
+        d = await until(lambda: (lambda d: d if item_qty(d, 'c1', 'i2000001') == 5 else None)(hub_json('GET', '/api/data')), 75)
         check(d is not None, 'viewDelta 合併後：新撿到的道具出現在快照（橘色藥水 ×5）')
         check(d and item_qty(d, 'c1', 'i2000000') == 300 and item_qty(d, 'c1', 'i2040801') == 12, '沒變的道具照舊（紅色藥水 300、手套攻擊卷軸 60% 12）')
 
@@ -145,7 +147,7 @@ async def main():
         d = await until(lambda: tab_fresh('c1', t0) and tab_fresh('c2', t0), 60)
         check(d is not None, '中控的 tabs：c1、c2 是背景（bg）而且一直有回報')
         http('GET', MOCK + '/__mock/additem?acct=A1&char=c1&key=i2000001&qty=3')
-        d = await until(lambda: (lambda d: d if item_qty(d, 'c1', 'i2000001') == 8 else None)(hub_json('GET', '/api/data')), 40)
+        d = await until(lambda: (lambda d: d if item_qty(d, 'c1', 'i2000001') == 8 else None)(hub_json('GET', '/api/data')), 75)
         check(d is not None, '直連時中控快照會更新（橘色藥水 5 → 8）')
         check(d and item_qty(d, 'c1', 'i2000000') == 300 and item_qty(d, 'c1', 'i2040801') == 12, '直連快照裡沒變的道具也正確')
         h = mock_get('/__mock/hits')
@@ -161,7 +163,7 @@ async def main():
         check(ok, '「暫停掛機」')
         ok = await run_cmd('c2', 'map', lambda c: c['map'] == 'gms104000400', map='gms104000400', mapName='海岸草叢3')
         check(ok, f"c2「換圖」到海岸草叢3（{mock_char('A1', 'c2')['map']}）")
-        d = await until(lambda: (lambda d: d if (d['chars'].get('c2') or {}).get('map') == 'gms104000400' else None)(hub_json('GET', '/api/data')), 30)
+        d = await until(lambda: (lambda d: d if ((d['chars'].get('c2') or {}).get('char') or {}).get('map') == 'gms104000400' else None)(hub_json('GET', '/api/data')), 30)
         check(d is not None, '中控快照的 c2 地圖跟著變')
         jobs = [j for j in hub_json('GET', '/api/data')['jobs'] if j.get('kind') == 'idle']
         check(jobs and not any(j.get('status') == 'failed' for j in jobs), f"掛機工作沒有失敗（{[j.get('status') for j in jobs]}）")

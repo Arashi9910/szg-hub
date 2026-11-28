@@ -23,7 +23,8 @@
 - **平行跑**：`python3 tools/run-tests.py -j 2 e2e_raid e2e_smoke`（每支在自己的網路命名空間＋自己的 /tmp，不會搶 port）。單支：`tools/isotest.sh tests/e2e_raid.py`。輸出在 `tests/.logs/`。
 - 直接 `python3 tests/xxx.py` 會用到真的 8787／9900，同一時間只能跑一支。
 - 改到哪個功能就跑相關測試＋`e2e_smoke`。新功能要加或改測試；mock 要照真實遊戲的格式（格式記在 HANDOFF.md）。
-- 這台 2 核心：`-j` 最多 2～3。
+- claude.ai 雲端那台 2 核心：`-j` 最多 2～3。
+- **使用者的 Windows（Claude Code）**：在 WSL `Ubuntu-24.04`（磁碟在 `D:\WSL\Ubuntu-24.04`，C 槽很滿不要放 C）跑。第一次裝工具 `wsl -d Ubuntu-24.04 -u root -- bash <tools/wsl-setup.sh 的 /mnt 路徑>`；跑測試 `wsl -d Ubuntu-24.04 -u root -- bash /mnt/d/自己寫程式的/上漲谷/szghub/<worktree>/tools/wsl-test.sh -j 6 e2e_xxx e2e_smoke`（`BRANCH=` 指定分支，預設 claude/project-folder-access-fd00e7；**只複製已 commit 的內容**，先 WIP commit）。20 核心，`-j` 可到 6～8。
 
 ## 平行開發的分工規則
 - 每個子任務在自己的 worktree 做（`isolation: worktree`），**不要 commit 到 main、不要 push、不要發佈**；做完回報改了哪些檔、測試結果。由主對話合併和發佈。
