@@ -908,6 +908,81 @@ function raidPrepRows() {
 // ==== 副本 B 副本前自動補給（伺服器函式）結束 ====
 
 // ==== 副本 C 戰中自動應對（伺服器函式）：C 子任務的程式放在這行下面 ====
+// settings.raid.auto＝{ orbs: 黑球自動集火, orbChars: [負責清黑球的角色]（空＝全隊）, back: 黑球清完切回王 }，預設全關。
+// 伺服器只算分配表：回報者（隊長）每秒送全部 enemies（含 slot＝遊戲 enemies 陣列的索引），這裡排好「誰打哪顆」，
+// 放在 /api/raid/live 的回應 assign:{charId:{slot, spawnId, kind:'orb'|'boss'}}；真正送 {type:'target'} 的是各角色自己的 agent。
+// 另外記每隻最後一次傷害有增加的時間（30 秒沒增加就警告）、黑球每一波的出現時間／持續多久、自動動作紀錄。只放記憶體。
+const RAID_ORB_MAXHP = 20000; // 實機拉圖斯的黑球
+let raidAuto = null, raidAutoLogs = [];
+function raidAutoCfg() {
+  const a = (db.settings.raid || {}).auto || {};
+  return { orbs: !!a.orbs, back: !!a.back, orbChars: (Array.isArray(a.orbChars) ? a.orbChars : []).filter(x => typeof x === 'string' && /^[\w-]{1,60}$/.test(x)).slice(0, 12) };
+}
+const raidAutoKey = x => String(x.spawnId || x.id + '#' + x.slot);
+function raidAutoOf(code) {
+  if (!raidAuto || raidAuto.code !== code) raidAuto = { code, at: 0, assign: {}, mine: {}, switched: [], dmg: {}, wave: null, waves: [], fightAt: 0 };
+  return raidAuto;
+}
+function raidAutoLog(x) { raidAutoLogs.push({ at: Date.now(), ...x }); if (raidAutoLogs.length > 30) raidAutoLogs.splice(0, raidAutoLogs.length - 30); }
+// 王＝maxHp 最大；黑球＝maxHp 20000（或不到王的 1/50）而且還活著
+function raidAutoSplit(en) {
+  const list = en.filter(x => x && Number(x.maxHp) > 0);
+  const boss = list.reduce((m, x) => (Number(x.maxHp) > Number((m || {}).maxHp || 0) ? x : m), null);
+  const orbs = boss ? list.filter(x => x !== boss && Number(x.hp) > 0 && (Number(x.maxHp) === RAID_ORB_MAXHP || Number(x.maxHp) < Number(boss.maxHp) / 50)) : [];
+  return { boss, orbs };
+}
+// 回報者每秒呼叫一次
+function raidAutoUpdate(e) {
+  const b = e.battle, en = Array.isArray(e.enemies) ? e.enemies : []; if (!b || !b.code) return;
+  const A = raidAutoOf(b.code), cfg = raidAutoCfg(), now = Date.now(), srv = Number(e.srvNow) || now;
+  A.at = now;
+  if (!A.fightAt && !(Number(b.prepUntil) > srv)) A.fightAt = now; // 準備時間過了才開始算「沒有傷害」
+  const mem = Object.entries(raidLive).filter(([, v]) => v.battle && v.battle.code === b.code && now - v.at < 5000 && !(v.me && Number(v.me.hp) <= 0)).map(([id]) => id);
+  // 傷害：任何一隻敵人（王或黑球）的 damageBy 有增加就算有在打
+  for (const x of en) for (const [id, v] of Object.entries((x && x.damageBy) || {})) {
+    const d = A.dmg[id] || (A.dmg[id] = { at: 0, per: {} }), k = raidAutoKey(x);
+    if (Number(v) > (d.per[k] || 0)) { d.per[k] = Number(v); d.at = now; }
+  }
+  const { boss, orbs: all } = raidAutoSplit(en), orbs = all.filter(o => Number.isInteger(o.slot) && o.slot >= 0);
+  if (all.length && !A.wave) { A.wave = { at: now, n0: all.length }; A.waves.push(A.wave); if (A.waves.length > 20) A.waves.shift(); }
+  if (!all.length && A.wave) { A.wave.end = now; raidAutoLog({ kind: 'wave', text: `第 ${A.waves.length} 波黑球結束（${Math.round((now - A.wave.at) / 1000)} 秒）` }); A.wave = null; }
+  if (!cfg.orbs) { A.assign = {}; A.mine = {}; return; }
+  const who = cfg.orbChars.length ? cfg.orbChars.filter(id => mem.includes(id)) : mem;
+  if (orbs.length) {
+    // 原本分到的那顆還活著就繼續打；其他人分到「目前最少人打、血最少」的那顆（人比黑球多時平均分配）
+    const cnt = new Map(orbs.map(o => [raidAutoKey(o), 0])), pick = {};
+    for (const id of who) { const k = A.mine[id]; if (k && cnt.has(k)) { pick[id] = k; cnt.set(k, cnt.get(k) + 1); } }
+    for (const id of who) if (!pick[id]) { const o = orbs.slice().sort((x, y) => cnt.get(raidAutoKey(x)) - cnt.get(raidAutoKey(y)) || Number(x.hp) - Number(y.hp))[0]; pick[id] = raidAutoKey(o); cnt.set(pick[id], cnt.get(pick[id]) + 1); }
+    A.mine = pick;
+    for (const id of who) if (!A.switched.includes(id)) A.switched.push(id);
+    A.assign = Object.fromEntries(who.map(id => { const o = orbs.find(x => raidAutoKey(x) === pick[id]); return [id, { slot: o.slot, spawnId: String(o.spawnId || ''), kind: 'orb' }]; }));
+  } else {
+    A.mine = {};
+    A.assign = cfg.back && boss && Number.isInteger(boss.slot) ? Object.fromEntries(A.switched.filter(id => mem.includes(id)).map(id => [id, { slot: boss.slot, spawnId: String(boss.spawnId || ''), kind: 'boss' }])) : {};
+  }
+}
+// /api/raid/live 的回應：這場的分配表（回報者 5 秒沒更新就不發，避免照舊資料亂打）
+function raidAutoResp(code) {
+  const A = raidAuto; if (!A || A.code !== code || Date.now() - A.at > 5000) return {};
+  return { assign: A.assign };
+}
+// 面板的警告列：30 秒以上傷害沒增加、MP 低於 10%、被封印／暈眩（有效的）
+function raidAutoWarn(now) {
+  const out = [], A = raidAuto;
+  for (const [id, v] of Object.entries(raidLive)) {
+    if (!v.battle || now - v.at > 6000) continue;
+    const me = v.me || {}, el = (now - v.at) / 1000; if (Number(me.hp) <= 0) continue;
+    for (const k of ['seal', 'stun']) { const d = (me.diseases || {})[k], l = d && typeof d === 'object' ? (Number(d.left) || 0) - el : 0; if (l > 0) out.push({ id, kind: k, text: `${k === 'seal' ? '被封印' : '暈眩'} ${Math.ceil(l)} 秒` }); }
+    if (Number(me.maxmp) > 0 && Number(me.mp) / Number(me.maxmp) < 0.1) out.push({ id, kind: 'mp', text: `MP 只剩 ${Math.round(Number(me.mp) / Number(me.maxmp) * 100)}%` });
+    if (A && A.code === v.battle.code && A.fightAt) { const d = A.dmg[id], last = Math.max(d ? d.at : 0, A.fightAt); if (now - last >= 30000) out.push({ id, kind: 'idle', text: `${Math.floor((now - last) / 1000)} 秒沒有傷害` }); }
+  }
+  return out;
+}
+function raidAutoView(now) {
+  const A = raidAuto, fresh = A && now - A.at < 6000;
+  return { cfg: raidAutoCfg(), code: A ? A.code : '', assign: fresh ? A.assign : {}, wave: fresh && A.wave ? { at: A.wave.at, n0: A.wave.n0, no: A.waves.length } : null,
+    waveSec: A ? A.waves.filter(w => w.end).map(w => Math.round((w.end - w.at) / 1000)) : [], warn: raidAutoWarn(now), log: raidAutoLogs.slice(-15) };
+}
 
 // ==== 副本 C 戰中自動應對（伺服器函式）結束 ====
 
@@ -1950,7 +2025,7 @@ const server = http.createServer(async (req, res) => {
         // 時間序列：?since=時間 只回那之後的點（面板每秒讀，自己接起來）
         const since = Number(url.searchParams.get('since')) || 0, S = raidSeries;
         const series = S ? { code: S.code, raid: S.raid, boss: S.boss, maxHp: S.maxHp, startAt: S.startAt, n: S.points.length, since, points: since ? S.points.filter(p => p[0] > since) : S.points, orbWaves: S.orbWaves, sealAt: S.sealAt } : null;
-        return send(res, 200, { now, plan: db.settings.raid || {}, views: fresh(raidViews, 30 * 60e3), live: fresh(raidLive, 15000), series, report: raidLastReport });
+        return send(res, 200, { now, plan: db.settings.raid || {}, views: fresh(raidViews, 30 * 60e3), live: fresh(raidLive, 15000), series, report: raidLastReport, auto: raidAutoView(now) });
       }
       if (req.method === 'POST' && url.pathname === '/api/raid/view') {
         const e = JSON.parse((await readBody(req)) || '{}'); if (!e.charId) return send(res, 400, { error: 'charId' });
@@ -1963,9 +2038,9 @@ const server = http.createServer(async (req, res) => {
         // 回報者：計畫裡的隊長；隊長沒在回報就由第一個在副本裡的隊員負責（戰鬥中多同步一次拿王的血量）
         const plan = db.settings.raid || {}, inLive = id => raidLive[id] && Date.now() - raidLive[id].at < 5000;
         const rep = inLive(plan.leader) ? plan.leader : (plan.members || []).find(inLive) || e.charId;
-        if (e.inRaid && e.battle && rep === e.charId) raidSeriesAdd(e);
+        if (e.inRaid && e.battle && rep === e.charId) { raidSeriesAdd(e); raidAutoUpdate(e); }
         if (e.inRaid && e.battle) raidSealCheck(e.battle.code);
-        return send(res, 200, { ok: true, reporter: rep === e.charId });
+        return send(res, 200, { ok: true, reporter: rep === e.charId, ...(e.inRaid && e.battle ? raidAutoResp(e.battle.code) : {}) });
       }
       if (req.method === 'POST' && url.pathname === '/api/raid/report') {
         const e = JSON.parse((await readBody(req)) || '{}'); const r = cleanRaidReport(e.report); if (!e.charId || !r) return send(res, 400, { error: 'report' });
@@ -1990,7 +2065,12 @@ const server = http.createServer(async (req, res) => {
       // ==== 副本 B 副本前自動補給（API）結束 ====
       
       // ==== 副本 C 戰中自動應對（API）：C 子任務的程式放在這行下面 ====
-      
+      // agent 送完 {type:'target'} 回報結果（成功／失敗原因），面板顯示「冰雷 → 黑球 #5」
+      if (req.method === 'POST' && url.pathname === '/api/raid/auto') {
+        const e = JSON.parse((await readBody(req)) || '{}'); if (!e.charId || !Number.isInteger(e.slot)) return send(res, 400, { error: 'charId/slot' });
+        raidAutoLog({ kind: e.kind === 'boss' ? 'boss' : 'orb', charId: String(e.charId).slice(0, 60), name: charName(e.charId), slot: e.slot, ok: !!e.ok, ...(e.error ? { error: String(e.error).slice(0, 120) } : {}) });
+        return send(res, 200, { ok: true });
+      }
       // ==== 副本 C 戰中自動應對（API）結束 ====
       
       // ==== 副本 D 戰後紀錄與分析（API）：D 子任務的程式放在這行下面 ====
