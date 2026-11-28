@@ -344,6 +344,7 @@
   - 已知：e2e_guild 在這版之前就失敗（存入工作核准後 mock 沒存進去，Page.check 逾時；真實中控每小時自動存入正常），待查。e2e_guild_restock 高並行時偶爾紀錄檢查失敗，單跑會過。
 - v0.82.1（2026-11-28）：POST /api/world 收到的世界格式 wN 比存著的小（舊腳本 w7、新的 w8）就忽略（回 ignored），crossQuests/crossExchange 也加進「沒帶就沿用」清單。實測：v0.82.0 發佈後還沒換腳本的分頁把 crossQuests 洗掉，GET /api/cross quests 變 0。e2e_cross_live 第 4 段驗。
   - 真實遊戲試 佐藤嵐司：cross_gms4230115 已 9999（離線／隊友擊殺有算）→ /api/cross/claim 成功，硬幣 0→1，claimed:true。
+  - 同一隻可以同時接很多張：嵐司 Lv90 一鍵接取 38 張全部成功、沒有錯誤。自動狩獵只開嵐司：移到 東方岩石山〈5〉（無BOSS）打黑斧木妖，約 84 隻／分（9999 隻約 2 小時一張）。
 - v0.82.0（2026-11-28；2 個 szg-dev 子任務並行：A agent/server/mock、B dashboard）：十字獵人
   - 遊戲格式（/api/catalog、sync、game.js crossHunterPane 查證）：catalog.quests 裡 group==='cross' 48 張 {id:'cross_<mob>',name,mob,count:9999,level(20～120),reward:{item:'i4310029',qty:1}}；怪物地圖＝catalog.maps.filter(m=>m.mobIds.includes(q.mob))，常有 _noboss 版。character.quests={qid:{count,claimed}}（接了才有）；硬幣 inventory.i4310029；character.crossExchange＝已兌換階段；catalog.crossExchange 4 階（不自動做）。指令 {type:'questAccept',quest}／{type:'questClaim',quest}（c.lv<q.level 不能接）。
   - agent：uploadWorld 加 crossQuests/crossExchange（版本前綴 w8）；char.cross={quests(cross_*),coins,exchanged}，readState 合併頁面和 45 秒直接同步兩份（count 取大、claimed 任一）；cfg questAccept/questClaim。
