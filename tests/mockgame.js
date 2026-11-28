@@ -344,6 +344,26 @@ const raidKnobs = {}, raidTargetLog = []; // raidTargetLog：收到的 target �
 const RK = (k, env, def) => raidKnobs[k] != null ? raidKnobs[k] : Number(process.env[env] != null && process.env[env] !== '' ? process.env[env] : def);
 const RAID_ORB_HP = 20000, RAID_ORB_N = 15;
 const raidZero = () => (process.env.MOCK_RAID_ZERO || '').split(',').filter(Boolean); // 這幾隻傷害 0（實機 4 隻 0 傷害）
+// 攻擊紀錄的測試開關（/__mock/raid?miss=c3&idle=c4&noeff=c5，逗號分隔，空字串清掉）：miss＝有出手但每段都未命中（lines damage 0）、
+// idle＝不出手（沒有 attack 事件）、noeff＝有命中但扣血 0（damage>0、effectiveDamage 0）。這幾隻跟 MOCK_RAID_ZERO 一樣不算進王的 damageBy
+const raidList = k => String(raidKnobs[k] != null ? raidKnobs[k] : process.env['MOCK_RAID_' + k.toUpperCase()] || '').split(',').filter(Boolean);
+// 真實格式（game.js／agent dpsIngest）：summary.events 是全隊事件，攻擊 {kind:'attack', actor, actorName, skill, target:enemies 索引, mob, damage, effectiveDamage, lines:[{damage,critical}], killed, hpAfter, at, eventId}；
+// 持續傷害 kind 'burn'／'poison'。每隻約每秒出手一次（封印中不能放技能＝不出手）；王無敵（黑球在場）時打王扣血 0
+function raidHitEvents(t, now, dt) {
+  const b = t.battle, miss = raidList('miss'), noeff = raidList('noeff'), quiet = [...raidZero(), ...raidList('idle')], ev = b.events || (b.events = []), sw = b.swing || (b.swing = {});
+  for (const id of t.members) {
+    const x = charById(id); if (!x || quiet.includes(id) || sealedNow(x, now)) continue;
+    for (sw[id] = (sw[id] || 0) + dt; sw[id] >= 1; sw[id]--) {
+      const ti = Number.isInteger(x.target) && b.orbList && b.orbList[x.target - 1] ? x.target : 0, orb = ti > 0, mob = orb ? 'gms8500003' : RAID_BOSS[t.raid].id, m = miss.includes(id);
+      const lines = Array.from({ length: 3 }, () => ({ damage: m ? 0 : 1000 + rnd(4000), critical: !m && Math.random() < 0.2 })), damage = lines.reduce((s, l) => s + l.damage, 0);
+      const eff = noeff.includes(id) || (!orb && b.invulnerable) ? 0 : damage;
+      const k = (b.hitN || (b.hitN = {}))[id] = (b.hitN[id] || 0) + 1; // 測試對帳：這隻出手幾次
+      ev.push({ eventId: 'rv' + (++eventSeq), actor: id, actorName: x.name, kind: 'attack', skill: id === t.leader && k % 3 === 0 ? 1001005 : 1001004, target: ti, mob, damage, effectiveDamage: eff, lines, killed: false, hpAfter: Math.round(b.hp), at: now });
+      if (id === t.leader && k % 4 === 0 && !m) ev.push({ eventId: 'rv' + (++eventSeq), actor: id, actorName: x.name, kind: 'burn', skill: 1001005, target: 0, mob: RAID_BOSS[t.raid].id, damage: 500, effectiveDamage: b.invulnerable ? 0 : 500, at: now });
+    }
+  }
+  if (ev.length > 400) ev.splice(0, ev.length - 400);
+}
 const sealedNow = (x, now) => !!(x && x.diseases && x.diseases.seal && x.diseases.seal.until > now);
 function raidAilAll(t, kind, ms, now) { for (const id of t.members) { const x = charById(id); if (x) x.diseases = { ...(x.diseases || {}), [kind]: { until: now + ms, raid: true } }; } }
 function raidEnd(t, result, now) {
@@ -361,7 +381,8 @@ function raidTick(t) {
   const from = Math.max(b.lastAt, b.prepUntil), dt = Math.max(0, now - from) / 1000;
   b.lastAt = now;
   if (now <= b.prepUntil) return;
-  const zero = raidZero(), able = t.members.filter(id => !zero.includes(id)), w = id => (id === t.leader ? 2 : 1);
+  raidHitEvents(t, now, dt);
+  const zero = [...raidZero(), ...raidList('miss'), ...raidList('idle'), ...raidList('noeff')], able = t.members.filter(id => !zero.includes(id)), w = id => (id === t.leader ? 2 : 1);
   const atk = able.filter(id => !sealedNow(charById(id), now)), W = able.reduce((s, id) => s + w(id), 0) || 1, A = atk.reduce((s, id) => s + w(id), 0);
   // 黑球（只有拉圖斯）
   const orbMs = RK('orbMs', 'MOCK_RAID_ORB_MS', 110000);
@@ -454,7 +475,7 @@ function handle(a, body) {
       for (const x of Object.values(a.chars)) evs = evs.concat(simulate(x, now));
       for (const x of Object.values(a.chars)) if (x.pendingHits && x.pendingHits.length) { evs = evs.concat(x.pendingHits); x.pendingHits = []; }
       const res = { ...sessionView(a, c.id), summary: { events: evs }, tradeEligible: tradeEligible(a, c.id), enemies: enemiesOf(c), bossTimers: {} };
-      { const rt = raidTeamOf(c); if (rt && rt.battle) res.enemies = raidEnemiesOf(rt); if (body.raidOnly) res.raid = raidViewOf(c, RAID_BOSS[body.raid] ? body.raid : undefined); }
+      { const rt = raidTeamOf(c); if (rt && rt.battle) { res.enemies = raidEnemiesOf(rt); res.summary.events = evs.concat((rt.battle.events || []).filter(e => e.at > now - 8000)); } if (body.raidOnly) res.raid = raidViewOf(c, RAID_BOSS[body.raid] ? body.raid : undefined); }
       if (body.tradeOnly) res.trade = null;
       if (body.includeMarket) res.market = marketView(a, c);
       if (body.includeBossRespawns) res.bossRespawns = bossRespawnsOf(c);
@@ -954,7 +975,8 @@ http.createServer((req, res) => {
     if (url.searchParams.get('mp')) { const [id, v] = url.searchParams.get('mp').split(':'), x = charById(id); if (x) x.mp = Number(v) || 0; } // mp=c3:0：設定某隻的 MP（測 MP 見底）
     { const m = /^(\w+):(\d+)$/.exec(url.searchParams.get('setmp') || ''); const x = m && charById(m[1]); if (x) x.mp = Number(m[2]); } // ?setmp=c4:10
     if (url.searchParams.get('clearTargets')) raidTargetLog.length = 0;
-    return send(res, 200, { knobs: raidKnobs, teams: Object.values(raidTeams).map(t => ({ code: t.code, raid: t.raid, result: t.result || null, battle: t.battle ? { hp: Math.round(t.battle.hp), orbs: t.battle.orbs || 0, damageBy: t.battle.damageBy } : null,
+    for (const k of ['miss', 'idle', 'noeff']) { const v = url.searchParams.get(k); if (v !== null) { if (v === '') delete raidKnobs[k]; else raidKnobs[k] = v; } } // ?miss=c3&idle=c4（攻擊紀錄）
+    return send(res, 200, { knobs: raidKnobs, teams: Object.values(raidTeams).map(t => ({ code: t.code, raid: t.raid, result: t.result || null, battle: t.battle ? { hp: Math.round(t.battle.hp), orbs: t.battle.orbs || 0, damageBy: t.battle.damageBy, hitN: t.battle.hitN || {} } : null,
       targets: Object.fromEntries(t.members.map(id => [id, (charById(id) || {}).target ?? null])) })), targetLog: raidTargetLog });
   }
   if (url.pathname === '/__mock/luck') { scrollQueue = (url.searchParams.get('seq') || '').split(',').filter(x => x !== '').map(Number); return send(res, 200, { ok: true, n: scrollQueue.length }); }
