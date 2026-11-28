@@ -853,7 +853,7 @@
     <div class="card"><div class="bar"><h3 style="margin:0">⚔ 副本</h3><span class="dim sm">用自己的角色組副本隊：建立 → 加入 → 準備 → 開始。戰前設定照遊戲裡每隻角色的設定（藥水、攻擊、Buff…）。</span></div>
       <div id="rdSetup"></div><div class="bar" id="rdBtns"></div><div id="rdMsg" class="sm"></div></div>
     <div class="card"><h3>隊伍</h3><div id="rdTeam"></div></div>
-    <div class="card"><h3>戰況 <span class="dim sm">每秒更新</span></h3><div id="rdBattle"></div></div>
+    <div class="card"><h3>戰況 <span class="dim sm">每秒更新</span></h3><div id="rdWarn"></div><div id="rdBattle"></div></div>
     <div class="card" id="rdPrepCard"><h3>戰前檢查</h3><div id="rdPrep"></div></div>
     <div class="card" id="rdSupplyCard"><h3>副本前補給</h3><div id="rdSupply"></div></div>
     <div class="card" id="rdAutoCard"><h3>戰中自動應對</h3><div id="rdAuto"></div></div>
@@ -7490,7 +7490,7 @@ function raidReportHtml() {
     <div class="dim sm">還沒開打下一場。開始後這裡換成即時戰況。</div></div>`;
 }
 setInterval(() => { if (!document.hidden && document.querySelector('nav button.on').dataset.tab === 'raid') renderRaid(); }, 1000);
-async function raidSavePlan(patch) { await saveSettings({ raid: { ...raidPlan(), ...patch } }); drawRaid(); }
+async function raidSavePlan(patch) { await saveSettings({ raid: { ...(S.raid || {}), ...raidPlan(), ...patch } }); drawRaid(); } // 保留 settings.raid 的其他欄位（例如 auto）
 // 副本的 A～D 區塊：每個區塊自己畫，壞掉不影響其他區塊
 function raidExtDraw() { for (const f of [raidPrepDraw, raidSupplyDraw, raidAutoDraw, raidHistDraw]) { try { f(); } catch (e) { console.warn('[副本區塊]', f.name, e); } } }
 
@@ -7505,7 +7505,47 @@ function raidSupplyDraw() {}
 // ==== 副本 B 副本前自動補給（面板）結束 ====
 
 // ==== 副本 C 戰中自動應對（面板）：程式放在這行下面；raidAutoDraw() 每秒跟著 drawRaid 呼叫 ====
-function raidAutoDraw() {}
+// settings.raid.auto＝{orbs, orbChars[], back}；伺服器 /api/raid 的 auto＝{cfg, code, assign{charId:{slot,kind}}, wave{at,n0,no}, waveSec[], warn[{id,kind,text}], log[]}
+function raidAutoCfgOf() { const a = (S.raid || {}).auto || {}; return { orbs: !!a.orbs, back: !!a.back, orbChars: Array.isArray(a.orbChars) ? a.orbChars.filter(Boolean) : [] }; }
+async function raidAutoSave(patch) { await saveSettings({ raid: { ...(S.raid || {}), auto: { ...raidAutoCfgOf(), ...patch } } }); raidAutoDraw(); }
+const raidAutoSet = (el, h) => { if (el && el._h !== h) { el.innerHTML = h; el._h = h; } }; // 內容沒變就不重畫（不打斷點選）
+const raidTgtName = x => (x.kind === 'boss' ? '王' : `黑球 #${x.slot}`);
+function raidAutoDraw() {
+  if (!RAID) return;
+  const p = raidPlan(), all = raidAll(p), cfg = raidAutoCfgOf(), A = RAID.auto || {}, now = Date.now() + ((RAID.now || Date.now()) - Date.now());
+  const fight = Object.values(RAID.live || {}).find(v => v.battle && now - v.at < 6000 && (!A.code || v.battle.code === A.code));
+  const rep = RAID.report && RAID.report.report, inBattle = !!fight && !(rep && rep.code && rep.code === fight.battle.code && rep.at >= (fight.battle.prepUntil || 0));
+  const assign = Object.entries(A.assign || {}), orbAssign = assign.filter(([, x]) => x.kind === 'orb');
+  // 戰況上方的警告列
+  let w = '';
+  if (inBattle) {
+    const b = fight.battle, items = [];
+    if (A.wave || (b.invulnerable && b.orbs)) {
+      const el = A.wave ? (now - A.wave.at) / 1000 : 0, ds = (A.waveSec || []).slice().sort((x, y) => x - y), med = ds.length ? ds[Math.floor(ds.length / 2)] : 0;
+      items.push(`<div class="bad">⚫ 黑球 <b>${b.orbs || (A.wave && A.wave.n0) || '?'}</b> 顆${A.wave ? `・已出現 ${Math.floor(el)} 秒` : ''}${med ? `・<b>約 ${Math.max(0, Math.ceil(med - el))} 秒後消失</b>（前幾波平均 ${med} 秒）` : ''}・${cfg.orbs ? `已指派 <b>${orbAssign.length}</b> 隻去打${orbAssign.length ? `（${orbAssign.map(([id, x]) => `${esc(charNameOf(id))}→#${x.slot}`).join('、')}）` : ''}` : '<span class="warn">自動集火沒開</span>'}</div>`);
+    }
+    const byChar = {}; for (const x of A.warn || []) (byChar[x.id] = byChar[x.id] || []).push(x.text);
+    for (const [id, t] of Object.entries(byChar)) items.push(`<div class="warn">⚠ ${esc(charNameOf(id))}：${t.map(esc).join('、')}</div>`);
+    if (items.length) w = `<div class="sm" id="rdWarnBox" style="border:1px solid #b5651d;border-radius:6px;padding:4px 8px;margin:4px 0;background:rgba(181,101,29,.08)">${items.join('')}</div>`;
+  }
+  raidAutoSet($('#rdWarn'), w);
+  // 設定＋紀錄
+  const mage = id => { const sf = raidSelf(id), c = DATA.chars[id] && DATA.chars[id].char; return (sf && sf.mage) || /mage|wizard|cleric|priest|bishop|magician/i.test((c && c.job) || ''); };
+  const log = (A.log || []).slice().reverse().slice(0, 10).map(x => `<div><span class="dim">${new Date(x.at).toLocaleTimeString()}</span> ${x.kind === 'wave' ? esc(x.text || '')
+    : `${esc(x.name || charNameOf(x.charId))} → ${raidTgtName(x)} ${x.ok ? '<span class="good">✓</span>' : `<span class="bad">✗ ${esc(x.error || '失敗')}</span>`}`}</div>`).join('');
+  raidAutoSet($('#rdAuto'), `<div class="bar"><label><input type="checkbox" data-rdauto="orbs" ${cfg.orbs ? 'checked' : ''}> ⚫ 黑球出現時自動集火</label>
+      <label><input type="checkbox" data-rdauto="back" ${cfg.back ? 'checked' : ''}> 黑球清完切回王</label>
+      <span class="dim sm">各角色自己的分頁／直連送「選目標」；每隻最多 2 秒換一次，同一個目標不重送，失敗就停 30 秒</span></div>
+    <div class="sm">負責清黑球的角色 <span class="dim">（都不勾＝全隊；建議勾法師系）</span></div>
+    ${all.length ? `<div class="rd-mems" id="rdAutoChars">${all.map(id => `<label class="rd-arow"><input type="checkbox" data-rdorb="${esc(id)}" ${cfg.orbChars.includes(id) ? 'checked' : ''}> ${esc(charNameOf(id))}${mage(id) ? ' <span class="dim sm">🔮法師</span>' : ''}</label>`).join('')}</div>` : '<div class="dim sm">先在上面選隊長和隊員</div>'}
+    ${inBattle && assign.length ? `<div class="sm">目前分配：${assign.map(([id, x]) => `${esc(charNameOf(id))} → ${raidTgtName(x)}`).join('、')}</div>` : ''}
+    <div class="sm" id="rdAutoLog" style="margin-top:4px"><div class="dim">最近的自動動作</div>${log || '<div class="dim">還沒有</div>'}</div>`);
+}
+document.addEventListener('change', e => {
+  const t = e.target; if (!t.closest || !t.closest('#rdAuto')) return;
+  if (t.dataset.rdauto) { raidAutoSave({ [t.dataset.rdauto]: t.checked }); return; }
+  if (t.dataset.rdorb) { const cur = raidAutoCfgOf().orbChars.filter(x => x !== t.dataset.rdorb); raidAutoSave({ orbChars: t.checked ? [...cur, t.dataset.rdorb] : cur }); }
+});
 
 // ==== 副本 C 戰中自動應對（面板）結束 ====
 

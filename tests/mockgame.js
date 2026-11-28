@@ -340,7 +340,7 @@ const RAID_BOSS = { papulatus: { id: 'gms8500001', hp: 2000000 }, zakum: { id: '
 // 黑球沒清完會自己消失 → 全隊 diseases.seal（raid:true）約 30 秒；diseases 會留過期的紀錄；enemies[i].damageBy＝{characterId: 累計傷害}；
 // 結束後 character.raidReport＝{result:'clear'|'fail'|'timeout', at, total, rows:[{name, damage, deaths}], code}
 // 測試可調（環境變數或 /__mock/raid?dps=&regen=&orbs=now&end=fail）：預設回血小一點，測試才打得完
-const raidKnobs = {};
+const raidKnobs = {}, raidTargetLog = []; // raidTargetLog：收到的 target 指令（測試看有沒有一直重送）
 const RK = (k, env, def) => raidKnobs[k] != null ? raidKnobs[k] : Number(process.env[env] != null && process.env[env] !== '' ? process.env[env] : def);
 const RAID_ORB_HP = 20000, RAID_ORB_N = 15;
 const raidZero = () => (process.env.MOCK_RAID_ZERO || '').split(',').filter(Boolean); // 這幾隻傷害 0（實機 4 隻 0 傷害）
@@ -370,6 +370,11 @@ function raidTick(t) {
       b.orbList = Array.from({ length: RAID_ORB_N }, (_, i) => ({ hp: RAID_ORB_HP, spawnId: 'orb' + (++b.orbSeq) + '-' + i, damageBy: {} }));
       b.orbUntil = now + RK('orbLife', 'MOCK_RAID_ORB_LIFE_MS', 20000); b.nextOrbAt = now + orbMs; }
     if (b.orbList) {
+      // 選了黑球當目標（{type:'target', target:slot}，slot＝enemies 的索引：0 是王、1 起是黑球）的角色優先打那顆，打死多的傷害往後面的黑球算
+      const focus = RK('orbFocus', 'MOCK_RAID_ORB_FOCUS', 1);
+      for (const id of atk) { const x = charById(id), i = x && Number.isInteger(x.target) ? x.target - 1 : -1; if (!(i >= 0 && b.orbList[i] && b.orbList[i].hp > 0)) continue;
+        let f = dt * focus * RAID_ORB_HP * w(id);
+        for (const o of [...b.orbList.slice(i), ...b.orbList.slice(0, i)]) { if (f <= 0) break; const d = Math.min(o.hp, f); o.hp -= d; f -= d; o.damageBy[id] = Math.round((o.damageBy[id] || 0) + d); b.orbDmg[id] = (b.orbDmg[id] || 0) + d; } }
       let pool = dt * RK('orbKill', 'MOCK_RAID_ORB_KILL', 0.5) * RAID_ORB_HP * (A / W);
       for (const o of b.orbList) { if (pool <= 0) break; const d = Math.min(o.hp, pool); o.hp -= d; pool -= d;
         for (const id of atk) { const s = d * w(id) / (A || 1); o.damageBy[id] = Math.round((o.damageBy[id] || 0) + s); b.orbDmg[id] = (b.orbDmg[id] || 0) + s; } }
@@ -491,8 +496,16 @@ function handle(a, body) {
       const now = Date.now(), B = RAID_BOSS[t.raid];
       const prepUntil = now + Number(process.env.MOCK_RAID_PREP_MS || 10000);
       t.battle = { phase: 1, prepUntil, deadline: now + Number(process.env.MOCK_RAID_MINUTES || 20) * 60e3, lastAt: now, hp: B.hp, maxHp: B.hp, surrender: [], damageBy: {}, orbDmg: {}, deaths: {}, orbList: null, orbSeq: 0, nextOrbAt: prepUntil + RK('orbMs', 'MOCK_RAID_ORB_MS', 110000) };
-      for (const id of t.members) { const x = charById(id); if (x) x.diseases = { ...(x.diseases || {}), stun: { until: now - 120000, raid: true } }; } // 實機：diseases 留著過期的紀錄
+      for (const id of t.members) { const x = charById(id); if (x) { x.diseases = { ...(x.diseases || {}), stun: { until: now - 120000, raid: true } }; delete x.target; } } // 實機：diseases 留著過期的紀錄
       return { ...sessionView(a, c.id), raid: raidViewOf(c), summary: { events: [] } };
+    }
+    // 選攻擊目標（真實 game.js：怪物按鈕 data-target＝enemies 的索引；角色目前的目標在 character.target）。實機回應格式還沒看過，這裡回一般的 sessionView
+    case 'target': {
+      if (raidKnobs.targetFail) fail('目前無法切換目標');
+      const i = Number(body.target); if (!Number.isInteger(i) || i < 0) fail('目標不正確');
+      const rt = raidTeamOf(c), n = rt && rt.battle ? raidEnemiesOf(rt).length : enemiesOf(c).length; if (i >= n) fail('找不到這個目標');
+      c.target = i; raidTargetLog.push({ char: c.id, target: i, at: now }); if (raidTargetLog.length > 200) raidTargetLog.shift();
+      return { ...sessionView(a, c.id), summary: { events: [] } };
     }
     case 'raidLeave': {
       const t = raidTeamOf(c); if (!t) fail('你不在副本隊伍裡'); if (t.battle) fail('戰鬥中不能離開隊伍');
@@ -935,10 +948,13 @@ http.createServer((req, res) => {
   }
   // 測試控制：/__mock/raid?dps=0.01&regen=0.02（每秒佔王血量的比例）&orbs=now（馬上出黑球）&orbKill=0（黑球打不動）&end=fail|timeout|clear；不帶參數只回目前狀態
   if (url.pathname === '/__mock/raid') {
-    for (const k of ['dps', 'regen', 'orbKill', 'orbLife', 'orbMs', 'sealMs']) { const v = url.searchParams.get(k); if (v !== null) { if (v === '') delete raidKnobs[k]; else raidKnobs[k] = Number(v); } }
+    for (const k of ['dps', 'regen', 'orbKill', 'orbLife', 'orbMs', 'sealMs', 'orbFocus', 'targetFail']) { const v = url.searchParams.get(k); if (v !== null) { if (v === '') delete raidKnobs[k]; else raidKnobs[k] = Number(v); } }
     if (url.searchParams.get('orbs') === 'now') raidKnobs.orbsNow = true;
     if (url.searchParams.get('end')) raidKnobs.end = url.searchParams.get('end');
-    return send(res, 200, { knobs: raidKnobs, teams: Object.values(raidTeams).map(t => ({ code: t.code, raid: t.raid, result: t.result || null, battle: t.battle ? { hp: Math.round(t.battle.hp), orbs: t.battle.orbs || 0, damageBy: t.battle.damageBy } : null })) });
+    { const m = /^(\w+):(\d+)$/.exec(url.searchParams.get('setmp') || ''); const x = m && charById(m[1]); if (x) x.mp = Number(m[2]); } // ?setmp=c4:10
+    if (url.searchParams.get('clearTargets')) raidTargetLog.length = 0;
+    return send(res, 200, { knobs: raidKnobs, teams: Object.values(raidTeams).map(t => ({ code: t.code, raid: t.raid, result: t.result || null, battle: t.battle ? { hp: Math.round(t.battle.hp), orbs: t.battle.orbs || 0, damageBy: t.battle.damageBy } : null,
+      targets: Object.fromEntries(t.members.map(id => [id, (charById(id) || {}).target ?? null])) })), targetLog: raidTargetLog });
   }
   if (url.pathname === '/__mock/luck') { scrollQueue = (url.searchParams.get('seq') || '').split(',').filter(x => x !== '').map(Number); return send(res, 200, { ok: true, n: scrollQueue.length }); }
   if (url.pathname === '/api/game' && req.method === 'POST') {
