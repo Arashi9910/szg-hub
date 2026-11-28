@@ -27,6 +27,7 @@
 - **使用者的 Windows（Claude Code）**：在 WSL `Ubuntu-24.04`（磁碟在 `D:\WSL\Ubuntu-24.04`，C 槽很滿不要放 C）跑。第一次裝工具 `wsl -d Ubuntu-24.04 -u root -- bash <tools/wsl-setup.sh 的 /mnt 路徑>`；跑測試 `wsl -d Ubuntu-24.04 -u root -- bash /mnt/d/自己寫程式的/上漲谷/szghub/<worktree>/tools/wsl-test.sh -j 6 e2e_xxx e2e_smoke`（`BRANCH=` 指定分支，預設 claude/project-folder-access-fd00e7；**只複製已 commit 的內容**，先 WIP commit）。20 核心，`-j` 可到 6～8。
 
 ## 平行開發的分工規則
+- **預設就分工並行**（使用者要求，不用每次再說）：使用者派開發工作時，主對話先讀相關程式、把工作拆成 2～4 個能各自完成的子任務，同一則訊息一次派出多個 `szg-dev` 子代理（`isolation: worktree`、背景執行）同時做；主對話負責分工、合併、跑測試、對照遊戲現場、發佈。只有很小的改動（一兩個檔、幾行）才直接自己做。分工前把每個子任務的範圍、要改的檔案、要對的遊戲格式寫清楚。
 - 每個子任務在自己的 worktree 做（`isolation: worktree`），**不要 commit 到 main、不要 push、不要發佈**；做完回報改了哪些檔、測試結果。由主對話合併和發佈。
 - 同一個檔案（尤其 `dashboard.html`、`agent.js`、`server.js`）同時只給一個子任務大改；分工時依檔案或依區塊切開，避免合併衝突。
 - 改 `version.json`、`HANDOFF.md`、`README` 只在主對話做（發佈時）。
