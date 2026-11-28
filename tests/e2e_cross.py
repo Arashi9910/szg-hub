@@ -1,6 +1,6 @@
 """十字獵人（v0.82）：一鍵接取（等級不夠的不接、遊戲擋下來的錯誤原樣記下）、自動狩獵（移到目標地圖、_noboss 優先、mapPref 覆蓋）、
 擊殺數到了自動領獎、換下一張、全部完成變 done；副本中的角色 blocked 不會被拉走；GET /api/cross 的欄位"""
-import asyncio, json, os, sys, time
+import asyncio, json, os, sys, time, urllib.parse
 import harness
 from harness import Env, hub_json, http, HUB, MOCK
 
@@ -61,7 +61,7 @@ async def main():
         check(r1 and r1['state'] == 'idle' and r1['canAccept'] == [Q20, Q30, Q40], f'c1 Lv45 能接 3 張（{r1 and (r1["state"], r1["canAccept"], r1["why"])}）')
 
         print('2. 遊戲擋下來的接取：錯誤原樣記下，不重試')
-        http('GET', MOCK + '/__mock/quest?fail=' + '同時進行的任務已達上限')
+        http('GET', MOCK + '/__mock/quest?fail=' + urllib.parse.quote('同時進行的任務已達上限'))
         s, b = http('POST', HUB + '/api/cross/accept', {'ids': ['c3'], 'quests': [Q20]})
         check(s == 200 and json.loads(b)['chars'][0]['n'] == 1, f'送出（{s} {b[:160]}）')
         r3 = await wait(lambda: (lambda r: r if r['errors'].get(Q20) else None)(row('c3')), 40)
