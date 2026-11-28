@@ -9,7 +9,7 @@ def check(cond, msg):
     print(('  ✓ ' if cond else '  ✗ ') + msg); ok = ok and bool(cond)
 def mock_state(): return json.loads(http('GET', MOCK + '/__mock/state')[1])
 def blue():
-    st = mock_state(); return {a['active']: a['chars'][a['active']]['inventory'].get('i2000003', 0) for a in st['accounts'].values()}
+    st = mock_state(); return {cid: c['inventory'].get('i2000003', 0) for a in st['accounts'].values() for cid, c in a['chars'].items()}
 async def wait(fn, sec=40, step=1):
     end = time.time() + sec
     while time.time() < end:
