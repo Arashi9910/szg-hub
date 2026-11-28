@@ -7500,7 +7500,94 @@ function raidPrepDraw() {}
 // ==== 副本 A 戰前檢查＋一鍵套用（面板）結束 ====
 
 // ==== 副本 B 副本前自動補給（面板）：程式放在這行下面；raidSupplyDraw() 每秒跟著 drawRaid 呼叫 ====
-function raidSupplyDraw() {}
+// settings.raid.supply = {items:[{key,name,target}], auto}；資料從 /api/raid/supply（設定、試算、紀錄）每 2 秒讀一次
+let RSUP = null, rsupLoading = false, rsupAt = 0;
+const RSUP_COMMON = { i2000000: '紅色藥水', i2000001: '橘色藥水', i2000002: '白色藥水', i2000003: '藍色藥水', i2050004: '萬能療傷藥' }; // 公倉、背包都沒有也能先選
+const rsupName = key => { const n = keyName(key); return n && n !== key ? n : RSUP_COMMON[key] || key; };
+async function rsupLoad(force) {
+  if (rsupLoading || (!force && Date.now() - rsupAt < 2000)) return; rsupLoading = true;
+  try { RSUP = await (await fetch('/api/raid/supply')).json(); rsupAt = Date.now(); } finally { rsupLoading = false; }
+}
+const rsupSave = async patch => { RSUP = { ...RSUP, ...(await api('/api/raid/supply', { ...RSUP.cfg, ...patch })) }; rsupAt = Date.now(); rsupRender(true); };
+function rsupOptions(cur) {
+  const n = {}, g = {};
+  for (const x of (RSUP && RSUP.guildItems) || []) { g[x.key] = x.n; n[x.key] = 1; }
+  for (const id of raidAll(raidPlan())) for (const it of ((DATA.chars[id] || {}).items || [])) if (it.loc === '背包' && /^i\w+$/.test(it.key || '')) n[it.key] = 1;
+  for (const k of Object.keys(RSUP_COMMON)) n[k] = 1;
+  if (cur) n[cur] = 1;
+  const read = RSUP && RSUP.plan && RSUP.plan.guildRead;
+  return Object.keys(n).map(key => ({ key, name: rsupName(key), g: g[key] || 0 })).sort((a, b) => (b.g > 0) - (a.g > 0) || cmp(a.name, b.name))
+    .map(x => `<option value="${esc(x.key)}" ${x.key === cur ? 'selected' : ''}>${esc(x.name)}${read ? `（公倉 ${x.g ? fmt(x.g) : '沒有'}）` : ''}</option>`).join('');
+}
+function raidSupplyDraw() {
+  if (!$('#rdSupply')) return;
+  rsupLoad().then(() => rsupRender()).catch(e => { const m = $('#rsMsg'); if (m) m.textContent = '讀不到補給資料：' + e.message; });
+  if (RSUP) rsupRender();
+}
+const RS_ST = { queued: ['排隊中', ''], approved: ['排隊中', ''], pending: ['待確認', 'warn'], running: ['領取中', 'good'], done: ['✓ 完成', 'good'], failed: ['✗ 失敗', 'bad'], cancelled: ['已取消', 'dim'] };
+function rsupRender(full) {
+  const box = $('#rdSupply'); if (!box || !RSUP) return;
+  if (!$('#rsCfg')) { box.innerHTML = `<div class="dim sm">每隻要補到幾個，從公倉領（只領道具，不花楓幣、不從商店買）；對象是上面副本計畫的全隊。戰鬥中不補。</div>
+    <div id="rsCfg"></div><div class="bar" id="rsBar"></div><div id="rsMsg" class="sm"></div><div id="rsPrev"></div><div id="rsLog"></div>`; full = true; }
+  const c = RSUP.cfg || { items: [], auto: false }, P = RSUP.plan || {}, ae = document.activeElement;
+  // 正在改道具／數量時不重畫設定（輸入會被洗掉），只更新試算和紀錄
+  if (full || !($('#rsCfg').contains(ae) && /INPUT|SELECT/.test(ae.tagName))) {
+    $('#rsCfg').innerHTML = `<div class="bar"><label title="副本計畫的隊長建立好隊伍時（包含按「① 建立隊伍」），自動跑一次補給；戰鬥中不補"><input type="checkbox" id="rsAuto" ${c.auto ? 'checked' : ''}> 建立隊伍時自動補給</label></div>
+      ${c.items.map((it, i) => `<div class="bar rs-item"><span>${i + 1}.</span><select data-rsf="key" data-rsi="${i}"><option value="">（選道具）</option>${rsupOptions(it.key)}</select>
+        <span>每隻補到</span><input type="number" min="1" data-rsf="target" data-rsi="${i}" value="${esc(it.target)}" style="width:90px"><span>個</span><button class="btn sm" data-rsdel="${i}">刪除</button></div>`).join('') || '<div class="dim sm">還沒有道具。按「＋ 新增道具」，例如藍色藥水每隻補到 300 個、萬能療傷藥 20 個。</div>'}`;
+  }
+  const job = (DATA.jobs || []).find(j => j.kind === 'guildView' && ['approved', 'running'].includes(j.status));
+  $('#rsBar').innerHTML = `<button class="btn sm" id="rsAdd">＋ 新增道具</button><button class="btn primary" id="rsRun" ${P.fighting && P.fighting.length ? 'disabled title="戰鬥中不補給"' : ''}>立即補給</button>
+    <button class="btn sm" id="rsView">重新讀取公倉</button><span class="dim sm">${job || RSUP.want ? '公倉內容：讀取中…' : P.guildRead ? `公倉內容：${ago(Date.now() - P.guildAt)}讀的${P.guildOld ? '（補給前會先重新讀取）' : ''}` : '<span class="warn">還沒讀過公倉（補給前會先讀取）</span>'}</span>`;
+  // 試算：每隻現在有幾個 → 要領幾個
+  const items = P.items || [], rows = P.rows || [];
+  $('#rsPrev').innerHTML = !items.length || !(P.chars || []).length ? '' : `<table class="tbl sm rs-prev"><tr><th>角色</th>${items.map(it => `<th>${esc(it.name)}<span class="dim">（補到 ${fmt(it.target)}）</span></th>`).join('')}</tr>
+    ${P.chars.map(ch => `<tr><td>${esc(ch.name)}${ch.block ? ` <span class="warn sm">${esc(ch.block)}</span>` : ''}</td>${items.map(it => { const r = rows.find(x => x.charId === ch.id && x.key === it.key); if (!r) return '<td></td>';
+      return `<td>${fmt(r.have)}${r.want <= 0 ? ' <span class="good">夠了</span>' : r.skip ? ` <span class="warn">略過</span>` : r.qty > 0 ? ` → 領 <b>${fmt(r.qty)}</b>${r.short ? `<span class="warn">（要 ${fmt(r.want)}）</span>` : ''}` : ' <span class="bad">分不到</span>'}</td>`; }).join('')}</tr>`).join('')}
+    <tr><td class="dim">公倉</td>${items.map(it => `<td>${P.guildRead ? fmt(it.guild) : '?'}・要 ${fmt(it.need)}${it.short && P.guildRead ? ' <b class="bad">公倉不夠</b>' : ''}</td>`).join('')}</tr></table>
+    ${items.some(it => it.short) && P.guildRead ? '<div class="sm warn">公倉不夠的道具照背包最少的先分；不會從商店買。</div>' : ''}`;
+  // 紀錄：最近一次補給每隻領到多少、失敗原因
+  const log = RSUP.log || [], jobs = new Map((DATA.jobs || []).map(j => [j.id, j]));
+  const lastRun = (log.slice().reverse().find(x => x.run) || {}).run, takes = log.filter(x => x.run === lastRun && x.kind === 'take');
+  $('#rsLog').innerHTML = (takes.length ? `<div class="sm" style="margin-top:6px"><b>上次補給</b> <span class="dim">${clock(takes[0].at)}</span></div><table class="tbl sm rs-res"><tr><th>角色</th><th>道具</th><th>原有</th><th>要領</th><th>領到</th><th>狀態</th></tr>${takes.map(x => {
+      const j = jobs.get(x.jobId), k = x.status === 'queued' && j ? j.status : x.status, s = RS_ST[k] || [k, ''];
+      return `<tr><td>${esc(x.name)}</td><td>${esc(x.item)}</td><td class="num">${fmt(x.have)}</td><td class="num">${fmt(x.qty)}</td><td class="num">${x.got != null ? fmt(x.got) : '—'}</td><td><b class="${s[1]}">${s[0]}</b>${x.result ? ` <span class="dim">${esc(x.result)}</span>` : ''}</td></tr>`; }).join('')}</table>` : '')
+    + `<details class="sm" ${takes.length ? '' : 'open'} style="margin-top:4px"><summary class="dim">補給紀錄</summary>${log.filter(x => x.kind === 'note').slice(-12).reverse().map(x => `<div><span class="dim">${clock(x.at)}</span> ${esc(x.msg)}</div>`).join('') || '<div class="dim">還沒有紀錄</div>'}</details>`;
+}
+document.addEventListener('change', e => {
+  const t = e.target; if (!t.closest || !t.closest('#rdSupply') || !RSUP) return;
+  const items = (RSUP.cfg.items || []).map(x => ({ ...x }));
+  if (t.id === 'rsAuto') { rsupSave({ auto: t.checked }).catch(err => alert('失敗：' + err.message)); return; }
+  if (t.dataset.rsf) {
+    const it = items[Number(t.dataset.rsi)]; if (!it) return;
+    if (t.dataset.rsf === 'key') { it.key = t.value; it.name = t.value ? rsupName(t.value) : ''; } else it.target = Math.max(1, Math.floor(Number(t.value) || 1));
+    rsupSave({ items }).catch(err => alert('失敗：' + err.message));
+  }
+});
+document.addEventListener('click', async e => {
+  const t = e.target.closest && e.target.closest('#rsAdd,#rsRun,#rsView,[data-rsdel]'); if (!t || !t.closest('#rdSupply') || !RSUP) return;
+  const items = (RSUP.cfg.items || []).map(x => ({ ...x })), msg = m => { $('#rsMsg').textContent = m; };
+  try {
+    if (t.id === 'rsAdd') { items.push({ key: '', name: '', target: 100 }); return await rsupSave({ items }); }
+    if (t.dataset.rsdel) { const it = items[Number(t.dataset.rsdel)]; if (it && it.key && !confirm(`刪除「${it.name || it.key}」？`)) return; items.splice(Number(t.dataset.rsdel), 1); return await rsupSave({ items }); }
+    if (t.id === 'rsView') { t.disabled = true; await api('/api/guild/refresh', {}); msg('已請遊戲分頁讀取公倉，幾秒後更新'); return; }
+    if (t.id === 'rsRun') {
+      await rsupLoad(true); const P = RSUP.plan || {};
+      if (!(P.chars || []).length) { alert('先在上面選副本的隊長和隊員'); return; }
+      if (!(P.items || []).length) { alert('先新增要補給的道具和數量'); return; }
+      if ((P.fighting || []).length) { alert('隊伍在副本戰鬥中，不補給'); return; }
+      const lines = [];
+      for (const it of P.items) {
+        lines.push(`${it.name} 每隻補到 ${fmt(it.target)}：${P.guildRead ? `公倉 ${fmt(it.guild)}，全隊要 ${fmt(it.need)}${it.short ? ' → 公倉不夠，照背包最少先分' : ''}` : `全隊要 ${fmt(it.need)}（公倉還沒讀）`}`);
+        for (const r of P.rows.filter(x => x.key === it.key)) lines.push(`  ${r.name}：有 ${fmt(r.have)}${r.want <= 0 ? '，夠了' : r.skip ? `，略過（${r.skip}）` : P.guildRead ? (r.qty > 0 ? ` → 領 ${fmt(r.qty)}${r.short ? `（要 ${fmt(r.want)}）` : ''}` : ' → 公倉不夠，分不到') : ` → 要 ${fmt(r.want)}`}`);
+      }
+      if (P.guildOld) lines.push('', P.guildRead ? '公倉內容是舊的，會先重新讀取再照最新數量分配。' : '還沒讀過公倉，會先讀取再分配。');
+      if (P.guildRead && !P.guildOld && !P.rows.some(r => r.qty > 0)) { alert('這次沒有可以領的：\n\n' + lines.join('\n')); return; }
+      if (!confirm('副本前補給（從公倉領道具，不花楓幣、不從商店買）：\n\n' + lines.join('\n') + '\n\n確定建立領取工作？')) return;
+      t.disabled = true; const r = await api('/api/raid/supply/run', {}); RSUP = { ...RSUP, ...r }; rsupAt = Date.now(); msg(r.msg || ''); rsupRender(); await poll(true);
+    }
+  } catch (err) { t.disabled = false; msg('失敗：' + err.message); }
+});
 
 // ==== 副本 B 副本前自動補給（面板）結束 ====
 
