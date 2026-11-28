@@ -832,6 +832,23 @@ function raidSealCheck(code) {
   S.sealOn = on;
 }
 const raidNumOr0 = v => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
+// ==== 副本 A 戰前檢查＋一鍵套用（伺服器函式）：A 子任務的程式放在這行下面 ====
+
+// ==== 副本 A 戰前檢查＋一鍵套用（伺服器函式）結束 ====
+
+// ==== 副本 B 副本前自動補給（伺服器函式）：B 子任務的程式放在這行下面 ====
+
+// ==== 副本 B 副本前自動補給（伺服器函式）結束 ====
+
+// ==== 副本 C 戰中自動應對（伺服器函式）：C 子任務的程式放在這行下面 ====
+
+// ==== 副本 C 戰中自動應對（伺服器函式）結束 ====
+
+// ==== 副本 D 戰後紀錄與分析（伺服器函式）：D 子任務的程式放在這行下面 ====
+
+// ==== 副本 D 戰後紀錄與分析（伺服器函式）結束 ====
+
 function cleanRaidReport(r) {
   if (!r || typeof r !== 'object') return null;
   return { result: ['clear', 'fail', 'timeout'].includes(r.result) ? r.result : String(r.result || '').slice(0, 20), at: raidNumOr0(r.at), total: raidNumOr0(r.total), code: String(r.code || '').slice(0, 40),
@@ -1890,6 +1907,22 @@ const server = http.createServer(async (req, res) => {
         if (!raidLastReport || r.at >= raidLastReport.report.at) raidLastReport = { at: Date.now(), charId: e.charId, report: r };
         return send(res, 200, { ok: true });
       }
+      // ==== 副本 A 戰前檢查＋一鍵套用（API）：A 子任務的程式放在這行下面 ====
+      
+      // ==== 副本 A 戰前檢查＋一鍵套用（API）結束 ====
+      
+      // ==== 副本 B 副本前自動補給（API）：B 子任務的程式放在這行下面 ====
+      
+      // ==== 副本 B 副本前自動補給（API）結束 ====
+      
+      // ==== 副本 C 戰中自動應對（API）：C 子任務的程式放在這行下面 ====
+      
+      // ==== 副本 C 戰中自動應對（API）結束 ====
+      
+      // ==== 副本 D 戰後紀錄與分析（API）：D 子任務的程式放在這行下面 ====
+      
+      // ==== 副本 D 戰後紀錄與分析（API）結束 ====
+      
       if (req.method === 'POST' && url.pathname === '/api/raid/act') {
         const e = JSON.parse((await readBody(req)) || '{}');
         const jobs = createIdleJobs({ targets: (e.targets || []).map(t => ({ charId: t.charId, action: 'raid', cmd: t.cmd, label: t.label })) });

@@ -854,6 +854,10 @@
       <div id="rdSetup"></div><div class="bar" id="rdBtns"></div><div id="rdMsg" class="sm"></div></div>
     <div class="card"><h3>隊伍</h3><div id="rdTeam"></div></div>
     <div class="card"><h3>戰況 <span class="dim sm">每秒更新</span></h3><div id="rdBattle"></div></div>
+    <div class="card" id="rdPrepCard"><h3>戰前檢查</h3><div id="rdPrep"></div></div>
+    <div class="card" id="rdSupplyCard"><h3>副本前補給</h3><div id="rdSupply"></div></div>
+    <div class="card" id="rdAutoCard"><h3>戰中自動應對</h3><div id="rdAuto"></div></div>
+    <div class="card" id="rdHistCard"><h3>戰後紀錄</h3><div id="rdHist"></div></div>
   </section>
   <section id="party">
     <div class="card">
@@ -7381,7 +7385,7 @@ function hpBar(v, max, cls = '') { const pct = max > 0 ? Math.max(0, Math.min(10
 function renderRaid() {
   if (document.querySelector('nav button.on').dataset.tab !== 'raid') return;
   { const p = raidPlan(); if (!ui.rdAuto && RAID && p.leader && !raidRules(p.kind) && hasTab(p.leader)) { ui.rdAuto = true; api('/api/raid/act', { targets: raidAll(p).filter(hasTab).map(id => ({ charId: id, cmd: { type: 'sync', raid: p.kind }, label: '讀取副本資料' })) }).catch(() => {}); } }
-  loadRaid().then(drawRaid).catch(e => { $('#rdMsg').textContent = '讀不到副本資料：' + e.message; });
+  loadRaid().then(() => { drawRaid(); raidExtDraw(); }).catch(e => { $('#rdMsg').textContent = '讀不到副本資料：' + e.message; });
 }
 function drawRaid() {
   if (!RAID) return;
@@ -7487,6 +7491,29 @@ function raidReportHtml() {
 }
 setInterval(() => { if (!document.hidden && document.querySelector('nav button.on').dataset.tab === 'raid') renderRaid(); }, 1000);
 async function raidSavePlan(patch) { await saveSettings({ raid: { ...raidPlan(), ...patch } }); drawRaid(); }
+// 副本的 A～D 區塊：每個區塊自己畫，壞掉不影響其他區塊
+function raidExtDraw() { for (const f of [raidPrepDraw, raidSupplyDraw, raidAutoDraw, raidHistDraw]) { try { f(); } catch (e) { console.warn('[副本區塊]', f.name, e); } } }
+
+// ==== 副本 A 戰前檢查＋一鍵套用（面板）：程式放在這行下面；raidPrepDraw() 每秒跟著 drawRaid 呼叫 ====
+function raidPrepDraw() {}
+
+// ==== 副本 A 戰前檢查＋一鍵套用（面板）結束 ====
+
+// ==== 副本 B 副本前自動補給（面板）：程式放在這行下面；raidSupplyDraw() 每秒跟著 drawRaid 呼叫 ====
+function raidSupplyDraw() {}
+
+// ==== 副本 B 副本前自動補給（面板）結束 ====
+
+// ==== 副本 C 戰中自動應對（面板）：程式放在這行下面；raidAutoDraw() 每秒跟著 drawRaid 呼叫 ====
+function raidAutoDraw() {}
+
+// ==== 副本 C 戰中自動應對（面板）結束 ====
+
+// ==== 副本 D 戰後紀錄與分析（面板）：程式放在這行下面；raidHistDraw() 每秒跟著 drawRaid 呼叫 ====
+function raidHistDraw() {}
+
+// ==== 副本 D 戰後紀錄與分析（面板）結束 ====
+
 document.addEventListener('change', e => {
   const t = e.target; if (!t.closest || !t.closest('#raid')) return;
   if (t.id === 'rdLeader') { const p = raidPlan(); raidSavePlan({ leader: t.value, members: p.members.filter(x => x !== t.value) }); return; }
