@@ -846,6 +846,89 @@ const raidNumOr0 = v => (Number.isFinite(Number(v)) ? Number(v) : 0);
 // ==== 副本 C 戰中自動應對（伺服器函式）結束 ====
 
 // ==== 副本 D 戰後紀錄與分析（伺服器函式）：D 子任務的程式放在這行下面 ====
+// 每場打完（收到 raidReport）存一筆到 db.raidHistory（最多 50 筆、同一場 code＋at 只存一次），附上戰況分析和規則式的失敗原因。
+// 戰鬥中每秒從 raidLive 累積每隻的 MP／HP 最低％、MP 不到 5% 的秒數、倒下的時間（raidLive 只在記憶體，打完就靠這份）
+const RAID_HIST_MAX = 50;
+const raidHistTrack = {}; // 隊伍代碼 → { startAt, at, mem: { charId: { mpMin, hpMin, mpLow, dead, deaths:[時間] } } }
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, L] of Object.entries(raidLive)) {
+    const b = L && L.battle; if (!b || !b.code || now - L.at > 5000) continue;
+    const T = raidHistTrack[b.code] || (raidHistTrack[b.code] = { startAt: now, at: now, mem: {} }); T.at = now;
+    const me = L.me || {}, M = T.mem[id] || (T.mem[id] = { mpMin: null, hpMin: null, mpLow: 0, dead: false, deaths: [] });
+    const pct = (v, m) => (Number(m) > 0 && Number.isFinite(Number(v)) ? Math.max(0, Math.min(100, Number(v) / Number(m) * 100)) : null);
+    const mp = pct(me.mp, me.maxmp), hp = pct(me.hp, me.maxhp);
+    if (mp != null) { M.mpMin = M.mpMin == null ? mp : Math.min(M.mpMin, mp); if (mp < 5 && !(Number(me.hp) <= 0)) M.mpLow++; }
+    if (hp != null) M.hpMin = M.hpMin == null ? hp : Math.min(M.hpMin, hp);
+    const dead = Number(me.maxhp) > 0 && Number(me.hp) <= 0;
+    if (dead && !M.dead && M.deaths.length < 20) M.deaths.push(now);
+    M.dead = dead;
+  }
+  for (const [code, T] of Object.entries(raidHistTrack)) if (now - T.at > 30 * 60e3) delete raidHistTrack[code]; // 半小時沒資料就丟掉
+}, 1000);
+// 一份結算 → 歷史紀錄（伺服器在收到 /api/raid/report 時呼叫）
+function raidHistRecord(charId, r) {
+  if (!r || !r.code) return null;
+  const id = `${r.code}-${r.at}`, H = db.raidHistory = Array.isArray(db.raidHistory) ? db.raidHistory : [];
+  if (H.some(h => h.id === id || (h.code === r.code && Math.abs((h.at || 0) - (r.at || 0)) < 5000))) return null; // 同一場每隻都會送一次
+  const S = raidSeries && raidSeries.code === r.code ? raidSeries : null, T = raidHistTrack[r.code] || null, pts = (S && S.points) || [];
+  const startAt = S ? S.startAt : T ? T.startAt : 0, endAt = pts.length ? pts[pts.length - 1][0] : T ? T.at : 0;
+  const durationSec = startAt && endAt > startAt ? Math.round((endAt - startAt) / 1000) : null, rel = t => (startAt ? Math.max(0, Math.round((t - startAt) / 1000)) : null);
+  const plan = db.settings.raid || {}, raid = (S && S.raid) || (RAID_KINDS.includes(plan.kind) ? plan.kind : '') || '';
+  // 規則（挑戰幾分鐘）：任一隻角色的 view 讀過就有，沒有就當 20 分鐘
+  let minutes = 20; for (const v of Object.values(raidViews)) { const x = v && v.view && (v.view.raids || []).find(q => q && q.id === raid); if (x && Number(x.minutes) > 0) { minutes = Number(x.minutes); break; } }
+  // 王：血量最低％、總輸出／淨輸出／回血（每秒）
+  const maxHp = (S && S.maxHp) || 0, boss = { maxHp, minHpPct: null, endHpPct: null };
+  let gross = null, net = null, regen = null;
+  if (pts.length >= 2 && maxHp) {
+    boss.minHpPct = Math.round(Math.min(...pts.map(p => p[1])) / maxHp * 1000) / 10; boss.endHpPct = Math.round(pts[pts.length - 1][1] / maxHp * 1000) / 10;
+    const a = pts[0], z = pts[pts.length - 1], dt = (z[0] - a[0]) / 1000;
+    if (dt >= 5) { gross = Math.max(0, (z[2] - a[2]) / dt); net = (a[1] - z[1]) / dt; regen = Math.max(0, gross - net); }
+  }
+  // 黑球：每波出現到數量歸 0；之後 20 秒內有全隊封印＝沒清完
+  const sealAt = (S && S.sealAt) || [], waves = ((S && S.orbWaves) || []).map((w, i, all) => {
+    const nextW = all[i + 1] || Infinity, seg = pts.filter(p => p[0] >= w - 1500 && p[0] < nextW);
+    const endP = seg.find(p => p[0] > w && !p[3]), on = seg.filter(p => p[3] > 0 && (!endP || p[0] < endP[0]));
+    const end = endP ? endP[0] : null, seal = end != null ? sealAt.find(s => s >= w && s <= end + 20000) : sealAt.find(s => s >= w && s < nextW);
+    return { at: rel(w), sec: end ? Math.round((end - w) / 1000) : null, max: on.length ? Math.max(...on.map(p => p[3])) : null, left: on.length ? on[on.length - 1][3] : null,
+      cleared: end != null && !seal, sealed: !!seal, ...(seal ? { sealAt: rel(seal) } : {}) };
+  });
+  // 每隻：報告的列對上角色 id（報告有 id 就用；沒有就用名字對計畫和這場有回報的角色）
+  const cand = [...new Set([plan.leader, ...(plan.members || []), ...Object.keys((T && T.mem) || {}), charId].filter(Boolean))];
+  const total = r.total || r.rows.reduce((t, x) => t + (x.damage || 0), 0);
+  const rows = r.rows.map(x => {
+    const cid = x.id || cand.find(c => charName(c) === x.name) || null, M = cid && T && T.mem[cid];
+    return { name: x.name, charId: cid, damage: x.damage, deaths: x.deaths, pct: total ? Math.round(x.damage / total * 1000) / 10 : 0,
+      mpMinPct: M && M.mpMin != null ? Math.round(M.mpMin * 10) / 10 : null, hpMinPct: M && M.hpMin != null ? Math.round(M.hpMin * 10) / 10 : null,
+      mpLowSec: M ? M.mpLow : null, deathAt: M ? M.deaths.map(rel).filter(v => v != null) : [] };
+  }).sort((p, q) => q.damage - p.damage);
+  const h = { id, code: r.code, raid, at: r.at || Date.now(), savedAt: Date.now(), result: r.result, total, durationSec, minutes, rows, boss,
+    orbWaves: waves, sealCount: sealAt.length, sealAt: sealAt.map(rel), grossDps: gross == null ? null : Math.round(gross), netDps: net == null ? null : Math.round(net), regenDps: regen == null ? null : Math.round(regen) };
+  h.reasons = raidHistReasons(h);
+  H.unshift(h); if (H.length > RAID_HIST_MAX) H.length = RAID_HIST_MAX;
+  delete raidHistTrack[r.code]; save();
+  return h;
+}
+// 規則式的失敗原因（文字，越前面越重要）；通關也會列出值得注意的地方
+function raidHistReasons(h) {
+  const out = [], n = v => (v == null ? '—' : v >= 1e4 ? (v / 1e4).toFixed(1).replace(/\.0$/, '') + ' 萬' : String(Math.round(v))), mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  h.orbWaves.forEach((w, i) => { if (w.sealed && !w.cleared) out.push(`黑球第 ${i + 1} 波沒清完${w.left ? `（剩 ${w.left} 顆自己消失）` : ''} → 全隊封印${w.sealAt != null ? `（第 ${mmss(w.sealAt)}）` : ''}：封印中不能放技能、祭司不能補`); });
+  const deaths = h.rows.flatMap(r => r.deathAt || []).sort((a, b) => a - b);
+  for (const s of h.sealAt || []) { const k = deaths.filter(d => d >= s && d <= s + 40).length; if (k >= 2) { out.push(`封印後 40 秒內倒了 ${k} 隻（第 ${mmss(s)} 封印）`); break; } }
+  const cnt = h.rows.length, dead = h.rows.filter(r => r.deaths > 0 || (r.deathAt || []).length).length;
+  if (h.result !== 'clear' && cnt >= 2 && dead === cnt) out.push(`全隊都倒下過${deaths.length ? `（最後一隻在第 ${mmss(deaths[deaths.length - 1])}）` : ''}`);
+  if (h.result !== 'clear' && h.boss.maxHp && h.netDps != null) {
+    const need = h.boss.maxHp / (h.minutes * 60);
+    if (h.netDps < need) out.push(`淨輸出 ${n(h.netDps)}／秒（總輸出 ${n(h.grossDps)}－回血約 ${n(h.regenDps)}），${h.minutes} 分鐘打完要淨輸出 ${n(need)}／秒${h.regenDps ? `（總輸出約 ${n(need + h.regenDps)}／秒）` : ''}`);
+  }
+  if (h.result === 'timeout' && h.boss.endHpPct != null) out.push(`時間到：王還剩 ${h.boss.endHpPct}% 血`);
+  const zero = h.rows.filter(r => !r.damage);
+  if (zero.length) out.push(`${zero.length} 隻傷害 0：${zero.map(r => r.name).join('、')}`);
+  const low = h.rows.filter(r => r.mpMinPct != null && r.mpMinPct <= 5);
+  if (low.length) out.push(`MP 見底：${low.map(r => `${r.name}（最低 ${Math.round(r.mpMinPct)}%${r.mpLowSec ? `，約 ${r.mpLowSec} 秒不到 5%` : ''}）`).join('、')}`);
+  if (h.result !== 'clear' && !out.length) out.push('沒有找到明顯原因（中控可能漏了這場的戰況，例如中途重開）');
+  return out;
+}
 
 // ==== 副本 D 戰後紀錄與分析（伺服器函式）結束 ====
 
@@ -1905,6 +1988,7 @@ const server = http.createServer(async (req, res) => {
         const e = JSON.parse((await readBody(req)) || '{}'); const r = cleanRaidReport(e.report); if (!e.charId || !r) return send(res, 400, { error: 'report' });
         // 同一場（代碼＋時間）每隻都會送一次，留最新的那份
         if (!raidLastReport || r.at >= raidLastReport.report.at) raidLastReport = { at: Date.now(), charId: e.charId, report: r };
+        try { raidHistRecord(e.charId, r); } catch (err) { console.warn('[副本紀錄]', err.message); } // 副本 D：存進歷史
         return send(res, 200, { ok: true });
       }
       // ==== 副本 A 戰前檢查＋一鍵套用（API）：A 子任務的程式放在這行下面 ====
@@ -1920,7 +2004,14 @@ const server = http.createServer(async (req, res) => {
       // ==== 副本 C 戰中自動應對（API）結束 ====
       
       // ==== 副本 D 戰後紀錄與分析（API）：D 子任務的程式放在這行下面 ====
-      
+      if (url.pathname === '/api/raid/history') {
+        const H = Array.isArray(db.raidHistory) ? db.raidHistory : [];
+        if (req.method === 'GET') return send(res, 200, { list: H, max: RAID_HIST_MAX });
+        if (req.method === 'DELETE') {
+          const id = url.searchParams.get('id'), i = H.findIndex(h => h.id === id); if (i < 0) return send(res, 404, { error: '找不到這筆紀錄' });
+          H.splice(i, 1); save(); return send(res, 200, { ok: true });
+        }
+      }
       // ==== 副本 D 戰後紀錄與分析（API）結束 ====
       
       if (req.method === 'POST' && url.pathname === '/api/raid/act') {

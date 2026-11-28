@@ -938,6 +938,7 @@ http.createServer((req, res) => {
     for (const k of ['dps', 'regen', 'orbKill', 'orbLife', 'orbMs', 'sealMs']) { const v = url.searchParams.get(k); if (v !== null) { if (v === '') delete raidKnobs[k]; else raidKnobs[k] = Number(v); } }
     if (url.searchParams.get('orbs') === 'now') raidKnobs.orbsNow = true;
     if (url.searchParams.get('end')) raidKnobs.end = url.searchParams.get('end');
+    if (url.searchParams.get('mp')) { const [id, v] = url.searchParams.get('mp').split(':'), x = charById(id); if (x) x.mp = Number(v) || 0; } // mp=c3:0：設定某隻的 MP（測 MP 見底）
     return send(res, 200, { knobs: raidKnobs, teams: Object.values(raidTeams).map(t => ({ code: t.code, raid: t.raid, result: t.result || null, battle: t.battle ? { hp: Math.round(t.battle.hp), orbs: t.battle.orbs || 0, damageBy: t.battle.damageBy } : null })) });
   }
   if (url.pathname === '/__mock/luck') { scrollQueue = (url.searchParams.get('seq') || '').split(',').filter(x => x !== '').map(Number); return send(res, 200, { ok: true, n: scrollQueue.length }); }

@@ -7510,7 +7510,74 @@ function raidAutoDraw() {}
 // ==== 副本 C 戰中自動應對（面板）結束 ====
 
 // ==== 副本 D 戰後紀錄與分析（面板）：程式放在這行下面；raidHistDraw() 每秒跟著 drawRaid 呼叫 ====
-function raidHistDraw() {}
+// /api/raid/history：每場打完伺服器存一筆（最多 50 筆，重開還在）。列表點整列展開；勾兩場比較每隻的傷害
+const RH = { list: null, loadedAt: 0, repAt: null, busy: false, open: new Set(), cmp: [], sig: '' };
+(() => { const st = document.createElement('style'); st.textContent = `
+  #rdHist tr.rh-row { cursor: pointer; user-select: none; } #rdHist tr.rh-row:hover td { background: rgba(255,255,255,.04); } #rdHist tr.rh-row.open td { background: rgba(90,169,230,.12); }
+  #rdHist td.num { text-align: right; font-variant-numeric: tabular-nums; } #rdHist .rh-det td { background: var(--panel2); padding: 8px 10px; }
+  #rdHist .rh-why { margin: 4px 0 8px; padding-left: 18px; } #rdHist .rh-why li { margin: 2px 0; } #rdHist .rh-cmp { margin-top: 10px; border-top: 1px solid var(--line, #444); padding-top: 8px; }`; document.head.appendChild(st); })();
+async function raidHistLoad() {
+  if (RH.busy) return; RH.busy = true;
+  try { const j = await (await fetch('/api/raid/history')).json(); RH.list = Array.isArray(j.list) ? j.list : []; RH.loadedAt = Date.now(); RH.cmp = RH.cmp.filter(id => RH.list.some(h => h.id === id)); }
+  finally { RH.busy = false; }
+}
+function raidHistDraw() {
+  const box = $('#rdHist'); if (!box) return;
+  const repAt = (RAID && RAID.report && RAID.report.report && RAID.report.report.at) || 0;
+  // 有新結算、或 30 秒沒讀就重讀；其他時候只在資料或展開／勾選變了才重畫（不會洗掉展開狀態）
+  if (!RH.busy && (RH.list == null || repAt !== RH.repAt || Date.now() - RH.loadedAt > 30000)) { RH.repAt = repAt; raidHistLoad().then(raidHistDraw).catch(e => { box.textContent = '讀不到戰後紀錄：' + e.message; }); }
+  if (RH.list == null) return;
+  const sig = JSON.stringify([RH.list.map(h => h.id), [...RH.open], RH.cmp]);
+  if (sig === RH.sig && box.firstChild) return; RH.sig = sig;
+  if (!RH.list.length) { box.innerHTML = '<div class="dim sm">還沒有紀錄。每場打完（收到遊戲的結算）會自動存一筆，最多留 50 場。</div>'; return; }
+  const dur = s => (s == null ? '—' : mmss(s)), deathsOf = h => h.rows.reduce((t, r) => t + rhDeaths(r), 0);
+  box.innerHTML = `<div class="dim sm">點一列看詳細；勾兩場可以比較每隻的傷害。共 ${RH.list.length} 場（最多留 ${50} 場）</div>
+    <table class="tbl sm rh-list"><tr><th>比較</th><th>時間</th><th>副本</th><th>結果</th><th>總傷害</th><th>打了</th><th>死亡</th><th>人數</th><th></th></tr>
+    ${RH.list.map(h => { const [rn, rc] = RAID_RESULT[h.result] || [h.result || '?', ''], op = RH.open.has(h.id);
+      return `<tr class="rh-row ${op ? 'open' : ''}" data-rhrow="${esc(h.id)}"><td><input type="checkbox" data-rhcmp="${esc(h.id)}" ${RH.cmp.includes(h.id) ? 'checked' : ''}></td><td>${h.at ? new Date(h.at).toLocaleString() : '—'}</td><td>${esc(RAID_NAME[h.raid] || h.raid || '?')}</td>
+        <td><span class="tag ${rc}">${esc(rn)}</span></td><td class="num">${short(h.total)}</td><td class="num">${dur(h.durationSec)}</td><td class="num ${deathsOf(h) ? 'warn' : ''}">${deathsOf(h)}</td><td class="num">${h.rows.length}</td>
+        <td><button class="sm" data-rhdel="${esc(h.id)}" title="刪掉這筆紀錄">刪除</button></td></tr>${op ? `<tr class="rh-det"><td colspan="9">${raidHistDetail(h)}</td></tr>` : ''}`; }).join('')}</table>
+    ${raidHistCompare()}`;
+}
+const rhDeaths = r => Math.max(r.deaths || 0, (r.deathAt || []).length); // 遊戲結算的死亡數，或中控取樣看到的倒下次數（取大的）
+function raidHistDetail(h) {
+  const n = v => (v == null ? '—' : short(v)), pc = v => (v == null ? '—' : `${Math.round(v)}%`), mm = s => (s == null ? '?' : mmss(s));
+  const why = h.reasons || [], head = h.result === 'clear' ? '值得注意' : '失敗原因（推估）';
+  const waves = (h.orbWaves || []).map((w, i) => `<li>第 ${i + 1} 波：第 ${mm(w.at)} 出現${w.max ? ` ${w.max} 顆` : ''}${w.sec != null ? `、${w.sec} 秒後沒了` : ''}・${w.cleared ? '<span class="good">清完</span>' : w.sealed ? `<span class="bad">沒清完${w.left ? `（剩 ${w.left} 顆）` : ''} → 全隊封印${w.sealAt != null ? `（第 ${mm(w.sealAt)}）` : ''}</span>` : '<span class="dim">不確定（打完時還在）</span>'}</li>`).join('');
+  return `<div class="rd-stat"><div>總輸出<br><b>${n(h.grossDps)}</b>／秒</div><div>估計回血<br><b>${n(h.regenDps)}</b>／秒</div><div>平均淨輸出<br><b class="${h.result !== 'clear' && h.boss.maxHp && h.netDps != null && h.netDps < h.boss.maxHp / ((h.minutes || 20) * 60) ? 'bad' : ''}">${n(h.netDps)}</b>／秒</div>
+      <div>王最低血量<br><b>${h.boss.minHpPct == null ? '—' : h.boss.minHpPct + '%'}</b>${h.boss.maxHp ? `<span class="dim sm">（${short(h.boss.maxHp)}）</span>` : ''}</div><div>全隊封印<br><b class="${h.sealCount ? 'warn' : ''}">${h.sealCount || 0}</b> 次</div><div>隊伍代碼<br><b>${esc(h.code)}</b></div></div>
+    ${why.length ? `<b class="sm">${head}</b><ul class="rh-why sm">${why.map(x => `<li class="${h.result === 'clear' ? '' : 'bad'}">${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${waves ? `<b class="sm">黑球</b><ul class="rh-why sm">${waves}</ul>` : ''}
+    <table class="tbl sm"><tr><th>#</th><th>角色</th><th>傷害</th><th>占比</th><th>死亡</th><th>倒下時間</th><th>MP 最低</th><th>HP 最低</th></tr>${h.rows.map((r, i) => `<tr><td class="num">${i + 1}</td><td>${esc(r.name)}</td>
+      <td class="num ${r.damage ? '' : 'bad'}">${r.damage ? short(r.damage) : '0'}</td><td class="num ${r.damage ? '' : 'bad'}">${(r.pct || 0).toFixed(1)}%</td><td class="num ${rhDeaths(r) ? 'warn' : ''}">${rhDeaths(r)}</td>
+      <td class="sm">${(r.deathAt || []).length ? r.deathAt.map(mm).join('、') : '<span class="dim">—</span>'}</td><td class="num ${r.mpMinPct != null && r.mpMinPct <= 5 ? 'bad' : ''}">${pc(r.mpMinPct)}</td><td class="num">${pc(r.hpMinPct)}</td></tr>`).join('')}</table>
+    <div class="dim sm">占比照遊戲結算的傷害算；MP／HP 最低、倒下時間是中控戰鬥中每秒取樣的（中控中途重開會缺）。</div>`;
+}
+function raidHistCompare() {
+  if (RH.cmp.length < 2) return RH.cmp.length ? '<div class="dim sm rh-cmp">再勾一場就能比較</div>' : '';
+  const [a, b] = RH.cmp.map(id => RH.list.find(h => h.id === id)).sort((x, y) => (x.at || 0) - (y.at || 0)); if (!a || !b) return '';
+  const names = [...new Set([...a.rows, ...b.rows].map(r => r.name))], dm = (h, nm) => { const r = h.rows.find(x => x.name === nm); return r ? r.damage : null; };
+  const lbl = h => `${h.at ? new Date(h.at).toLocaleString() : '?'}（${(RAID_RESULT[h.result] || [h.result])[0]}）`;
+  const rows = names.map(nm => ({ nm, x: dm(a, nm), y: dm(b, nm) })).sort((p, q) => ((q.y || 0) - (q.x || 0)) - ((p.y || 0) - (p.x || 0)));
+  const diff = (x, y) => { if (x == null || y == null) return '<td class="num dim">—</td>'; const d = y - x; return `<td class="num ${d > 0 ? 'good' : d < 0 ? 'bad' : ''}">${d > 0 ? '+' : ''}${short(d)}${x ? `（${d > 0 ? '+' : ''}${(d / x * 100).toFixed(0)}%）` : ''}</td>`; };
+  return `<div class="rh-cmp" id="rdHistCmp"><b>比較</b> <span class="dim sm">舊：${esc(lbl(a))} → 新：${esc(lbl(b))}</span>
+    <table class="tbl sm"><tr><th>角色</th><th>舊的傷害</th><th>新的傷害</th><th>差</th></tr>${rows.map(r => `<tr><td>${esc(r.nm)}</td><td class="num">${r.x == null ? '—' : short(r.x)}</td><td class="num">${r.y == null ? '—' : short(r.y)}</td>${diff(r.x, r.y)}</tr>`).join('')}
+    <tr><td><b>合計</b></td><td class="num">${short(a.total)}</td><td class="num">${short(b.total)}</td>${diff(a.total, b.total)}</tr>
+    <tr class="dim"><td>打了</td><td class="num">${a.durationSec == null ? '—' : mmss(a.durationSec)}</td><td class="num">${b.durationSec == null ? '—' : mmss(b.durationSec)}</td><td></td></tr>
+    <tr class="dim"><td>淨輸出／秒</td><td class="num">${a.netDps == null ? '—' : short(a.netDps)}</td><td class="num">${b.netDps == null ? '—' : short(b.netDps)}</td>${diff(a.netDps, b.netDps)}</tr></table></div>`;
+}
+document.addEventListener('click', async e => {
+  const t = e.target; if (!t.closest || !t.closest('#rdHist')) return;
+  const del = t.closest('[data-rhdel]');
+  if (del) { if (!confirm('刪掉這場的紀錄？刪了就找不回來。')) return; try { const r = await fetch('/api/raid/history?id=' + encodeURIComponent(del.dataset.rhdel), { method: 'DELETE' }); if (!r.ok) throw new Error('HTTP ' + r.status); RH.open.delete(del.dataset.rhdel); await raidHistLoad(); raidHistDraw(); } catch (err) { alert('刪除失敗：' + err.message); } return; }
+  if (t.closest('input, button, a, label')) return; // 勾選框由 change 處理
+  const tr = t.closest('tr[data-rhrow]'); if (!tr) return;
+  const id = tr.dataset.rhrow; if (RH.open.has(id)) RH.open.delete(id); else RH.open.add(id); raidHistDraw();
+});
+document.addEventListener('change', e => {
+  const t = e.target; if (!t.dataset || !t.dataset.rhcmp) return;
+  const id = t.dataset.rhcmp; RH.cmp = RH.cmp.filter(x => x !== id); if (t.checked) { RH.cmp.push(id); if (RH.cmp.length > 2) RH.cmp.shift(); } raidHistDraw();
+});
 
 // ==== 副本 D 戰後紀錄與分析（面板）結束 ====
 
