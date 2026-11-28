@@ -895,15 +895,16 @@ function raidPrepRow(id, P, now) {
   row.partyHeal = ic.partyHeal || null; row.selfHeal = ic.selfHeal || null;
   if (row.healer && !(row.partyHeal && row.partyHeal.enabled)) add('warn', 'heal', '補師沒開隊友補血（群體治癒）');
   row.autoBuy = !!(ic.autoBuy && ic.autoBuy.enabled);
-  // 攻擊格（attackSlots，每張地圖各自一組）：sync 裡只有目前地圖那組；在副本裡才知道副本地圖
-  const slots = (Array.isArray(ic.attackSlots) ? ic.attackSlots : []).filter(x => x && typeof x === 'object');
-  const L = raidLive[id], inMap = L && now - L.at < 15000 && L.battle && L.me && L.me.map ? String(L.me.map) : '';
-  const maps = [...new Set(slots.map(x => x.map).filter(x => x != null && x !== '').map(String))];
-  if (!slots.length) { row.attack = { state: 'none', txt: '攻擊格沒設定' + (pr && pr.active ? `（主動技能 ${skName(pr.active)}）` : '') }; add('warn', 'attack', '攻擊格沒設定（攻擊格跟地圖有關；實機有 4 隻傷害 0）'); }
-  else {
-    row.attack = { state: 'ok', txt: `${slots.length} 格：${slots.map(x => x.skill ? skName(String(x.skill)) : '？').join('、')}`, maps };
-    if (inMap && maps.length && !maps.includes(inMap)) { row.attack.state = 'map'; add('warn', 'attack', `攻擊格是別張地圖的（副本地圖 ${inMap} 沒設定）`); }
-  }
+  // 攻擊格（遊戲 game.js openAttackSlot，2026-11-28 查證）：技能 1＝角色的主動技能 character.active（一定有）；
+  // 技能 2、3＝attackSlots[1..] 的 {skill, targets, map}，選填。targets（指定怪物）只在設定時那張地圖有效，
+  // 別張地圖上等於「全部怪物」，所以不用為副本另外設。只有連主動技能都沒有才算問題。
+  const extra = (Array.isArray(ic.attackSlots) ? ic.attackSlots : []).slice(1).filter(x => x && typeof x === 'object' && x.skill);
+  const act = pr && pr.active ? String(pr.active) : '';
+  const sk = k => (k === 'basic' ? '普通攻擊' : skName(k));
+  const names = [act ? sk(act) : '', ...extra.map(x => sk(String(x.skill)))].filter(Boolean);
+  if (!pr) row.attack = { state: 'unknown', txt: '讀不到' };
+  else if (!act) { row.attack = { state: 'none', txt: '沒有主動技能' }; add('warn', 'attack', '沒有設定主動技能（只會普通攻擊）'); }
+  else row.attack = { state: 'ok', txt: names.map((n, i) => `${i + 1}. ${n}`).join('、') };
   return row;
 }
 function raidPrepRows() {

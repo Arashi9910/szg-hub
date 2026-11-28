@@ -38,7 +38,8 @@ async def main():
         check(r1 and r1['tab'] == 'tab' and r1['slot'] == 1 and r1['mp']['name'] == '藍色藥水' and r1['mp']['qty'] == 200 and r1['mp']['pct'] == 20 and r1['cure'] == 10, f'c1：分頁、第 1 套、藍色藥水 200、MP 20%、萬能療傷藥 10（{r1 and r1["mp"]}）')
         check(iss(r1, 'autoCure') and iss(r1, 'autoCure')[0]['lv'] == 'bad', 'c1：自動解除異常沒勾 → 紅')
         check(iss(r1, 'mpPct') and iss(r1, 'mpPct')[0]['lv'] == 'warn' and not iss(r1, 'mpQty') and not iss(r1, 'cure'), 'c1：MP 20% → 黃；藍藥 200、萬能療傷藥 10 沒問題')
-        check(iss(r1, 'attack') and r1['attack']['state'] == 'none', f'c1：攻擊格沒設定 → 黃（{r1 and r1["attack"]}）')
+        # 技能 1＝主動技能（character.active），技能 2、3 選填；有主動技能就不算問題（game.js openAttackSlot）
+        check(not iss(r1, 'attack') and r1['attack']['state'] == 'ok' and r1['attack']['txt'].startswith('1. '), f'c1：有主動技能 → 攻擊格沒問題（{r1 and r1["attack"]}）')
         check(r1['autoPotion'] is True and not iss(r1, 'autoPotion'), 'c1：自動喝水開著')
         r3, r4 = row('c3'), row('c4')
         check(iss(r3, 'cure') and iss(r3, 'cure')[0]['lv'] == 'bad', 'c3：沒有萬能療傷藥 → 紅')
@@ -61,7 +62,7 @@ async def main():
         print('3. 面板：每隻一列、紅黃標')
         txt = await d.inner_text('#rdPrep')
         check('本尊劍士' in txt and '弓箭分身' in txt and '倉庫分身' in txt and '本尊小號' not in txt, '列出計畫裡的 3 隻（不在計畫的不列）')
-        check('自動解除異常沒勾' in txt and '沒有萬能療傷藥' in txt and '攻擊格沒設定' in txt and '藍色藥水' in txt, '顯示問題：解除異常沒勾、沒有萬能療傷藥、攻擊格')
+        check('自動解除異常沒勾' in txt and '沒有萬能療傷藥' in txt and '攻擊格沒設定' not in txt and '藍色藥水' in txt, '顯示問題：解除異常沒勾、沒有萬能療傷藥（攻擊格不再誤報）')
         check('lv-bad' in (await d.get_attribute('#rdPrep tr[data-rpsel="c3"]', 'class')), '有紅色問題的列標紅')
         check(await d.locator('#rdPrep [data-rpth="cureMin"]').input_value() == '20', '門檻輸入框顯示 20')
 
