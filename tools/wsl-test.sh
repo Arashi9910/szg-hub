@@ -4,7 +4,8 @@
 set -e
 SRC="/mnt/d/自己寫程式的/上漲谷/szghub"
 BR="${BRANCH:-claude/project-folder-access-fd00e7}"
-DST=/root/szg-hub
+DST="/root/wt/$(printf %s "$BR" | tr -c 'A-Za-z0-9._-' _)"  # 每個分支自己的資料夾，多個子任務可以同時跑
+mkdir -p /root/wt
 git config --global --add safe.directory '*' 2>/dev/null || true
 if [ ! -d "$DST/.git" ]; then git init -q "$DST"; fi
 cd "$DST"
