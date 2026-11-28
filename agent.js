@@ -182,6 +182,14 @@ function agentMain(ctx) {
       if (!page || !ownState || ownState.character.id !== page.character.id || Date.now() - ownStateAt > 120000) return page;
       const ch = { ...page.character };
       for (const k of OWN_KEYS) if (k in ownState.character) ch[k] = ownState.character[k];
+      // 十字獵人進度（v0.82）：頁面和直接同步的那份合起來（擊殺數取大的、任一份已領就算已領；做完工作會強制同步一次）
+      const oq = ownState.character.quests, pq = page.character.quests;
+      if (oq && typeof oq === 'object') {
+        const q = { ...(pq && typeof pq === 'object' ? pq : {}) };
+        for (const [k, x] of Object.entries(oq)) { const y = q[k]; q[k] = x && y ? { ...y, count: Math.max(Number(y.count) || 0, Number(x.count) || 0), claimed: !!(y.claimed || x.claimed) } : (y || x); }
+        ch.quests = q;
+      }
+      if ('crossExchange' in ownState.character) ch.crossExchange = Math.max(Number(page.character.crossExchange) || 0, Number(ownState.character.crossExchange) || 0);
       return { ...page, character: ch };
     }
 
@@ -253,8 +261,8 @@ function agentMain(ctx) {
     async function uploadWorld(cat) {
       // 版本＝目錄內容的雜湊：遊戲更新地圖、怪物、掉落、裝備時（就算數量沒變）都會重新上傳
       const fnv = str => { let h = 0x811c9dc5; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h.toString(16); };
-      let hash = ''; try { hash = fnv(JSON.stringify([cat.maps, cat.mobs, cat.drops, cat.mapDrops, cat.equipment, cat.items, cat.scrolls, cat.autoSellDrops])); } catch (_) {}
-      const ver = 'w7:' + String(cat.version || '') + ':' + Object.keys(cat.maps || {}).length + ':' + (cat.mobs || []).length + ':' + Object.keys(cat.drops || {}).length + ':' + hash;
+      let hash = ''; try { hash = fnv(JSON.stringify([cat.maps, cat.mobs, cat.drops, cat.mapDrops, cat.equipment, cat.items, cat.scrolls, cat.autoSellDrops, crossQuestsOf(cat), cat.crossExchange || null])); } catch (_) {}
+      const ver = 'w8:' + String(cat.version || '') + ':' + Object.keys(cat.maps || {}).length + ':' + (cat.mobs || []).length + ':' + Object.keys(cat.drops || {}).length + ':' + hash;
       const have = await hub('GET', '/api/world/version');
       if (have && have.version === ver) return;
       const names = {};
@@ -278,6 +286,8 @@ function agentMain(ctx) {
         maps: Object.values(cat.maps || {}).map(m => ({ id: m.id, msId: m.msId, name: m.name, region: m.region, minLevel: m.minLevel || 0, mobIds: m.mobIds || [], boss: (m.bossSpawns || []).map(b => b.mobId) })),
         mobs: (cat.mobs || []).map(m => ({ id: m.id, msId: m.msId, name: m.name, lv: m.lv, hp: m.hp, xp: m.xp, money: m.money, isBoss: !!m.isBoss, acc: m.meta && m.meta.accuracy, eva: m.meta && m.meta.evasion, def: m.defense })),
         drops, mobDrops, names, skills, jobs,
+        // 十字獵人（v0.82）：懸賞任務（catalog.quests 裡 group 'cross' 的）和十字硬幣兌換表（只回報，中控不自動兌換）
+        crossQuests: crossQuestsOf(cat), crossExchange: Array.isArray(cat.crossExchange) ? cat.crossExchange.slice(0, 20).map(x => ({ tier: Number(x.tier) || 0, key: String(x.key || ''), price: Number(x.price) || 0 })) : [],
         // 裝備圖鑑：[id, 名稱, 部位(equipmentType), 分類, 需求等級, 需求職業(位元；0＝全職業), 標準素質{incX}, 可衝次數, 需求能力[力,敏,智,幸]]；不含點裝
         equipment: Object.values(cat.equipment || {}).filter(e => e && (e.id || e.itemId) && !(e.meta && e.meta.cash)).map(e => { const m = e.meta || {}, st = {};
           for (const [k, v] of Object.entries({ ...(e.base || {}), ...m })) if (/^inc[A-Z]/.test(k) && typeof v === 'number' && v) st[k] = v;
@@ -295,6 +305,18 @@ function agentMain(ctx) {
       await hub('POST', '/api/world', world);
     }
 
+    // 十字獵人的懸賞任務：catalog.quests（陣列或物件）裡 group==='cross' 的，只留中控用得到的欄位
+    function crossQuestsOf(cat) {
+      const qs = Array.isArray(cat.quests) ? cat.quests : Object.values(cat.quests || {});
+      return qs.filter(q => q && q.group === 'cross' && q.id && q.mob).map(q => ({ id: String(q.id), name: String(q.name || q.id), mob: String(q.mob), count: Number(q.count) || 0, level: Number(q.level) || 0,
+        reward: q.reward && typeof q.reward === 'object' ? { item: String(q.reward.item || ''), qty: Number(q.reward.qty) || 0 } : null }));
+    }
+    // 角色的十字獵人進度：character.quests 只留 cross_ 開頭（接受後才有那筆；count＝已擊殺數）、十字硬幣、已兌換到第幾階段
+    function crossOf(c) {
+      const q = {};
+      for (const [id, x] of Object.entries(c.quests && typeof c.quests === 'object' ? c.quests : {}).slice(0, 200)) if (/^cross_/.test(id) && x && typeof x === 'object') q[id] = { count: Number(x.count) || 0, claimed: !!x.claimed };
+      return { quests: q, coins: Number((c.inventory || {}).i4310029) || 0, exchanged: Number(c.crossExchange) || 0 };
+    }
     function jobBranch(jobKey) {
       let j = catalog.jobs[jobKey], guard = 0;
       while (j && j.parent && j.tier > 1 && guard++ < 6) j = catalog.jobs[j.parent];
@@ -391,6 +413,7 @@ function agentMain(ctx) {
     async function cfgPayload(cmd, charId) {
       const c = cfgIds(cmd);
       if (c.type === 'attackSlot') return attackSlotPayload(c, charId);
+      if (c.type === 'questAccept' || c.type === 'questClaim') return { type: c.type, quest: String(c.quest) }; // 十字獵人：接受／領獎（characterId 由呼叫端帶）
       if (c.type !== 'supply') return c;
       let cur = null;
       try { const st = readState(); if (st && st.character && st.character.id === charId) cur = st.character.supply; } catch (_) {}
@@ -672,6 +695,7 @@ function agentMain(ctx) {
           stats: c.stats || {},
           prog: (() => { try { return progOf(c); } catch (_) { return null; } })(),
           idleCfg: (() => { try { return idleCfgOf(c); } catch (_) { return null; } })(),
+          cross: (() => { try { return crossOf(c); } catch (_) { return null; } })(),
           gearBagCount: (c.equipmentBag || []).length,
           itemStackCount: (c.inventoryStacks || []).length,
         },

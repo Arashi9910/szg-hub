@@ -383,6 +383,8 @@ const BAG_KINDS = new Set(['sell', 'lock', 'unlock', 'idle', 'forge', 'equip', '
 const NEW_CFG_078 = new Set(['supply', 'partyBuff', 'partyHeal', 'selfHeal', 'conditionalSkill', 'lowHpSkill', 'settingsPreset', 'autoBuy', 'read']);
 // v0.81 新增：攻擊格（設定技能 1、2、3）；舊腳本不會檢查角色是否還在那張地圖
 const NEW_CFG_081 = new Set(['attackSlot']);
+// v0.82 新增：十字獵人接受／領獎（舊腳本不會回報 char.cross，中控看不到結果）
+const NEW_CFG_082 = new Set(['questAccept', 'questClaim']);
 const KIND_MIN_AGENT = { forge: '0.27.0', equip: '0.71.1', unequip: '0.71.1' };
 const verLt = (a, b) => { const x = String(a || '0').split('.').map(Number), y = String(b || '0').split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
 function agentTooOld(job, code, charId) {
@@ -1357,6 +1359,8 @@ function cleanIdleCfg(c) {
       if (c.map != null && c.map !== '' && !(typeof c.map === 'string' && /^[\w-]{1,40}$/.test(c.map))) return null;
       return { type: 'attackSlot', slot, skill, targets: skill ? [...new Set(tg)] : [], ...(c.map ? { map: c.map } : {}), ...(slot === 0 ? { continuous: !!c.continuous } : {}) };
     }
+    // 十字獵人（遊戲 questAccept／questClaim {quest}，2026-11-28 讀 game.js crossHunterPane）：只接受 cross_ 開頭的懸賞任務
+    case 'questAccept': case 'questClaim': return typeof c.quest === 'string' && /^cross_[\w-]{1,60}$/.test(c.quest) ? { type: c.type, quest: c.quest } : null;
     case 'read': return { type: 'read' }; // 「從遊戲重新讀取」：agent 向遊戲同步一次並立刻回報
     default: return null;
   }
@@ -1482,7 +1486,7 @@ function createIdleJobs(body) {
       toCharId: route.char.id, toName: route.char.name, toCode: route.playerCode,
       needChar: own || null,
       batches: [{ targets: list, items: [], gear: [], money: 0 }], batchIndex: 0, log: [], lastMsg: '',
-      ...(list.some(t => t.action === 'cfg' && t.cmd && NEW_CFG_081.has(t.cmd.type)) ? { minAgent: '0.81.0' } : list.some(t => t.action === 'cfg' && t.cmd && NEW_CFG_078.has(t.cmd.type)) ? { minAgent: '0.78.0' } : list.some(t => t.action === 'raid') ? { minAgent: '0.77.0' } : list.some(t => t.action === 'cfg') ? { minAgent: '0.72.0' } : {}),
+      ...(list.some(t => t.action === 'cfg' && t.cmd && NEW_CFG_082.has(t.cmd.type)) ? { minAgent: '0.82.0' } : list.some(t => t.action === 'cfg' && t.cmd && NEW_CFG_081.has(t.cmd.type)) ? { minAgent: '0.81.0' } : list.some(t => t.action === 'cfg' && t.cmd && NEW_CFG_078.has(t.cmd.type)) ? { minAgent: '0.78.0' } : list.some(t => t.action === 'raid') ? { minAgent: '0.77.0' } : list.some(t => t.action === 'cfg') ? { minAgent: '0.72.0' } : {}),
     };
     jobLog(job, '已送出：' + list.map(t => `${t.name} ${({ start: '開始掛機', stop: '暫停掛機', restart: '重新開始掛機', switch: '切換為目前角色', wake: '領取離線掛機收益', cfg: t.label || '', raid: t.label || '副本', map: '前往 ' + (t.mapName || '') + (t.sell ? '（套用自動販售）' : ''), autosell: '套用 ' + (t.mapName || '') + ' 的自動販售' })[t.action]}`).join('、'));
     db.jobs.push(job);
@@ -1780,6 +1784,7 @@ function bossWhyNot(id) {
   if (!s.playerCode || !tabOf(s.playerCode, id)) return '沒有遊戲分頁';
   if (!s.char.auto) return '沒在掛機';
   if (bossHeld(id)) return '按了停止，暫停打王';
+  if (crossOwns(id)) return '十字獵人負責中';
   if (bossBusy(id)) return db.jobs.some(j => j.kind === 'boss' && ACTIVE.has(j.status) && j.fromCharId === id) ? '打王中' : '有其他工作';
   return '';
 }
@@ -1795,7 +1800,7 @@ function bossAllow(unit, c) {
   return set;
 }
 const bossHeld = id => { const h = (bossDb().hold || {})[id]; return h && h > Date.now() ? h : 0; }; // 按了強制停止：這段時間不再派去打王
-const bossAvail = id => { const s = db.chars[id]; return !!(s && s.char && s.playerCode && tabOf(s.playerCode, id) && s.char.auto && !bossBusy(id) && !bossHeld(id)); };
+const bossAvail = id => { const s = db.chars[id]; return !!(s && s.char && s.playerCode && tabOf(s.playerCode, id) && s.char.auto && !bossBusy(id) && !bossHeld(id) && !crossOwns(id)); }; // 十字獵人負責中的不派去打王
 const BOSS_HOLD_MS = 30 * 60 * 1000;
 // 同一趟一起出發的隊友（同隊伍代碼、同一個建立時間）還在進行中的打王工作
 const bossRunMates = j => db.jobs.filter(x => x !== j && x.kind === 'boss' && ACTIVE.has(x.status) && x.batches[0].boss.unit && x.batches[0].boss.unit === j.batches[0].boss.unit && x.createdAt === j.createdAt);
@@ -1881,6 +1886,7 @@ function bossReturnCheck() {
     const home = j.batches[0].boss.back || b.home[j.fromCharId];
     j.returnChecked = true;
     if (!visited.includes(s.char.map) || !home || home === s.char.map) continue;
+    if (crossOwns(j.fromCharId)) continue; // 十字獵人負責中：由十字獵人帶去目標地圖
     if (db.jobs.some(x => x.fromCharId === j.fromCharId && ACTIVE.has(x.status))) continue;
     const name = worldMapNames[home] || b.homeName[j.fromCharId] || j.batches[0].boss.backName || home;
     createPartyJob(j.fromCharId, { role: 'solo', ops: false, map: home, mapName: name }, `打完王還停在 ${s.char.mapName || s.char.map}：自動帶回 ${name} 並開始掛機`);
@@ -2251,6 +2257,7 @@ function partyFollowTick() {
     if (!party || mem.length < 2 || !lead || lead.id === c.id) { delete followLead[c.id]; continue; }
     const prev = followLead[c.id], cur = lead.map; followLead[c.id] = cur;
     if (!prev || !cur || prev === cur || c.map !== prev || !c.auto) continue;
+    if (crossOwns(c.id)) continue; // 十字獵人負責中：不跟著隊長換圖
     if (w && D.isBossMap(w, cur)) continue;
     if (db.jobs.some(j => ACTIVE.has(j.status) && (j.kind === 'party' || j.kind === 'boss') && j.fromCharId === c.id)) continue;
     const mapName = (((w && w.maps) || []).find(m => String(m.id) === String(cur)) || {}).name || cur;
@@ -2258,6 +2265,208 @@ function partyFollowTick() {
   }
 }
 setInterval(() => { try { partyFollowTick(); } catch (e) { console.warn('[跟隨隊長]', e); } }, 10 * 1000);
+// ================= 十字獵人（v0.82）=================
+// 遊戲的「十字獵人」懸賞（catalog.quests 裡 group 'cross'，agent 整理成 world.crossQuests）：每張要擊敗某怪物 count 隻，
+// 接受後才開始計算（離線與參戰隊友擊殺也計入），每隻角色每張限領一次，完成得十字硬幣（i4310029）。
+// 角色進度＝agent 回報的 char.cross = {quests:{id:{count,claimed}}, coins, exchanged}（接受後才有那筆）。
+// settings.cross = { enabled, ids:[角色], order:'low'|'high'（預設 low：等級低的先打）, mapPref:{questId:mapId}, skip:[questId] }
+// 自動循環（SZG_CROSS_TICK_MS，預設 30 秒）：enabled 時 ids 裡每隻依序：
+//   完成沒領的 → questClaim；選目標＝已接、沒領、沒在 skip、照 order 排的第一張；沒有目標但還有能接的 → 一次接起來；
+//   不在那隻怪的任何一張地圖上（mapPref 有設＝只算那張）→ map 工作移過去（自動販售照去處規則的「派工地圖」）；在地圖上但沒在掛機 → 開始掛機（5 分鐘最多一次）。
+//   遊戲回錯誤：訊息原樣記在紀錄和 errors，那張 30 分鐘內不再送（換圖失敗 5 分鐘），不重試轟炸。
+// 衝突：副本戰鬥中／在副本隊伍裡、打王中、組隊工作（跟隨隊長、打完王帶回）進行中、有其他工作的角色先不動（state blocked＋why）；
+//   反過來，十字獵人負責中（還沒 done）的角色：野王不派去打王（bossAvail／bossWhyNot）、打完王不自動帶回（bossReturnCheck）、隊長換圖不跟（partyFollowTick）。
+// 不動楓幣、不自動兌換裝備（crossExchange 只回報）。
+const CROSS_TICK_MS = Number(process.env.SZG_CROSS_TICK_MS) || 30 * 1000;
+const CROSS_RETRY_MS = 30 * 60 * 1000, CROSS_MOVE_RETRY_MS = 5 * 60 * 1000, CROSS_START_MS = 5 * 60 * 1000;
+// pend[角色]＝十字獵人送出、還沒有結果的工作；err[角色|任務]＝遊戲回的錯誤；done[角色]＝能做的都做完了（給其他功能判斷要不要讓位）
+const crossMem = { pend: {}, err: {}, moveErr: {}, startAt: {}, done: {} };
+function crossCfg() {
+  const c = db.settings.cross || {}, obj = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  return { enabled: !!c.enabled, ids: Array.isArray(c.ids) ? [...new Set(c.ids.map(String))].slice(0, 60) : [], order: c.order === 'high' ? 'high' : 'low',
+    mapPref: Object.fromEntries(Object.entries(obj(c.mapPref)).filter(([k, v]) => /^cross_/.test(k) && typeof v === 'string' && v).slice(0, 200)),
+    skip: Array.isArray(c.skip) ? [...new Set(c.skip.map(String).filter(x => /^cross_/.test(x)))].slice(0, 200) : [] };
+}
+function crossOwns(id) { const c = crossCfg(); return c.enabled && c.ids.includes(id) && !crossMem.done[id]; }
+function crossLog(charId, msg) {
+  const lg = db.crossLog || (db.crossLog = []);
+  lg.push({ at: Date.now(), charId: charId || '', name: charId ? charName(charId) : '', msg: String(msg).slice(0, 300) });
+  if (lg.length > 50) lg.splice(0, lg.length - 50);
+}
+// 任務清單：怪物所在的地圖（一般版和 _noboss 版都列），預設地圖＝mapPref（還在清單裡）＞無 BOSS 版＞第一張
+function crossQuests(cfg) {
+  const w = worldFull() || {}, mobs = Object.fromEntries((w.mobs || []).map(m => [String(m.id), m]));
+  return (Array.isArray(w.crossQuests) ? w.crossQuests : []).filter(q => q && q.id && q.mob).map(q => {
+    const maps = (w.maps || []).filter(m => (m.mobIds || []).map(String).includes(String(q.mob))).map(m => ({ id: String(m.id), name: m.name || String(m.id), noboss: /_noboss$/.test(String(m.id)) }));
+    const pref = maps.find(m => m.id === cfg.mapPref[q.id]), def = pref || maps.find(m => m.noboss) || maps[0] || null;
+    return { id: String(q.id), name: String(q.name || q.id), level: Number(q.level) || 0, mob: String(q.mob), mobName: (mobs[q.mob] || {}).name || String(q.mob), count: Number(q.count) || 0,
+      reward: q.reward || null, maps, defaultMap: def ? def.id : null, pref: pref ? pref.id : null };
+  }).sort((a, b) => a.level - b.level || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+// 這隻角色有沒有進行中的工作（掛機指令看 targets 裡的角色；其他工作看送出方／收貨方）
+function crossJobsOf(id) {
+  return db.jobs.filter(j => ACTIVE.has(j.status) && (j.kind === 'idle' ? ((j.batches[0] || {}).targets || []).some(t => t.charId === id) : j.fromCharId === id || j.toCharId === id));
+}
+function crossBlocked(id, s) {
+  const now = Date.now();
+  if (!s || !s.char) return '沒有資料';
+  if (!charHasTab(id)) return '沒有遊戲分頁';
+  const rl = raidLive[id]; if (rl && now - rl.at < 15000) return '副本戰鬥中';
+  const rv = raidViews[id]; if (rv && now - rv.at < 10 * 60e3 && rv.view && rv.view.team) return '在副本隊伍裡';
+  const js = crossJobsOf(id).filter(j => !j.cross);
+  if (js.some(j => j.kind === 'boss')) return '野王出征中';
+  if (js.some(j => j.kind === 'party')) return '組隊移動中（跟隨隊長／打完王帶回）';
+  if (js.some(j => j.kind === 'idle' && ((j.batches[0] || {}).targets || []).some(t => t.charId === id && t.action === 'raid'))) return '副本指令進行中';
+  if (js.length) return '有其他工作進行中';
+  if (s.char.hp != null && Number(s.char.hp) <= 0) return '角色死亡（等復活）';
+  return '';
+}
+function crossErrOf(id, q) { const e = crossMem.err[id + '|' + q]; return e && Date.now() - e.at < CROSS_RETRY_MS ? e : null; }
+// 一隻角色現在的狀況（GET /api/cross 和自動循環共用）
+function crossRow(id, qs, cfg) {
+  const s = db.chars[id], c = s && s.char, X = c && c.cross, now = Date.now();
+  const row = { id, name: c ? c.name : charName(id), lv: c ? Number(c.lv) || 0 : 0, map: c ? String(c.map || '') : '', mapName: c ? c.mapName || String(c.map || '') : '', auto: !!(c && c.auto),
+    coins: X ? Number(X.coins) || 0 : 0, exchanged: X ? Number(X.exchanged) || 0 : 0, quests: X && X.quests ? X.quests : {},
+    managed: cfg.enabled && cfg.ids.includes(id), target: null, onTarget: false, state: 'idle', why: '', claimable: [], canAccept: [], errors: {} };
+  for (const q of qs) { const e = crossErrOf(id, q.id); if (e) row.errors[q.id] = e.msg; }
+  if (!c) { row.state = 'blocked'; row.why = '沒有資料'; return row; }
+  if (!X) { row.state = 'blocked'; row.why = '遊戲分頁的腳本太舊（v0.82.0 以上才會回報十字獵人進度）'; return row; }
+  const Q = row.quests, skip = new Set(cfg.skip), ord = cfg.order === 'high' ? -1 : 1;
+  const sorted = qs.slice().sort((a, b) => ord * (a.level - b.level) || qs.indexOf(a) - qs.indexOf(b));
+  const claimable = sorted.filter(q => Q[q.id] && !Q[q.id].claimed && q.count > 0 && Number(Q[q.id].count) >= q.count);
+  const doing = sorted.filter(q => Q[q.id] && !Q[q.id].claimed && !claimable.includes(q) && !skip.has(q.id));
+  const canAccept = sorted.filter(q => !Q[q.id] && q.level <= row.lv && !skip.has(q.id));
+  const lvLocked = qs.filter(q => !Q[q.id] && q.level > row.lv).length;
+  row.claimable = claimable.map(q => q.id); row.canAccept = canAccept.map(q => q.id);
+  const t = doing[0];
+  if (t) {
+    const m = t.maps.find(x => x.id === t.defaultMap);
+    row.target = { quest: t.id, questName: t.name, mob: t.mob, mobName: t.mobName, map: t.defaultMap, mapName: m ? m.name : '', count: Number(Q[t.id].count) || 0, need: t.count };
+    row.onTarget = (t.pref ? [t.pref] : t.maps.map(x => x.id)).includes(row.map);
+  }
+  const p = crossMem.pend[id], blk = crossBlocked(id, s);
+  if (p) { row.state = { claim: 'claiming', move: 'moving', start: 'hunting', accept: 'idle' }[p.kind] || 'idle'; row.why = `${p.label}（等遊戲回報）`; }
+  else if (blk) { row.state = 'blocked'; row.why = blk; }
+  else if (claimable.length) { row.state = 'claiming'; row.why = `可以領 ${claimable.length} 張`; }
+  else if (t && !t.defaultMap) { row.state = 'blocked'; row.why = `找不到 ${t.mobName} 所在的地圖`; }
+  else if (t && row.onTarget) { row.state = 'hunting'; row.why = row.auto ? `${t.name} ${row.target.count}/${t.count}` : '在目標地圖，但沒在掛機'; }
+  else if (t) { const me = crossMem.moveErr[id]; row.state = 'moving'; row.why = me && now - me.at < CROSS_MOVE_RETRY_MS ? `前往 ${row.target.mapName} 失敗：${me.msg}` : `要去 ${row.target.mapName} 打 ${t.mobName}`; }
+  else if (canAccept.length) { row.state = 'idle'; row.why = `還有 ${canAccept.length} 張可以接`; }
+  else if (qs.every(q => (Q[q.id] && Q[q.id].claimed) || (!Q[q.id] && q.level > row.lv) || skip.has(q.id))) {
+    const sk = qs.filter(q => skip.has(q.id) && !(Q[q.id] && Q[q.id].claimed)).length;
+    row.state = 'done'; row.why = !lvLocked && !sk ? '全部完成' : `能接的都完成了${lvLocked ? `（還有 ${lvLocked} 張等級不夠）` : ''}${sk ? `（${sk} 張設成跳過）` : ''}`;
+  } else { row.state = 'idle'; row.why = '沒有可以打的任務'; }
+  if (row.managed && !p && !blk) crossMem.done[id] = row.state === 'done';
+  if (!row.managed && row.state !== 'done' && row.state !== 'blocked') { row.why = row.why ? row.why + '（沒有交給自動）' : '沒有交給自動'; row.state = 'idle'; }
+  return row;
+}
+// 送工作：一隻角色一批（createIdleJobs 會交給它自己的分頁）
+function crossSend(id, kind, targets, label) {
+  let jobs = [];
+  try { jobs = createIdleJobs({ targets }); } catch (e) { crossLog(id, `${label}：送不出去（${e.message}）`); return false; }
+  for (const j of jobs) { j.auto = true; j.cross = true; jobLog(j, '十字獵人：' + label); }
+  crossMem.pend[id] = { jobIds: jobs.map(j => j.id), kind, label, at: Date.now(), targets };
+  crossLog(id, label);
+  return true;
+}
+function crossQuestTargets(id, qs, ids, type) {
+  const by = Object.fromEntries(qs.map(q => [q.id, q]));
+  return ids.map(q => ({ charId: id, action: 'cfg', cmd: { type, quest: q }, label: `${type === 'questAccept' ? '接取' : '領取'} ${(by[q] || {}).name || q}`, quest: q }));
+}
+// 工作結束後：等做完之後的新快照（最多 1 分鐘），失敗的把遊戲的訊息原樣記下來
+function crossSettle() {
+  const now = Date.now();
+  for (const [id, p] of Object.entries(crossMem.pend)) {
+    const js = p.jobIds.map(x => db.jobs.find(j => j.id === x)).filter(Boolean);
+    if (js.some(j => ACTIVE.has(j.status) || j.status === 'pending') && now - p.at < 30 * 60e3) continue;
+    const end = Math.max(p.at, ...js.map(j => j.updatedAt || 0)), s = db.chars[id];
+    if (!(s && (s.receivedAt || 0) > end + 300) && now - end < 60000) continue;
+    for (const j of js) {
+      if (j.status === 'done') continue;
+      const msg = String(j.lastMsg || j.status || '失敗');
+      if (p.kind === 'move') crossMem.moveErr[id] = { at: now, msg };
+      const ts = (p.targets || []).filter(t => t.quest);
+      for (const t of ts) if (ts.length === 1 || msg.includes(t.label + '（')) crossMem.err[id + '|' + t.quest] = { at: now, msg };
+      crossLog(id, `${p.label}沒有成功：${msg}`);
+    }
+    delete crossMem.pend[id];
+  }
+}
+function crossTick() {
+  crossSettle();
+  const cfg = crossCfg(); if (!cfg.enabled || !cfg.ids.length) return;
+  const qs = crossQuests(cfg); if (!qs.length) return;
+  const now = Date.now();
+  for (const id of cfg.ids) {
+    const wasDone = crossMem.done[id], r = crossRow(id, qs, cfg);
+    if (r.state === 'done') { if (!wasDone) crossLog(id, r.why); continue; }
+    if (crossMem.pend[id] || r.state === 'blocked') continue;
+    const claim = r.claimable.filter(q => !crossErrOf(id, q));
+    if (claim.length) { crossSend(id, 'claim', crossQuestTargets(id, qs, claim, 'questClaim'), `領取 ${claim.length} 張獎勵`); continue; }
+    if (r.target && r.target.map && !r.onTarget) {
+      if (crossMem.moveErr[id] && now - crossMem.moveErr[id].at < CROSS_MOVE_RETRY_MS) continue;
+      crossSend(id, 'move', [{ charId: id, action: 'map', map: r.target.map, mapName: r.target.mapName, sell: destSellOf(r.target.map, 'board') || undefined }], `前往 ${r.target.mapName} 打 ${r.target.mobName}（${r.target.questName}）`);
+      continue;
+    }
+    if (r.target && r.onTarget && !r.auto) {
+      if (now - (crossMem.startAt[id] || 0) < CROSS_START_MS) continue;
+      crossMem.startAt[id] = now;
+      crossSend(id, 'start', [{ charId: id, action: 'start' }], `在 ${r.mapName} 開始掛機`);
+      continue;
+    }
+    if (!r.target && r.canAccept.length) {
+      const acc = r.canAccept.filter(q => !crossErrOf(id, q));
+      if (acc.length) crossSend(id, 'accept', crossQuestTargets(id, qs, acc, 'questAccept'), `接取 ${acc.length} 張任務`);
+    }
+  }
+  save();
+}
+setInterval(() => { try { crossTick(); } catch (e) { console.warn('[十字獵人]', e); } }, CROSS_TICK_MS);
+function crossView() {
+  const cfg = crossCfg(), qs = crossQuests(cfg), w = worldFull() || {};
+  const ids = [...new Set([...cfg.ids.filter(id => db.chars[id]), ...Object.keys(db.chars).filter(id => db.chars[id] && db.chars[id].char)])];
+  return { now: Date.now(), coin: 'i4310029', exchange: Array.isArray(w.crossExchange) ? w.crossExchange : [],
+    quests: qs.map(({ pref, ...q }) => q), chars: ids.map(id => crossRow(id, qs, cfg)), cfg, log: (db.crossLog || []).slice(-50) };
+}
+// 一鍵接取／領取：ids 裡每隻一批（不在自動名單裡的也可以）；有十字獵人工作還沒結果、或被其他功能佔著的先跳過
+function crossManual(kind, e) {
+  const cfg = crossCfg(), qs = crossQuests(cfg), known = new Set(qs.map(q => q.id));
+  const want = Array.isArray(e.quests) && e.quests.length ? new Set(e.quests.map(String).filter(q => known.has(q))) : null;
+  const ids = Array.isArray(e.ids) && e.ids.length ? [...new Set(e.ids.map(String))] : Object.keys(db.chars);
+  const out = [];
+  for (const id of ids) {
+    if (!db.chars[id] || !db.chars[id].char) { out.push({ id, name: charName(id), n: 0, why: '沒有資料' }); continue; }
+    const r = crossRow(id, qs, cfg), blk = crossBlocked(id, db.chars[id]);
+    if (!db.chars[id].char.cross) { out.push({ id, name: r.name, n: 0, why: r.why }); continue; }
+    if (blk) { out.push({ id, name: r.name, n: 0, why: blk }); continue; }
+    if (crossMem.pend[id]) { out.push({ id, name: r.name, n: 0, why: '十字獵人的工作還在進行中' }); continue; }
+    const list = kind === 'accept' ? qs.filter(q => !r.quests[q.id] && q.level <= r.lv && (!want || want.has(q.id))).map(q => q.id) : r.claimable.filter(q => !want || want.has(q));
+    if (!list.length) { out.push({ id, name: r.name, n: 0, why: kind === 'accept' ? '沒有可以接的（已經接了或等級不夠）' : '沒有可以領的' }); continue; }
+    const ok = crossSend(id, kind, crossQuestTargets(id, qs, list, kind === 'accept' ? 'questAccept' : 'questClaim'), `${kind === 'accept' ? '一鍵接取' : '一鍵領取'} ${list.length} 張`);
+    out.push({ id, name: r.name, n: ok ? list.length : 0, ...(ok ? {} : { why: '送不出去（遊戲分頁要開著）' }) });
+  }
+  save();
+  return { ok: true, chars: out, jobs: out.filter(x => x.n).length };
+}
+// 設定：只改有送的欄位（mapPref 一個一個合併，值空＝拿掉）
+function crossSetCfg(e) {
+  const cur = crossCfg(), next = { ...cur };
+  if ('enabled' in e) next.enabled = !!e.enabled;
+  if (Array.isArray(e.ids)) next.ids = e.ids.map(String).filter(x => /^[\w-]{1,60}$/.test(x));
+  if (e.order === 'low' || e.order === 'high') next.order = e.order;
+  if (e.mapPref && typeof e.mapPref === 'object') {
+    next.mapPref = { ...cur.mapPref };
+    for (const [k, v] of Object.entries(e.mapPref)) { if (!/^cross_/.test(k)) continue; if (v == null || v === '') delete next.mapPref[k]; else if (typeof v === 'string' && /^[\w-]{1,60}$/.test(v)) next.mapPref[k] = v; }
+  }
+  if (Array.isArray(e.skip)) next.skip = e.skip.map(String);
+  db.settings.cross = next;
+  const c = crossCfg(); db.settings.cross = c;
+  for (const id of Object.keys(crossMem.done)) if (!c.ids.includes(id)) delete crossMem.done[id];
+  if (c.enabled !== cur.enabled) crossLog('', c.enabled ? `開啟自動（${c.ids.length} 隻）` : '關閉自動');
+  save();
+  if (c.enabled) setTimeout(() => { try { crossTick(); } catch (err) { console.warn('[十字獵人]', err); } }, 300);
+  return c;
+}
 // 舊版架設的組隊大廳伺服器（lobby.js，預設 port 8790）還在跑的話關掉，設定也清掉
 async function lobbyCleanup() {
   const h = db.settings.lobbyHost || {}, port = Number(h.port) || 8790, pidFile = path.join(DATA_DIR, 'lobby', 'lobby.pid');
@@ -2281,6 +2490,15 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') return send(res, 204, '');
     // 手機版頁面本身沒有資料，不用通行碼（資料 API 才要）；通行碼放在網址 # 後面，只有手機自己讀得到
     if (req.method === 'POST' && url.pathname === '/api/dest/apply-now') return send(res, 200, destApplyNow());
+    // ---- 十字獵人（v0.82）：GET /api/cross 看全部；POST /api/cross/cfg 改設定（合併）；/api/cross/accept、/api/cross/claim 一鍵接取／領取 ----
+    if (url.pathname.startsWith('/api/cross')) {
+      if (req.method === 'GET' && url.pathname === '/api/cross') return send(res, 200, crossView());
+      if (req.method === 'POST' && url.pathname === '/api/cross/cfg') { const e = JSON.parse((await readBody(req)) || '{}'); return send(res, 200, { ok: true, cfg: crossSetCfg(e && typeof e === 'object' ? e : {}) }); }
+      if (req.method === 'POST' && (url.pathname === '/api/cross/accept' || url.pathname === '/api/cross/claim')) {
+        const e = JSON.parse((await readBody(req)) || '{}');
+        return send(res, 200, crossManual(url.pathname.endsWith('accept') ? 'accept' : 'claim', e && typeof e === 'object' ? e : {}));
+      }
+    }
     // ---- 副本（v0.77）：agent 回報隊伍（view）和即時戰況（live），面板讀 /api/raid、下指令 /api/raid/act ----
     if (url.pathname.startsWith('/api/raid')) {
       if (req.method === 'GET' && url.pathname === '/api/raid') {

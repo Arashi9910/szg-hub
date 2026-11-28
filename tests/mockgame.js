@@ -93,6 +93,7 @@ const items = {
   i4000016: { id: 4000016, name: '紅寶殼', type: '其他', sellPrice: 12 },
   i4031052: { id: 4031052, name: '任務道具', type: '其他', sellPrice: 0 },
   i2290001: { id: 2290001, name: '技能書：測試四轉技能', type: '技能書', sellPrice: 1 },
+  i4310029: { id: 4310029, name: '十字硬幣', type: '其他', sellPrice: 0 }, // 十字獵人的獎勵
 };
 const scrolls = {
   i2040801: { id: 2040801, name: '手套攻擊卷軸 60%', type: '卷軸', rate: 60, target: 'gloves', stats: { incPAD: 2 }, sellPrice: 500 },
@@ -128,6 +129,7 @@ const mobs = [
   // 野王（2026-11-20 對照真實遊戲：地圖的 bossSpawns、同步的 enemies／bossRespawns）
   { id: 'mBoss1', msId: 2220000, name: '紅寶王', lv: 20, hp: 3000, xp: 500, money: 500, defense: 10, isBoss: true },
   { id: 'mBoss2', msId: 6130101, name: '蘑菇王', lv: 60, hp: 900000000, xp: 5000, money: 5000, defense: 30, isBoss: true },
+  { id: 'm5200000', msId: 5200000, name: '幼小石球', lv: 20, hp: 300, xp: 40, money: 30, defense: 8 }, // 十字獵人測試用（真實遊戲：gms5200000）
 ];
 const maps = {
   gms100010000: { id: 'gms100010000', msId: 100010000, name: '弓箭手村北邊山丘', region: '維多利亞島', minLevel: 1, mobIds: ['m100100', 'm1210100'] },
@@ -135,6 +137,9 @@ const maps = {
   gms104000400: { id: 'gms104000400', msId: 104000400, name: '海岸草叢3', region: '維多利亞島', minLevel: 1, mobIds: ['m1210101', 'mBoss1'], bossSpawns: [{ mobId: 'mBoss1', minSeconds: 1200, maxSeconds: 1200 }] },
   gms100000005: { id: 'gms100000005', msId: 100000005, name: '蘑菇王棲息地', region: '維多利亞島', minLevel: 1, mobIds: ['m100100', 'mBoss2'], bossSpawns: [{ mobId: 'mBoss2', minSeconds: 1800, maxSeconds: 1800 }] },
   gms990040001: { id: 'gms990040001', msId: 990040001, name: '傷害測試場 1', region: '測試', minLevel: 1, mobIds: [] },
+  // 真實遊戲同一張圖常有一般版和「_noboss」版（例：gms101030404 東方岩石山〈5〉／gms101030404_noboss 東方岩石山〈5〉（無BOSS））
+  gms101030404: { id: 'gms101030404', msId: 101030404, name: '東方岩石山〈5〉', region: '維多利亞島', minLevel: 15, mobIds: ['m5200000'] },
+  gms101030404_noboss: { id: 'gms101030404_noboss', msId: 101030404, name: '東方岩石山〈5〉（無BOSS）', region: '維多利亞島', minLevel: 15, mobIds: ['m5200000'] },
 };
 const drops = {
   m100100: [{ itemId: 4000000, min: 1, max: 1, chance: 600000 }, { itemId: 2000000, min: 1, max: 1, chance: 100000 }],
@@ -155,8 +160,16 @@ function autoSellDropsFor(map) {
   }
   return out;
 }
+// 十字獵人懸賞（真實遊戲 2026-11-28 /api/catalog：quests 裡 group 'cross' 的 48 張，每張 count 9999；這裡用小數字讓測試跑得完）
+// 例：{"id":"cross_gms5200000","name":"幼小石球懸賞標示牌","mob":"gms5200000","count":9999,"level":20,"xp":0,"money":0,"reward":{"item":"i4310029","qty":1},"group":"cross"}
+const CROSS_COUNT = Number(process.env.MOCK_CROSS_COUNT) || 20;
+const crossQ = (mob, name, level) => ({ id: 'cross_' + mob, name, mob, count: CROSS_COUNT, level, xp: 0, money: 0, reward: { item: 'i4310029', qty: 1 }, group: 'cross' });
+const quests = [
+  crossQ('m5200000', '幼小石球懸賞標示牌', 20), crossQ('m1210100', '綠水靈懸賞標示牌', 30), crossQ('m1210101', '紅寶懸賞標示牌', 40), crossQ('m100100', '嫩寶懸賞標示牌', 120),
+  { id: 'q_mock_main', name: '一般任務（不是十字獵人）', mob: 'm100100', count: 5, level: 1, xp: 10, money: 10, group: 'main' },
+];
 const catalog = {
-  version: 'mock-1', dropScale: 1000000, items, scrolls, equipment, jobs, mobs, maps, drops, mapDrops: {},
+  version: 'mock-1', quests, crossExchange: [{ tier: 0, key: 'drop_1112676', price: 1 }, { tier: 1, key: 'drop_1112677', price: 10 }, { tier: 2, key: 'drop_1112678', price: 18 }, { tier: 3, key: 'drop_1112679', price: 19 }], dropScale: 1000000, items, scrolls, equipment, jobs, mobs, maps, drops, mapDrops: {},
   statNames: { incPAD: '物攻', incMAD: '魔攻', incSTR: '力量', incDEX: '敏捷', incINT: '智力', incLUK: '幸運', incPDD: '物防', incACC: '命中' },
   skills: MOCK_SKILLS,
   autoSellDrops: Object.fromEntries(Object.values(maps).map(m => [m.id, autoSellDropsFor(m)])),
@@ -184,7 +197,8 @@ function makeChar(id, name, job, lv, map, extra = {}) {
     id, name, job, lv, xp: 0, nextXp: 1000 * lv * lv, money: 500000, map, auto: false, until: null, hp: 500, maxhp: 500, mp: 300, maxmp: 300, kills: 0,
     stats: { incSTR: 40, incDEX: 40, incINT: 4, incLUK: 4, str: 40, dex: 40, int: 4, luk: 4 }, gear: {},
     ap: 5, sp: 3, skills: { s1001004: 1 }, autoSkills: false, autoStats: false, autoPotion: true, autoStartOnMap: false, statPlan: [], skillPlan: [], autoBuffs: [], active: 's1001004', equipmentBag: [], warehouseGear: [], inventory: { i2000000: 200, i2000003: 100 },
-    inventoryStacks: [], warehouse: {}, warehouseMesos: 0, supply: { hpItem: 'i2000000', mpItem: 'i2000003' }, autoSell: { rule: 2, maps: {} }, log: [], ...extra,
+    inventoryStacks: [], warehouse: {}, warehouseMesos: 0, supply: { hpItem: 'i2000000', mpItem: 'i2000003' }, autoSell: { rule: 2, maps: {} }, log: [],
+    quests: {}, crossExchange: 0, ...extra, // 十字獵人：quests＝{任務 id: {count, claimed}}（接受後才有那筆）、crossExchange＝已兌換到第幾階段
   };
 }
 const accounts = {};
@@ -236,6 +250,7 @@ function simulate(c, now) {
     evs.push({ eventId: 'ev' + (++eventSeq), actor: c.id, kind: 'attack', damage: dmg, effectiveDamage: Math.min(dmg, mob.hp), lines: [{ damage: dmg, critical: Math.random() < 0.1 }], skill: 1001004, mob: mob.id, killed, at: now - (swings - i) * 1000, map: c.map });
     if (!killed) continue;
     c.kills++; c.xp += mob.xp; c.money += mob.money;
+    crossKill(c, mob.id);
     for (const d of drops[mob.id] || []) {
       if (rnd(1000000) >= d.chance * 20) continue; // 測試用：掉率放大 20 倍
       const key = keyById[d.itemId]; const name = nameOf(d.itemId);
@@ -253,6 +268,11 @@ function simulate(c, now) {
   return evs;
 }
 
+// 十字獵人：打死怪物時，已接受、還沒領的那張（同一隻怪）擊殺數 +1（不超過需要的數量）
+let questFailNext = '';
+function crossKill(c, mob) {
+  for (const q of quests) if (q.group === 'cross' && q.mob === mob) { const st = c.quests && c.quests[q.id]; if (st && !st.claimed) st.count = Math.min(q.count, st.count + 1); }
+}
 // ---------------- 野王 ----------------
 // 每隻角色自己一份（真實遊戲：instanceId solo:角色:地圖；同隊的話是 party:…，這裡不模擬隊伍）
 // c._boss[mob] = { hp, deadline }：deadline > 現在＝冷卻中；王的血量離開地圖後保留
@@ -725,6 +745,22 @@ function handle(a, body) {
       rebuildStacks(c);
       return { ...sessionView(a, c.id), summary: { events: [], guildWarehouse: guildView() } };
     }
+    // 十字獵人（真實遊戲 game.js crossHunterPane：接受鈕在 c.lv < q.level 時停用；領獎要 count >= q.count 且還沒領）
+    // 錯誤訊息是照遊戲風格寫的，真實的字還沒看過；/__mock/quest?fail=訊息 讓下一次 questAccept 回那個錯誤（測同時接太多張被擋）
+    case 'questAccept': {
+      const q = quests.find(x => x.id === body.quest && x.group === 'cross'); if (!q) fail('沒有這個任務');
+      if (questFailNext) { const m = questFailNext; questFailNext = ''; fail(m); }
+      if (c.lv < q.level) fail(`等級不足（需要 Lv.${q.level}）`);
+      if (c.quests[q.id]) fail('已經接受過這個任務');
+      c.quests[q.id] = { count: 0, claimed: false }; addLog(c, '接受任務：' + q.name); break;
+    }
+    case 'questClaim': {
+      const q = quests.find(x => x.id === body.quest && x.group === 'cross'); if (!q) fail('沒有這個任務');
+      const st = c.quests[q.id]; if (!st) fail('尚未接受這個任務');
+      if (st.claimed) fail('已經領取過了');
+      if (st.count < q.count) fail(`擊殺數量不足（${st.count}/${q.count}）`);
+      st.claimed = true; c.inventory[q.reward.item] = (c.inventory[q.reward.item] || 0) + q.reward.qty; addLog(c, `完成任務：${q.name}，獲得十字硬幣 × ${q.reward.qty}`); break;
+    }
     default: if (idleCfgHandle(c, body)) break; fail('模擬遊戲沒有實作：' + body.type);
   }
   rebuildStacks(c);
@@ -994,6 +1030,17 @@ http.createServer((req, res) => {
     for (const k of ['miss', 'idle', 'noeff']) { const v = url.searchParams.get(k); if (v !== null) { if (v === '') delete raidKnobs[k]; else raidKnobs[k] = v; } } // ?miss=c3&idle=c4（攻擊紀錄）
     return send(res, 200, { knobs: raidKnobs, teams: Object.values(raidTeams).map(t => ({ code: t.code, raid: t.raid, result: t.result || null, battle: t.battle ? { hp: Math.round(t.battle.hp), orbs: t.battle.orbs || 0, damageBy: t.battle.damageBy, hitN: t.battle.hitN || {} } : null,
       targets: Object.fromEntries(t.members.map(id => [id, (charById(id) || {}).target ?? null])) })), targetLog: raidTargetLog });
+  }
+  // 測試控制：/__mock/quest?acct=A1&char=c1&quest=cross_m5200000&count=20 直接設定擊殺數（要先接受）；?fail=訊息 讓下一次 questAccept 失敗
+  if (url.pathname === '/__mock/quest') {
+    if (url.searchParams.has('fail')) questFailNext = url.searchParams.get('fail') || '';
+    const a = accounts[url.searchParams.get('acct')], c = a && a.chars[url.searchParams.get('char')];
+    if (url.searchParams.get('quest')) {
+      if (!c) return send(res, 404, { error: 'no char' });
+      const st = c.quests[url.searchParams.get('quest')]; if (!st) return send(res, 400, { error: 'not accepted' });
+      st.count = Number(url.searchParams.get('count') || 0);
+    }
+    return send(res, 200, { ok: true, fail: questFailNext, quests: c ? c.quests : undefined });
   }
   if (url.pathname === '/__mock/luck') { scrollQueue = (url.searchParams.get('seq') || '').split(',').filter(x => x !== '').map(Number); return send(res, 200, { ok: true, n: scrollQueue.length }); }
   if (url.pathname === '/api/game' && req.method === 'POST') {
