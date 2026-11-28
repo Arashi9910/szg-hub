@@ -80,7 +80,7 @@ async def main():
         m3 = await wait(lambda: (lambda c: c if len(c['quests']) == 2 else None)(mock_char('c3')), 40)
         check(m3 and set(m3['quests']) == {Q20, Q30}, f'遊戲裡 c3 接了 Lv20、Lv30（{m3 and m3["quests"]}）')
         check(not mock_char('c2')['quests'], 'c2 沒有接')
-        r1 = await wait(lambda: (lambda r: r if len(r['quests']) == 3 and not r['canAccept'] else None)(row('c1')), 40)
+        r1 = await wait(lambda: (lambda r: r if len(r['quests']) == 3 and not r['canAccept'] and '等遊戲回報' not in r['why'] else None)(row('c1')), 40)  # 接取的工作結果回來了
         check(r1 and r1['target'] and r1['target']['quest'] == Q20 and r1['target']['map'] == 'gms101030404_noboss', f'c1 的目標＝等級最低的那張、無 BOSS 地圖（{r1 and r1["target"]}）')
         s, b = http('POST', HUB + '/api/cross/accept', {'ids': ['c1']})
         check('沒有可以接的' in b, f'再按一次：沒有可以接的（{b[:120]}）')
