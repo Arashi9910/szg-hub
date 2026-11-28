@@ -62,7 +62,7 @@ async def main():
         check(j and j['status'] == 'done', f'工作完成（{j and (j["status"], j.get("lastMsg"))}）')
         m = mock_char('A1', 'c1')
         check(m['active'] == 'basic' and m['continuousAttack'] is True, f'遊戲裡技能 1＝普通攻擊、持續施放開啟（{m["active"]}, {m["continuousAttack"]}）')
-        check(m['attackSlots'][1] == {'skill': 's1001004', 'targets': ['m1210101'], 'map': 'gms104040000'}, f'遊戲裡技能 2＝強力攻擊、指定嫩寶以外的怪（{m["attackSlots"]}）')
+        check(m['attackSlots'][1] == {'skill': 's1001004', 'targets': ['m1210101'], 'map': 'gms104040000'}, f'遊戲裡技能 2＝強力攻擊、指定怪物 m1210101（{m["attackSlots"]}）')
         check(m['attackSlots'][2] == {'skill': 's1001004', 'targets': [], 'map': 'gms104040000'}, '遊戲裡技能 3：沒帶地圖 → 用角色目前的地圖、全部怪物')
         c = await wait(lambda: (lambda x: x if x.get('prog', {}).get('active') == 'basic' and len(x['idleCfg']['attackSlots']) >= 3 else None)(hub_char('c1')), 30)
         check(c and c['idleCfg']['continuousAttack'] is True and c['idleCfg']['attackSlots'][1]['targets'] == ['m1210101'] and c['idleCfg']['attackSlots'][2]['skill'] == 's1001004',
