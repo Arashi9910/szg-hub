@@ -791,7 +791,8 @@ function idleCfgHandle(c, body) {
       if (skill != null && skill !== 'basic') { const sk = MOCK_SKILLS.find(x => x.id === skill); if (!sk || !['attack', 'heal'].includes(sk.type)) fail('這個技能不能放在攻擊格'); if (!c.skills[skill]) fail('還沒學這個技能'); }
       const targets = Array.isArray(body.targets) ? body.targets : []; const mob = (maps[c.map] || {}).mobIds || [];
       for (const t of targets) if (!mob.includes(t)) fail('這張地圖沒有這隻怪物：' + t);
-      if (i === 0) { c.active = skill; if ('continuous' in body) c.continuousAttack = !!body.continuous; return true; }
+      // 真實遊戲（2026-11-28 讀到的資料）：技能 1 的技能在 c.active，它的 {skill,targets,map} 也存在 attackSlots[0]
+      if (i === 0) { c.active = skill; if ('continuous' in body) c.continuousAttack = !!body.continuous; }
       if (!Array.isArray(c.attackSlots)) c.attackSlots = [null];
       while (c.attackSlots.length <= i) c.attackSlots.push(null);
       c.attackSlots[i] = skill == null ? null : { skill, targets: skill ? targets.slice() : [], map: c.map }; return true;
