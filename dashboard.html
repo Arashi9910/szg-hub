@@ -1157,6 +1157,7 @@
       </div>
       <details class="rp-editor" id="gdRollBox"><summary style="cursor:pointer"><span class="gd-lb" style="display:inline-block">部位設定</span> <span class="dim sm">每個部位、每種武器判斷浮動要看哪些素質（跟裝備頁、背包同一份）</span></summary><div class="rp-body"></div></details>
       <div class="bar"><span class="gd-lb">道具保留</span><span>每隻角色每種留</span><input type="number" id="gdKeep" min="0" style="width:70px"><span class="dim sm">個在背包（0＝全部存入）</span></div>
+      <div class="bar"><span class="gd-lb">喝水用藥水</span><span>自動喝水在用的藥水每隻至少留</span><input type="number" id="gdSupKeep" min="0" style="width:70px"><span class="dim sm">個（要在「個別挑選」勾了才會存；整類勾選不會存喝水用的）</span></div>
     </div>
     </aside>
     <aside id="gMoneyDrawer" class="drawer g-drawer" style="display:none">
@@ -6079,11 +6080,11 @@ function gwGearPass(g) {
 ui.gd = null;
 // 存入規則（settings.guildDep）：chars＝哪些角色（null＝全部，包含之後新增的）、cats＝整類、names＝個別挑選、conds＝裝備浮動條件、keep＝每種道具保留幾個
 function gdState() {
-  if (!ui.gd) { const sv = S.guildDep || {}; ui.gd = { kind: 'all', q: '', charMode: sv.charMode || '', chars: Array.isArray(sv.chars) ? new Set(sv.chars) : null, names: new Set(sv.names || []), cats: new Set(sv.cats || []), conds: sv.conds || [], mode: sv.mode || 'all', unknown: !!sv.unknown, keep: sv.keep || 0 }; }
+  if (!ui.gd) { const sv = S.guildDep || {}; ui.gd = { kind: 'all', q: '', charMode: sv.charMode || '', chars: Array.isArray(sv.chars) ? new Set(sv.chars) : null, names: new Set(sv.names || []), cats: new Set(sv.cats || []), conds: sv.conds || [], mode: sv.mode || 'all', unknown: !!sv.unknown, keep: sv.keep || 0, supplyKeep: sv.supplyKeep != null ? sv.supplyKeep : 200 }; }
   return ui.gd;
 }
 let gdSaveTimer = null;
-function gdSave() { const d = gdState(); clearTimeout(gdSaveTimer); gdSaveTimer = setTimeout(() => saveSettings({ guildDep: { charMode: d.charMode || '', chars: d.chars ? [...d.chars] : null, names: [...d.names], cats: [...d.cats], conds: d.conds, mode: d.mode, unknown: d.unknown, keep: d.keep, ids: (S.guildDep || {}).ids || [] } }), 400); }
+function gdSave() { const d = gdState(); clearTimeout(gdSaveTimer); gdSaveTimer = setTimeout(() => saveSettings({ guildDep: { charMode: d.charMode || '', chars: d.chars ? [...d.chars] : null, names: [...d.names], cats: [...d.cats], conds: d.conds, mode: d.mode, unknown: d.unknown, keep: d.keep, supplyKeep: gdSupKeep(d), ids: (S.guildDep || {}).ids || [] } }), 400); }
 const GD_CAT_LABEL = { 卷軸: '所有卷軸', 裝備: '所有裝備', 消耗: '所有消耗品', 其他: '所有其他道具' };
 const gdCatLabel = k => GD_CAT_LABEL[k] || '所有' + k;
 const gdCondKey = k => k === '_pass' ? '依部位基準達標' : k === '_sum' ? '浮動總和' : (statNames[k] || k);
@@ -6458,10 +6459,10 @@ function gdCandidates() {
       x.n++; x.chars.add(s.char.id); x.rows.push({ s, g });
     }
     for (const it of s.items || []) {
-      if (it.loc !== '背包' || !(it.tradableQty > 0) || it.supply) continue;
+      if (it.loc !== '背包' || !(it.tradableQty > 0)) continue; // v0.82.2：自動喝水在用的藥水也列出來（以前整個藏起來，藍色藥水在多數角色身上都是喝水用，就看不到）
       const k = 'i:' + it.key;
-      const x = groups.get(k) || groups.set(k, { k, name: it.name, type: 'item', kind: it.kind, id: it.itemId, n: 0, chars: new Set(), rows: [] }).get(k);
-      x.n += it.tradableQty; x.chars.add(s.char.id); x.rows.push({ s, it });
+      const x = groups.get(k) || groups.set(k, { k, name: it.name, type: 'item', kind: it.kind, id: it.itemId, n: 0, chars: new Set(), rows: [], sup: 0 }).get(k);
+      x.n += it.tradableQty; x.chars.add(s.char.id); x.rows.push({ s, it }); if (it.supply) x.sup++;
     }
   }
   return [...groups.values()].sort((a, b) => cmp(a.type, b.type) || cmp(a.name, b.name));
@@ -6470,8 +6471,11 @@ function gdShown(all) {
   const d = gdState(), q = d.q.trim().toLowerCase();
   return all.filter(x => (d.kind === 'all' || (d.kind === 'gear' ? x.type === 'gear' : d.kind === '卷軸' || d.kind === '消耗' || d.kind === '技能書' ? x.kind === d.kind : x.type === 'item' && gwTabOfKind(x.kind) === 'etc')) && (!q || x.name.toLowerCase().includes(q)));
 }
-const gdCovered = (d, x) => d.cats.has(x.type === 'gear' ? '裝備' : x.kind) || (x.id && ((S.guildDep || {}).ids || []).map(Number).includes(Number(x.id))); // v0.71：派工去處選「公倉」的也算
+const gdCatCov = (d, x) => d.cats.has(x.type === 'gear' ? '裝備' : x.kind) || (x.id && ((S.guildDep || {}).ids || []).map(Number).includes(Number(x.id))); // v0.71：派工去處選「公倉」的也算
+// 喝水用的藥水（x.sup）整類勾選不會存，所以不算「已包含」，可以個別勾
+const gdCovered = (d, x) => !x.sup && gdCatCov(d, x);
 const gdPicked = (d, x) => d.names.has(x.k) || gdCovered(d, x);
+const gdSupKeep = d => (d.supplyKeep != null && Number.isFinite(Number(d.supplyKeep)) ? Math.max(0, Number(d.supplyKeep)) : 200);
 // 依目前的勾選與條件算出每隻角色要存的東西
 function gdPlan(all) {
   const d = gdState(), plan = new Map(), keep = Math.max(0, Number(d.keep) || 0);
@@ -6479,14 +6483,15 @@ function gdPlan(all) {
   const gearRows = [];
   const P = s => plan.get(s.char.id) || plan.set(s.char.id, { s, items: [], gear: [] }).get(s.char.id);
   for (const x of all) {
-    if (!gdPicked(d, x)) continue;
+    if (!d.names.has(x.k) && !gdCatCov(d, x)) continue;
     for (const r of x.rows) {
       if (r.g) {
         const dl = rollDelta(r.g), ok = rollPass(dl, d.conds, d.mode, d.unknown, r.g);
         gearRows.push({ s: r.s, g: r.g, dl, ok });
         if (ok) { gearOk++; P(r.s).gear.push({ uid: r.g.uid, name: r.g.name }); } else gearNo++;
       } else {
-        const qty = r.it.tradableQty - keep;
+        if (r.it.supply && !d.names.has(x.k)) continue; // 喝水用的：整類勾選不存，要個別挑選
+        const qty = r.it.tradableQty - (r.it.supply ? Math.max(keep, gdSupKeep(d)) : keep);
         if (qty > 0) { itemQty += qty; P(r.s).items.push({ key: r.it.key, name: r.it.name, qty }); }
       }
     }
@@ -6505,7 +6510,7 @@ function renderGuildDeposit() {
   $('#gdList').innerHTML = `<table><thead><tr><th class="nosort" style="width:24px"></th><th class="nosort">名稱</th><th class="nosort">類型</th><th class="nosort num">數量</th><th class="nosort">在誰身上</th></tr></thead><tbody>${shown.map(x => {
     const img = itemImg(x.id);
     const who = [...x.chars].map(id => charNameOf(id));
-    return `<tr class="pickrow ${gdPicked(d, x) ? 'picked' : ''}"><td><input type="checkbox" data-gdpick="${esc(x.k)}" ${gdPicked(d, x) ? 'checked' : ''} ${gdCovered(d, x) ? 'disabled title="已由整類勾選包含"' : ''}></td><td title="${esc(itemTip(x.id))}">${img ? `<img src="${esc(img)}" style="width:20px;height:20px;vertical-align:middle;margin-right:4px" loading="lazy">` : ''}${esc(x.name)}</td><td class="dim">${esc(x.type === 'gear' ? '裝備・' + x.kind : x.kind)}</td><td class="num">${fmt(x.n)}${x.type === 'gear' ? ' 件' : ''}</td><td class="dim">${esc(who.slice(0, 6).join('、'))}${who.length > 6 ? ` 等 ${who.length} 隻` : ''}</td></tr>`;
+    return `<tr class="pickrow ${gdPicked(d, x) ? 'picked' : ''}"><td><input type="checkbox" data-gdpick="${esc(x.k)}" ${gdPicked(d, x) ? 'checked' : ''} ${gdCovered(d, x) ? 'disabled title="已由整類勾選包含"' : ''}></td><td title="${esc(itemTip(x.id))}">${img ? `<img src="${esc(img)}" style="width:20px;height:20px;vertical-align:middle;margin-right:4px" loading="lazy">` : ''}${esc(x.name)}${x.sup ? ` <span class="tag" title="${esc(`${x.sup} 隻角色的自動喝水在用這個；勾了才會存，每隻至少留 ${gdSupKeep(d)} 個`)}">喝水用 ${x.sup} 隻</span>` : ''}</td><td class="dim">${esc(x.type === 'gear' ? '裝備・' + x.kind : x.kind)}</td><td class="num">${fmt(x.n)}${x.type === 'gear' ? ' 件' : ''}</td><td class="dim">${esc(who.slice(0, 6).join('、'))}${who.length > 6 ? ` 等 ${who.length} 隻` : ''}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="empty">沒有可以存的東西</td></tr>'}</tbody></table>`;
   $('#gdPickInfo').textContent = `已勾 ${all.filter(x => gdPicked(d, x)).length} 種`;
   const kinds = new Set(['卷軸', '裝備']);
@@ -6516,6 +6521,7 @@ function renderGuildDeposit() {
   $('#gdConds').innerHTML = d.conds.map((c, i) => `<div class="bar" style="margin:2px 0"><select data-gdck="${i}"><option value="_pass" ${c.k === '_pass' ? 'selected' : ''}>依部位基準達標</option><option value="_sum" ${c.k === '_sum' ? 'selected' : ''}>浮動總和（所有素質）</option>${STAT_ORDER.map(k => `<option value="${k}" ${c.k === k ? 'selected' : ''}>${esc(statNames[k] || k)}</option>`).join('')}</select>${c.k === '_pass' ? '<span class="dim sm">每個部位、武器照下面「部位設定」各自判斷</span>' : `<span>浮動 ≥</span><input type="number" data-gdcmin="${i}" value="${esc(c.min)}" style="width:70px">`}<button class="btn sm" data-gdcdel="${i}">✕</button></div>`).join('') || '<div class="dim">（沒有條件）</div>';
   $('#gdMode').value = d.mode; $('#gdUnknown').checked = d.unknown;
   if (ae !== $('#gdKeep')) $('#gdKeep').value = d.keep;
+  if ($('#gdSupKeep') && ae !== $('#gdSupKeep')) $('#gdSupKeep').value = gdSupKeep(d);
   const pl = gdPlan(all);
   const items = [...pl.plan.values()].reduce((a, p) => a + p.items.length, 0);
   let h = `<div class="bar" style="margin-top:10px"><b>預覽</b><span>裝備：符合 <b class="good">${pl.gearOk}</b> 件、不符合 ${pl.gearNo} 件</span><span>道具：${items} 項、共 ${fmt(pl.itemQty)} 個</span><span>來自 ${pl.plan.size} 隻角色</span></div>`;
@@ -6619,6 +6625,7 @@ document.addEventListener('change', e => {
   }
   if (t.id === 'gdUnknown') { d.unknown = t.checked; gdSave(); renderGuildDeposit(); return; }
   if (t.id === 'gdKeep') { d.keep = Math.max(0, Number(t.value) || 0); gdSave(); renderGuildDeposit(); return; }
+  if (t.id === 'gdSupKeep') { d.supplyKeep = Math.max(0, Number(t.value) || 0); gdSave(); renderGuildDeposit(); return; }
 });
 document.addEventListener('input', e => {
   if (e.target.id === 'gwQ') { ui.gw.q = e.target.value; renderGuildOut(); }

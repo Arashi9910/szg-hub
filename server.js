@@ -442,14 +442,16 @@ function bookIds() {
   return _bookIds.set;
 }
 const itemKind = it => (it.kind === '消耗' && bookIds().has(Number(it.itemId)) ? '技能書' : it.kind);
+const guildSupplyKeep = dep => (dep && dep.supplyKeep != null && Number.isFinite(Number(dep.supplyKeep)) ? Math.max(0, Number(dep.supplyKeep)) : 200);
 function guildPlanFor(snap, dep) {
   const names = new Set(dep.names || []), cats = new Set(dep.cats || []), keep = Math.max(0, Number(dep.keep) || 0);
   const ids = new Set((dep.ids || []).map(Number)); // v0.71：派工去處選「公倉」的道具（用道具編號）
   const items = [], gear = [];
   for (const it of snap.items || []) {
-    if (it.loc !== '背包' || !(it.tradableQty > 0) || it.supply) continue;
-    if (!names.has('i:' + it.key) && !cats.has(itemKind(it)) && !ids.has(Number(it.itemId))) continue;
-    const qty = it.tradableQty - keep;
+    if (it.loc !== '背包' || !(it.tradableQty > 0)) continue;
+    // 自動喝水在用的藥水（it.supply）：整類勾選不會存；只有「個別挑選」勾了才存，而且每隻至少留 supplyKeep 個（v0.82.2）
+    if (it.supply ? !names.has('i:' + it.key) : (!names.has('i:' + it.key) && !cats.has(itemKind(it)) && !ids.has(Number(it.itemId)))) continue;
+    const qty = it.tradableQty - (it.supply ? Math.max(keep, guildSupplyKeep(dep)) : keep);
     if (qty > 0) items.push({ key: it.key, name: it.name, qty });
   }
   for (const g of snap.gear || []) {
