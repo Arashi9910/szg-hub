@@ -2847,7 +2847,10 @@ const server = http.createServer(async (req, res) => {
       try {
         const old = fs.existsSync(WORLD_FILE) ? JSON.parse(fs.readFileSync(WORLD_FILE, 'utf8')) : null;
         const empty = v => !v || (typeof v === 'object' && !Object.keys(v).length);
-        if (old) { let kept = false; for (const k of ['autoSellDrops', 'drops', 'mapDrops', 'dropScale']) if (empty(w[k]) && !empty(old[k])) { w[k] = old[k]; kept = true; } if (kept) { w.dropsKeptFrom = old.dropsKeptFrom || old.version || 'old'; out = JSON.stringify(w); } }
+        // 舊版腳本（世界資料格式 wN 比現在存的小）上傳的不收：不然沒帶十字獵人任務的舊資料會蓋掉新資料（v0.82.0 實測：還沒更新腳本的分頁把任務清單洗成空的）
+        const wv = v => { const m = /^w(\d+):/.exec(String(v || '')); return m ? Number(m[1]) : 0; };
+        if (old && wv(w.version) < wv(old.version)) return send(res, 200, { ok: true, ignored: 'older world format' });
+        if (old) { let kept = false; for (const k of ['autoSellDrops', 'drops', 'mapDrops', 'dropScale', 'crossQuests', 'crossExchange']) if (empty(w[k]) && !empty(old[k])) { w[k] = old[k]; kept = true; } if (kept) { w.dropsKeptFrom = old.dropsKeptFrom || old.version || 'old'; out = JSON.stringify(w); } }
       } catch (_) {}
       try { fs.writeFileSync(WORLD_FILE + '.tmp', out); fs.renameSync(WORLD_FILE + '.tmp', WORLD_FILE); } catch (e) { return send(res, 500, { error: e.message }); }
       return send(res, 200, { ok: true });

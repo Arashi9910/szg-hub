@@ -60,6 +60,13 @@ async def main():
         c1 = await d.inner_text('#crChars tr[data-crsel="c1"]')
         check('打獵中' in c1 or '移動中' in c1, f'面板顯示狀態（{c1!r}）')
         check(not errs, f'沒有 JS 錯誤（{errs[:2]}）')
+        print('4. 舊版腳本上傳舊格式世界資料（w7、沒有 crossQuests）不能把任務清單洗掉')
+        n0 = len(hub_json('GET', '/api/cross')['quests'])
+        s, b = http('POST', HUB + '/api/world', {'version': 'w7:old', 'maps': [{'id': 'x', 'name': 'x', 'mobIds': []}], 'mobs': []})
+        check(s == 200 and 'ignored' in b, f'舊格式被忽略（{s} {b[:80]}）')
+        await asyncio.sleep(2)
+        check(n0 > 0 and len(hub_json('GET', '/api/cross')['quests']) == n0, f'任務清單還在（{n0} 張）')
+        check(len(json.loads(http('GET', HUB + '/api/world')[1])['maps']) > 1, '地圖資料沒被蓋掉')
     print('\n全部通過' if ok else '\n有失敗'); sys.exit(0 if ok else 1)
 
 asyncio.run(main())
