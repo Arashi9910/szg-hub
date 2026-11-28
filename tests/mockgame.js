@@ -781,6 +781,21 @@ function idleCfgHandle(c, body) {
     case 'partyHeal': case 'selfHeal': { const cf = body.config || {}; c[body.type] = { enabled: !!cf.enabled, threshold: idlePct(cf.threshold) }; return true; }
     case 'lowHpSkill': { const cf = body.config || {}; if (cf.skill != null && !c.skills[cf.skill]) fail('還沒學這個技能'); c.lowHpSkill = { enabled: !!cf.enabled, threshold: idlePct(cf.threshold, 1, 99), skill: cf.skill == null ? null : cf.skill }; return true; }
     case 'conditionalSkill': { const i = Number(body.slot); if (!Number.isInteger(i) || i < 0) fail('格子不正確'); if (body.skill != null && !c.skills[body.skill]) fail('還沒學這個技能'); c.conditionalSkills[i] = body.skill == null ? null : { skill: body.skill }; return true; }
+    // 攻擊格（真實遊戲 openAttackSlot）：slot 0＝技能 1＝c.active（＋continuousAttack）；slot 1、2＝c.attackSlots[i]＝{skill,targets,map}|null
+    // 只能設定目前所在的地圖；targets 要是那張地圖的怪物（空＝全部）；技能是 'basic' 或學過的 attack／heal 技能
+    case 'attackSlot': {
+      const i = Number(body.slot); if (![0, 1, 2].includes(i)) fail('攻擊格只有 3 格');
+      if (body.map !== c.map) fail('只能設定目前所在地圖的攻擊格');
+      const skill = body.skill == null ? null : body.skill;
+      if (skill == null && i === 0) fail('技能 1 不能是無');
+      if (skill != null && skill !== 'basic') { const sk = MOCK_SKILLS.find(x => x.id === skill); if (!sk || !['attack', 'heal'].includes(sk.type)) fail('這個技能不能放在攻擊格'); if (!c.skills[skill]) fail('還沒學這個技能'); }
+      const targets = Array.isArray(body.targets) ? body.targets : []; const mob = (maps[c.map] || {}).mobIds || [];
+      for (const t of targets) if (!mob.includes(t)) fail('這張地圖沒有這隻怪物：' + t);
+      if (i === 0) { c.active = skill; if ('continuous' in body) c.continuousAttack = !!body.continuous; return true; }
+      if (!Array.isArray(c.attackSlots)) c.attackSlots = [null];
+      while (c.attackSlots.length <= i) c.attackSlots.push(null);
+      c.attackSlots[i] = skill == null ? null : { skill, targets: skill ? targets.slice() : [], map: c.map }; return true;
+    }
     case 'autoBuy': {
       const cf = body.config || {}, rules = Array.isArray(cf.rules) ? cf.rules : [];
       for (const r of rules) { idleItemOk(r.item); if (!(r.target > r.below)) fail('買到的數量要比門檻多'); }
