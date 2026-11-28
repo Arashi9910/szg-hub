@@ -1,6 +1,6 @@
 """副本（v0.77）：用自己的角色組副本隊（建立 → 加入 → 準備 → 開始），戰況每秒更新（王的血量、階段、準備時間、異常狀態），投降／結束"""
 import asyncio, json, os, sys, time
-os.environ.update({'MOCK_RAID_PREP_MS': '4000', 'MOCK_RAID_DPS': '0.04', 'MOCK_RAID_FEE': '100000'})
+os.environ.update({'MOCK_RAID_PREP_MS': '8000', 'MOCK_RAID_DPS': '0.04', 'MOCK_RAID_FEE': '100000'})
 from harness import Env, hub_json, http, HUB, MOCK
 
 ok = True
